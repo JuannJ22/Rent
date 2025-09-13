@@ -51,12 +51,12 @@ def _letter_from_header(header_map, *candidates):
     return None
 
 def _pick_latest_excz(path: Path, prefix: str):
-    pattern = rf'^{re.escape(prefix.upper())}.*\.(xlsx|xls|csv)$'
+    pattern = rf'^{re.escape(prefix.lower())}.*\.(xlsx|xls|csv)$'
     candidates = []
     for p in path.iterdir():
         if not p.is_file():
             continue
-        name = p.name.upper()
+        name = p.name.lower()
         if re.match(pattern, name):
             candidates.append(p)
     if not candidates:
