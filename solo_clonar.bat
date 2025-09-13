@@ -1,8 +1,13 @@
 @echo off
 setlocal
-set "RENT_DIR=C:\Rentabilidad"
-set "TEMPLATE=%RENT_DIR%\PLANTILLA.xlsx"
 set "PROJ_DIR=%~dp0"
+if exist "%PROJ_DIR%.env" (
+  for /f "usebackq tokens=1* delims==" %%a in ("%PROJ_DIR%.env") do (
+    if not "%%a"=="" set "%%a=%%b"
+  )
+)
+if not defined RENT_DIR set "RENT_DIR=C:\Rentabilidad"
+if not defined TEMPLATE set "TEMPLATE=%RENT_DIR%\PLANTILLA.xlsx"
 
 where python >nul 2>nul || (echo ERROR: Python no esta en PATH.& pause & exit /b 9001)
 if not exist "%RENT_DIR%" mkdir "%RENT_DIR%"
