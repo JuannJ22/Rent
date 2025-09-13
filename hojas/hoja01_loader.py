@@ -62,14 +62,12 @@ def _read_excz_df(file: Path):
         raise ValueError("Formato no soportado: " + suffix)
 
 def _guess_map(df_cols):
-    def norm(s): 
-        return (str(s).strip().lower()
-                .replace("%","").replace(".","")
-                .replace("_"," ").replace("-"," ").replace("  "," "))
-    cols = { norm(c): c for c in df_cols }
+    cols = { _norm(c): c for c in df_cols }
     def pick(*keys):
         for k in keys:
-            if k in cols: return cols[k]
+            nk = _norm(k)
+            if nk in cols:
+                return cols[nk]
         return None
     return {
         "nit": pick("nit","nit cliente","identificacion","identificación"),
