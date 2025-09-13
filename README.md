@@ -1,1 +1,52 @@
 # Rent
+
+Automatiza la creación de un informe de rentabilidad a partir de una plantilla de Excel y la carga de datos EXCZ.
+
+## Flujo
+
+1. **Clonado de plantilla**: `excel_base/clone_from_template.py` copia `C:\\Rentabilidad\\PLANTILLA.xlsx` a `INFORME_YYYYMMDD.xlsx`.
+2. **Carga de EXCZ**: `hojas/hoja01_loader.py` busca el archivo EXCZ más reciente en `D:\\SIIWI01\\LISTADOS` y lo importa a la Hoja 1 aplicando fórmulas.
+3. **Scripts `.bat`**: automatizan el proceso:
+   - `solo_clonar.bat` crea el informe a partir de la plantilla.
+   - `solo_loader.bat` importa el EXCZ a un informe existente.
+   - `todo_en_un_click.bat` ejecuta ambos pasos de forma secuencial.
+
+## Requisitos previos
+
+- Windows con Python 3 en el `PATH`.
+- Dependencias instaladas:
+
+  ```
+  pip install -r requirements.txt
+  ```
+- Archivo `PLANTILLA.xlsx` ubicado en `C:\\Rentabilidad\\`.
+- Carpeta con los archivos EXCZ, por defecto `D:\\SIIWI01\\LISTADOS\\`.
+
+## Instalación
+
+1. Clonar este repositorio.
+2. Instalar las dependencias con `pip install -r requirements.txt`.
+3. Copiar `PLANTILLA.xlsx` a `C:\\Rentabilidad\\`.
+4. Ajustar las rutas en los `.bat` si tus ubicaciones son distintas.
+
+## Ejecución
+
+- Para ejecutar todo el flujo en un paso:
+
+  ```
+  todo_en_un_click.bat
+  ```
+
+- Para crear sólo el informe vacío:
+
+  ```
+  solo_clonar.bat
+  ```
+
+- Para cargar el EXCZ a un informe existente:
+
+  ```
+  solo_loader.bat [ruta_a_informe.xlsx]
+  ```
+
+Cada script muestra mensajes en consola y pausa al final.
