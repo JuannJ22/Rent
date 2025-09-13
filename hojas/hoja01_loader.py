@@ -157,13 +157,25 @@ def main():
         df = _read_excz_df(latest)
         m = _guess_map(df.columns)
 
-        cols_needed = {k:v for k,v in m.items() if v is not None}
+        cols_needed = {k: v for k, v in m.items() if v is not None}
         sub = df[list(cols_needed.values())].copy()
-        sub.rename(columns={v:k for k,v in cols_needed.items()}, inplace=True)
+        sub.rename(columns={v: k for k, v in cols_needed.items()}, inplace=True)
 
-        # Filtrar % RENTA < 100% si viene
+        # Derivar NIT desde "cliente_combo" si hace falta
+        if "nit" not in sub.columns and "cliente_combo" in sub.columns:
+            sub["nit"] = (
+                sub["cliente_combo"].astype(str).str.extract(r"^(\d+)")[0]
+            )
+
+        # Normalizar porcentajes y filtrar % RENTA < 100%
+        for col in ["renta", "utili"]:
+            if col in sub.columns:
+                num = pd.to_numeric(sub[col], errors="coerce")
+                # Valores mayores a 1 se asumen en porcentaje entero
+                num = num.where(num <= 1, num / 100)
+                sub[col] = num
         if "renta" in sub.columns:
-            sub = sub[pd.to_numeric(sub["renta"], errors="coerce") < 1.0]
+            sub = sub[sub["renta"].fillna(0) < 1.0]
 
         if args.max_rows and len(sub) > args.max_rows:
             sub = sub.iloc[:args.max_rows].copy()
