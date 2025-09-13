@@ -4,6 +4,7 @@ from datetime import datetime
 import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
+from openpyxl.styles import Border, Side
 
 
 def _load_env():
@@ -135,6 +136,13 @@ def main():
     wb = load_workbook(path)
     ws = wb[args.hoja] if args.hoja else wb.worksheets[0]
 
+    # Asegurar encabezado fijo para código de vendedor
+    ws["D6"] = "COD. VENDEDOR"
+
+    thin = Side(style="thin")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    currency_fmt = "$#,##0.00"
+
     # --- Actualizar encabezado con fechas dinámicas -----------------------
     now = datetime.now()
 
@@ -170,7 +178,7 @@ def main():
     col_costos = idx("costos","costo")
     col_renta = idx("% renta.","% renta","renta","rentabilidad")
     col_utili = idx("% utili.","% utili","utili","utilidad")
-    col_vendedor = idx("vendedor","cod vendedor","cod. vendedor","codigo vendedor","cód vendedor")
+    col_vendedor = 4  # Columna D reservada para COD. VENDEDOR
     col_precio = idx("precio")
     col_descuento = idx("descuento")
     col_excz = idx("excz")
@@ -203,15 +211,12 @@ def main():
                 sub["cliente_combo"].astype(str).str.extract(r"^(\d+)")[0]
             )
 
-        # Normalizar porcentajes y filtrar % RENTA < 100%
-        for col in ["renta", "utili"]:
+        # Convertir datos numéricos y ordenar por rentabilidad
+        for col in ["ventas", "costos", "renta", "utili"]:
             if col in sub.columns:
-                num = pd.to_numeric(sub[col], errors="coerce")
-                # Valores mayores a 1 se asumen en porcentaje entero
-                num = num.where(num <= 1, num / 100)
-                sub[col] = num
+                sub[col] = pd.to_numeric(sub[col], errors="coerce")
         if "renta" in sub.columns:
-            sub = sub[sub["renta"].fillna(0) < 1.0]
+            sub = sub.sort_values(by="renta", ascending=True, na_position="last")
 
         # Eliminar filas de totales o cabeceras repetidas
         if "descripcion" in sub.columns:
@@ -223,15 +228,31 @@ def main():
 
         # Escribir al Excel
         for i, row in enumerate(sub.itertuples(index=False), start=start_row):
-            if col_nit and "nit" in sub.columns: ws.cell(i, col_nit, getattr(row, "nit"))
-            if col_cliente_combo and "cliente_combo" in sub.columns: ws.cell(i, col_cliente_combo, getattr(row, "cliente_combo"))
-            if col_desc and "descripcion" in sub.columns: ws.cell(i, col_desc, getattr(row, "descripcion"))
-            if col_cant and "cantidad" in sub.columns: ws.cell(i, col_cant, getattr(row, "cantidad"))
-            if col_ventas and "ventas" in sub.columns: ws.cell(i, col_ventas, getattr(row, "ventas"))
-            if col_costos and "costos" in sub.columns: ws.cell(i, col_costos, getattr(row, "costos"))
-            if col_renta and "renta" in sub.columns: ws.cell(i, col_renta, getattr(row, "renta"))
-            if col_utili and "utili" in sub.columns: ws.cell(i, col_utili, getattr(row, "utili"))
-            if col_excz: ws.cell(i, col_excz, latest.stem)
+            cells = []
+            if col_nit and "nit" in sub.columns:
+                cells.append(ws.cell(i, col_nit, getattr(row, "nit")))
+            if col_cliente_combo and "cliente_combo" in sub.columns:
+                cells.append(ws.cell(i, col_cliente_combo, getattr(row, "cliente_combo")))
+            if col_desc and "descripcion" in sub.columns:
+                cells.append(ws.cell(i, col_desc, getattr(row, "descripcion")))
+            if col_cant and "cantidad" in sub.columns:
+                cells.append(ws.cell(i, col_cant, getattr(row, "cantidad")))
+            if col_ventas and "ventas" in sub.columns:
+                c = ws.cell(i, col_ventas, getattr(row, "ventas"))
+                c.number_format = currency_fmt
+                cells.append(c)
+            if col_costos and "costos" in sub.columns:
+                c = ws.cell(i, col_costos, getattr(row, "costos"))
+                c.number_format = currency_fmt
+                cells.append(c)
+            if col_renta and "renta" in sub.columns:
+                cells.append(ws.cell(i, col_renta, getattr(row, "renta")))
+            if col_utili and "utili" in sub.columns:
+                cells.append(ws.cell(i, col_utili, getattr(row, "utili")))
+            if col_excz:
+                cells.append(ws.cell(i, col_excz, latest.stem))
+            for c in cells:
+                c.border = border
 
         n_rows = len(sub)
 
@@ -256,11 +277,17 @@ def main():
             if not has_any:
                 continue
         if L_vend and L_nit:
-            ws[f"{L_vend}{r}"] = f"=VLOOKUP({L_nit}{r},VENDEDORES!{vend_range},2,0)"
+            c = ws[f"{L_vend}{r}"]
+            c.value = f"=VLOOKUP({L_nit}{r},VENDEDORES!{vend_range},2,0)"
+            c.border = border
         if L_prec and L_desc_src:
-            ws[f"{L_prec}{r}"] = f"=VLOOKUP({L_desc_src}{r},PRECIOS!{prec_range},2,0)"
+            c = ws[f"{L_prec}{r}"]
+            c.value = f"=VLOOKUP({L_desc_src}{r},PRECIOS!{prec_range},2,0)"
+            c.border = border
         if L_desc and L_vent and L_cant and L_prec:
-            ws[f"{L_desc}{r}"] = f"=1-(({L_vent}{r}*1.19)/{L_cant}{r}/{L_prec}{r})"
+            c = ws[f"{L_desc}{r}"]
+            c.value = f"=1-(({L_vent}{r}*1.19)/{L_cant}{r}/{L_prec}{r})"
+            c.border = border
 
     wb.save(path)
     print(f"OK. Procesadas {n_rows} filas y fórmulas aplicadas sobre: {path}")
