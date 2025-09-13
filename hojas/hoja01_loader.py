@@ -135,6 +135,25 @@ def main():
     wb = load_workbook(path)
     ws = wb[args.hoja] if args.hoja else wb.worksheets[0]
 
+    # --- Actualizar encabezado con fechas dinámicas -----------------------
+    now = datetime.now()
+
+    m = re.search(r"(\d{4})(\d{2})(\d{2})", path.stem)
+    report_date = datetime(int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else now
+
+    for row in ws.iter_rows(min_row=1, max_row=6, max_col=ws.max_column):
+        for cell in row:
+            if not isinstance(cell.value, str):
+                continue
+            val = cell.value
+            if "MES/DIA/ANIO" in val:
+                cell.value = now.strftime("%m/%d/%Y")
+            elif "FECHA DEL INFORME" in val:
+                cell.value = val.replace("FECHA DEL INFORME", report_date.strftime("%m/%d/%Y"))
+            elif "Procesado en" in val:
+                cell.value = f"Procesado en: {now.strftime('%Y/%m/%d %H:%M:%S:%f')[:-3]}"
+    # ---------------------------------------------------------------------
+
     header_row, hmap = _find_header_row_and_map(ws)
     if not header_row:
         print("ERROR: No se detectaron cabeceras en Hoja 1")
