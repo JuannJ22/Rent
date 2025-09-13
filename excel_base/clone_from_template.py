@@ -1,9 +1,26 @@
-import argparse, shutil
+import argparse, os, shutil
 from pathlib import Path
 from datetime import datetime
 
-DEFAULT_TEMPLATE = r"C:\\Rentabilidad\\PLANTILLA.xlsx"
-DEFAULT_OUTDIR   = r"C:\\Rentabilidad"
+
+def _load_env():
+    """Load environment variables from a .env file if present."""
+    env_file = Path(__file__).resolve().parent.parent / ".env"
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip())
+
+
+_load_env()
+DEFAULT_RENT_DIR = os.environ.get("RENT_DIR", r"C:\\Rentabilidad")
+DEFAULT_TEMPLATE = os.environ.get(
+    "TEMPLATE", str(Path(DEFAULT_RENT_DIR) / "PLANTILLA.xlsx")
+)
+DEFAULT_OUTDIR = os.environ.get("RENT_DIR", DEFAULT_RENT_DIR)
 
 def main():
     p = argparse.ArgumentParser(description="Clona PLANTILLA.xlsx a INFORME_YYYYMMDD.xlsx en C:\\Rentabilidad.")

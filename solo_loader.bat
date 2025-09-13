@@ -1,7 +1,12 @@
 @echo off
 setlocal
 set "PROJ_DIR=%~dp0"
-set "EXCZDIR=D:\SIIWI01\LISTADOS"
+if exist "%PROJ_DIR%.env" (
+  for /f "usebackq tokens=1* delims==" %%a in ("%PROJ_DIR%.env") do (
+    if not "%%a"=="" set "%%a=%%b"
+  )
+)
+if not defined EXCZDIR set "EXCZDIR=D:\SIIWI01\LISTADOS"
 
 where python >nul 2>nul || (echo ERROR: Python no esta en PATH.& pause & exit /b 9001)
 

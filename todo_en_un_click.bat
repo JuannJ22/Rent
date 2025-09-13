@@ -1,11 +1,14 @@
 @echo off
 setlocal enabledelayedexpansion
-REM ===== CONFIG =====
-set "RENT_DIR=C:\Rentabilidad"
-set "TEMPLATE=%RENT_DIR%\PLANTILLA.xlsx"
-set "EXCZDIR=D:\SIIWI01\LISTADOS"
-REM ==================
 set "PROJ_DIR=%~dp0"
+if exist "%PROJ_DIR%.env" (
+  for /f "usebackq tokens=1* delims==" %%a in ("%PROJ_DIR%.env") do (
+    if not "%%a"=="" set "%%a=%%b"
+  )
+)
+if not defined RENT_DIR set "RENT_DIR=C:\Rentabilidad"
+if not defined TEMPLATE set "TEMPLATE=%RENT_DIR%\PLANTILLA.xlsx"
+if not defined EXCZDIR set "EXCZDIR=D:\SIIWI01\LISTADOS"
 
 where python >nul 2>nul || (
   echo ERROR: Python no esta en PATH. Instala Python y reintenta.

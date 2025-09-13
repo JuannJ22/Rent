@@ -1,12 +1,29 @@
-import argparse, re
+import argparse, os, re
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 
-DEFAULT_EXCEL   = rf"C:\\Rentabilidad\\INFORME_{datetime.now().strftime('%Y%m%d')}.xlsx"
-DEFAULT_EXCZDIR = r"D:\\SIIWI01\\LISTADOS"
+
+def _load_env():
+    env_file = Path(__file__).resolve().parent.parent / ".env"
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip())
+
+
+_load_env()
+DEFAULT_RENT_DIR = os.environ.get("RENT_DIR", r"C:\\Rentabilidad")
+DEFAULT_EXCEL = os.environ.get(
+    "EXCEL",
+    str(Path(DEFAULT_RENT_DIR) / f"INFORME_{datetime.now().strftime('%Y%m%d')}.xlsx"),
+)
+DEFAULT_EXCZDIR = os.environ.get("EXCZDIR", r"D:\\SIIWI01\\LISTADOS")
 
 def _norm(s: str) -> str:
     return (str(s).strip().lower()
