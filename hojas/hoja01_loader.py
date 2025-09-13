@@ -65,19 +65,36 @@ def _pick_latest_excz(path: Path, prefix: str):
     return candidates[0]
 
 def _read_excz_df(file: Path):
+    """
+    Lee un archivo EXCZ en distintos formatos intentando detectar la fila de
+    cabeceras real.  Los reportes EXCZ suelen traer filas preliminares antes de
+    las columnas, por lo que se importa sin cabecera y luego se busca la primera
+    fila con suficientes datos para considerarla cabecera.
+    """
     suffix = file.suffix.lower()
     if suffix in [".xlsx", ".xls"]:
-        try:
-            return pd.read_excel(file, sheet_name="Hoja1")
-        except Exception:
-            return pd.read_excel(file)
+        df_raw = pd.read_excel(file, sheet_name=None, header=None)
+        # tomar la primera hoja
+        if isinstance(df_raw, dict):
+            df_raw = next(iter(df_raw.values()))
     elif suffix == ".csv":
-        try:
-            return pd.read_csv(file, sep=";", engine="python")
-        except Exception:
-            return pd.read_csv(file, engine="python")
+        df_raw = pd.read_csv(file, sep=";", header=None, engine="python")
     else:
         raise ValueError("Formato no soportado: " + suffix)
+
+    # Detectar fila de cabeceras
+    header_row = None
+    for i in range(min(len(df_raw), 50)):
+        row = df_raw.iloc[i].dropna().astype(str).str.strip()
+        if len(row) >= 3:
+            header_row = i
+            break
+    if header_row is None:
+        return pd.DataFrame()
+
+    df = df_raw.iloc[header_row + 1:].copy()
+    df.columns = df_raw.iloc[header_row].astype(str).tolist()
+    return df
 
 def _guess_map(df_cols):
     cols = { _norm(c): c for c in df_cols }
@@ -176,6 +193,11 @@ def main():
                 sub[col] = num
         if "renta" in sub.columns:
             sub = sub[sub["renta"].fillna(0) < 1.0]
+
+        # Eliminar filas de totales o cabeceras repetidas
+        if "descripcion" in sub.columns:
+            sub = sub[~sub["descripcion"].astype(str).str.contains("total", case=False, na=False)]
+            sub = sub[sub["descripcion"].notna()]
 
         if args.max_rows and len(sub) > args.max_rows:
             sub = sub.iloc[:args.max_rows].copy()
