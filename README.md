@@ -5,7 +5,7 @@ Automatiza la creación de un informe de rentabilidad a partir de una plantilla 
 ## Flujo
 
 1. **Clonado de plantilla**: `excel_base/clone_from_template.py` copia `C:\\Rentabilidad\\PLANTILLA.xlsx` a `INFORME_YYYYMMDD.xlsx`.
-2. **Carga de EXCZ**: `hojas/hoja01_loader.py` busca el archivo EXCZ más reciente en `D:\\SIIWI01\\LISTADOS` y lo importa a la Hoja 1 aplicando fórmulas.
+2. **Carga de EXCZ**: `hojas/hoja01_loader.py` busca el archivo EXCZ con el prefijo configurado (por defecto `EXCZ980`) más reciente en `D:\\SIIWI01\\LISTADOS` y lo importa a la Hoja 1 aplicando fórmulas.
 3. **Scripts `.bat`**: automatizan el proceso:
    - `solo_clonar.bat` crea el informe a partir de la plantilla.
    - `solo_loader.bat` importa el EXCZ a un informe existente.
@@ -20,7 +20,7 @@ Automatiza la creación de un informe de rentabilidad a partir de una plantilla 
   pip install -r requirements.txt
   ```
 - Archivo `PLANTILLA.xlsx` ubicado en `C:\\Rentabilidad\\`.
-- Carpeta con los archivos EXCZ, por defecto `D:\\SIIWI01\\LISTADOS\\`.
+- Carpeta con los archivos EXCZ, por defecto `D:\\SIIWI01\\LISTADOS\\`. El script busca el más reciente cuyo nombre comience con el prefijo configurado (`EXCZ980` por defecto, ajustable con `EXCZPREFIX` o `--excz-prefix`).
 
 ## Instalación
 

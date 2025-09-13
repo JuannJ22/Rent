@@ -24,6 +24,7 @@ DEFAULT_EXCEL = os.environ.get(
     str(Path(DEFAULT_RENT_DIR) / f"INFORME_{datetime.now().strftime('%Y%m%d')}.xlsx"),
 )
 DEFAULT_EXCZDIR = os.environ.get("EXCZDIR", r"D:\\SIIWI01\\LISTADOS")
+DEFAULT_EXCZ_PREFIX = os.environ.get("EXCZPREFIX", "EXCZ980")
 
 def _norm(s: str) -> str:
     return (str(s).strip().lower()
@@ -49,14 +50,14 @@ def _letter_from_header(header_map, *candidates):
             return header_map[key][1]
     return None
 
-def _pick_latest_excz(path: Path):
-    patterns = [r'^EXCZ.*\.(xlsx|xls|csv)$', r'^EXZ.*\.(xlsx|xls|csv)$', r'^EXC.*\.(xlsx|xls|csv)$']
+def _pick_latest_excz(path: Path, prefix: str):
+    pattern = rf'^{re.escape(prefix.upper())}.*\.(xlsx|xls|csv)$'
     candidates = []
     for p in path.iterdir():
-        if not p.is_file(): 
+        if not p.is_file():
             continue
         name = p.name.upper()
-        if any(re.match(pat, name) for pat in patterns):
+        if re.match(pattern, name):
             candidates.append(p)
     if not candidates:
         return None
@@ -102,6 +103,8 @@ def main():
     p.add_argument("--excel",   default=DEFAULT_EXCEL,   help="Ruta al INFORME_YYYYMMDD.xlsx")
     p.add_argument("--exczdir", default=DEFAULT_EXCZDIR, help="Carpeta de EXCZ")
     p.add_argument("--hoja",    default=None,            help="Nombre de la Hoja 1 (por defecto la primera)")
+    p.add_argument("--excz-prefix", default=DEFAULT_EXCZ_PREFIX,
+                   help="Prefijo del archivo EXCZ a buscar")
     p.add_argument("--max-rows", type=int, default=0,    help="Forzar número de filas (0 = según datos)")
     p.add_argument("--skip-import", action="store_true", help="No importar EXCZ, sólo aplicar fórmulas")
     p.add_argument("--safe-fill",  action="store_true", default=True, help="Sólo escribir en filas con datos")
@@ -146,7 +149,7 @@ def main():
             print(f"ERROR: No existe la carpeta de EXCZ: {excz_dir}")
             raise SystemExit(4)
 
-        latest = _pick_latest_excz(excz_dir)
+        latest = _pick_latest_excz(excz_dir, args.excz_prefix)
         if not latest:
             print("ERROR: No se encontró EXCZ en la carpeta.")
             raise SystemExit(5)
