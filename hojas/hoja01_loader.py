@@ -26,6 +26,7 @@ DEFAULT_EXCEL = os.environ.get(
 )
 DEFAULT_EXCZDIR = os.environ.get("EXCZDIR", r"D:\\SIIWI01\\LISTADOS")
 DEFAULT_EXCZ_PREFIX = os.environ.get("EXCZPREFIX", "EXCZ980")
+DEFAULT_CCOSTO_EXCZ_PREFIX = os.environ.get("CCOSTO_EXCZPREFIX", "EXCZ979")
 
 def _norm(s: str) -> str:
     return (str(s).strip().lower()
@@ -106,6 +107,16 @@ def _guess_map(df_cols):
                 return cols[nk]
         return None
     return {
+        "centro_costo": pick(
+            "centro de costo",
+            "centro costo",
+            "centro de costos",
+            "punto de venta",
+            "pto de venta",
+            "punto",
+            "centro",
+            "zona"
+        ),
         "nit": pick("nit","nit cliente","identificacion","identificación"),
         "cliente_combo": pick("nit - sucursal - cliente","cliente sucursal","cliente","razon social","razón social"),
         "descripcion": pick("descripcion","descripción","producto","nombre producto","item"),
@@ -115,6 +126,132 @@ def _guess_map(df_cols):
         "renta": pick("% renta","renta","rentabilidad","rentabilidad venta"),
         "utili": pick("% utili","utili","utilidad","utilidad %","utilidad porcentaje"),
     }
+
+
+def _normalize_spaces(value):
+    if value is None:
+        return ""
+    return re.sub(r"\s+", " ", str(value).strip()).lower()
+
+
+def _update_ccosto_sheets(wb, excz_dir, prefix, currency_fmt, border):
+    config = [
+        ("CCOSTO1", "0001   MOST. PRINCIPAL"),
+        ("CCOSTO2", "0002   MOST. SUCURSAL"),
+        ("CCOSTO3", "0003   MOSTRADOR CALARCA"),
+        ("CCOSTO4", "0007   TIENDA PINTUCO"),
+    ]
+
+    excz_dir = Path(excz_dir)
+    if not excz_dir.exists():
+        print(f"ERROR: No existe la carpeta de EXCZ para CCOSTO: {excz_dir}")
+        raise SystemExit(8)
+    latest = _pick_latest_excz(excz_dir, prefix)
+    if not latest:
+        print(f"ERROR: No se encontró EXCZ para CCOSTO con prefijo {prefix} en {excz_dir}")
+        raise SystemExit(6)
+
+    df = _read_excz_df(latest)
+    if df.empty:
+        df = pd.DataFrame()
+
+    mapping = _guess_map(df.columns)
+    centro_col = mapping.get("centro_costo")
+    if not centro_col:
+        print("ERROR: El EXCZ para CCOSTO no contiene columna de Centro de Costo o Zona")
+        raise SystemExit(7)
+
+    columns = {
+        key: mapping[key]
+        for key in ["centro_costo", "descripcion", "cantidad", "ventas", "costos", "renta", "utili"]
+        if mapping.get(key)
+    }
+
+    sub = df[list(columns.values())].copy() if columns else pd.DataFrame()
+    sub.rename(columns={v: k for k, v in columns.items()}, inplace=True)
+
+    for col in ["centro_costo", "descripcion", "cantidad", "ventas", "costos", "renta", "utili"]:
+        if col not in sub.columns:
+            sub[col] = pd.NA
+
+    sub = sub.dropna(how="all")
+
+    for col in ["cantidad", "ventas", "costos", "renta", "utili"]:
+        if col in sub.columns:
+            sub[col] = pd.to_numeric(sub[col], errors="coerce")
+
+    sub["ccosto_norm"] = sub["centro_costo"].map(_normalize_spaces)
+
+    order = ["centro_costo", "descripcion", "cantidad", "ventas", "costos", "renta", "utili"]
+    headers = [
+        "CENTRO DE COSTO",
+        "DESCRIPCION",
+        "CANTIDAD",
+        "VENTAS",
+        "COSTOS",
+        "% RENTA",
+        "% UTIL.",
+    ]
+
+    summary = {}
+
+    for sheet_name, label in config:
+        if sheet_name not in wb.sheetnames:
+            continue
+
+        ws = wb[sheet_name]
+        ws.delete_rows(1, ws.max_row)
+
+        target_norm = _normalize_spaces(label)
+        data = sub[sub["ccosto_norm"] == target_norm].copy()
+
+        if data.empty:
+            ws["A1"] = "ESTE PUNTO DE VENTA NO ABRIÓ HOY"
+            summary[sheet_name] = 0
+            continue
+
+        data = data[order]
+
+        mask_valid = data[["descripcion", "cantidad", "ventas", "costos", "renta", "utili"]].notna().any(axis=1)
+        data = data[mask_valid]
+
+        if data.empty:
+            ws["A1"] = "ESTE PUNTO DE VENTA NO ABRIÓ HOY"
+            summary[sheet_name] = 0
+            continue
+
+        subtotal_mask = data["descripcion"].astype(str).str.contains("subtotal", case=False, na=False)
+        detail = data[~subtotal_mask]
+        subtotal_rows = data[subtotal_mask]
+
+        if not detail.empty and detail["renta"].notna().any():
+            detail = detail.sort_values(by="renta", ascending=True, na_position="last")
+
+        data = pd.concat([detail, subtotal_rows], ignore_index=True)
+
+        for idx, header in enumerate(headers, start=1):
+            ws.cell(row=1, column=idx, value=header)
+
+        for i, row in enumerate(data.itertuples(index=False), start=2):
+            values = [
+                getattr(row, "centro_costo"),
+                getattr(row, "descripcion"),
+                getattr(row, "cantidad"),
+                getattr(row, "ventas"),
+                getattr(row, "costos"),
+                getattr(row, "renta"),
+                getattr(row, "utili"),
+            ]
+            for col_idx, value in enumerate(values, start=1):
+                cell = ws.cell(row=i, column=col_idx)
+                cell.value = None if pd.isna(value) else value
+                if col_idx in (4, 5) and cell.value is not None:
+                    cell.number_format = currency_fmt
+                cell.border = border
+
+        summary[sheet_name] = len(data)
+
+    return summary, latest
 
 def main():
     p = argparse.ArgumentParser(description="Importa último EXCZ a Hoja 1 y aplica fórmulas fijas.")
@@ -126,6 +263,9 @@ def main():
     p.add_argument("--max-rows", type=int, default=0,    help="Forzar número de filas (0 = según datos)")
     p.add_argument("--skip-import", action="store_true", help="No importar EXCZ, sólo aplicar fórmulas")
     p.add_argument("--safe-fill",  action="store_true", default=True, help="Sólo escribir en filas con datos")
+    p.add_argument("--skip-ccosto", action="store_true", help="No actualizar hojas CCOSTO")
+    p.add_argument("--ccosto-excz-prefix", default=DEFAULT_CCOSTO_EXCZ_PREFIX,
+                   help="Prefijo del archivo EXCZ para hojas CCOSTO")
     args = p.parse_args()
 
     path = Path(args.excel)
@@ -142,6 +282,9 @@ def main():
     thin = Side(style="thin")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     currency_fmt = "$#,##0.00"
+
+    ccosto_summary = {}
+    ccosto_file = None
 
     # --- Actualizar encabezado con fechas dinámicas -----------------------
     now = datetime.now()
@@ -256,6 +399,11 @@ def main():
 
         n_rows = len(sub)
 
+    if not args.skip_import and not args.skip_ccosto:
+        ccosto_summary, ccosto_file = _update_ccosto_sheets(
+            wb, args.exczdir, args.ccosto_excz_prefix, currency_fmt, border
+        )
+
     # Aplicar fórmulas fijas
     vend_range = "G:H"   # VENDEDORES (NIT en G, COD_VENDEDOR en H)
     prec_range = "A:B"   # PRECIOS (DESCRIPCION en A, PRECIO en B)
@@ -290,7 +438,11 @@ def main():
             c.border = border
 
     wb.save(path)
-    print(f"OK. Procesadas {n_rows} filas y fórmulas aplicadas sobre: {path}")
+    msg = f"OK. Procesadas {n_rows} filas y fórmulas aplicadas sobre: {path}"
+    if ccosto_file:
+        items = ", ".join(f"{k}={v}" for k, v in sorted(ccosto_summary.items())) or "sin datos"
+        msg += f" | CCOSTO ({ccosto_file.name}): {items}"
+    print(msg)
 
 if __name__ == "__main__":
     main()
