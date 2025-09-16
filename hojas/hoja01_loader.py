@@ -27,6 +27,7 @@ DEFAULT_EXCEL = os.environ.get(
 DEFAULT_EXCZDIR = os.environ.get("EXCZDIR", r"D:\\SIIWI01\\LISTADOS")
 DEFAULT_EXCZ_PREFIX = os.environ.get("EXCZPREFIX", "EXCZ980")
 DEFAULT_CCOSTO_EXCZ_PREFIX = os.environ.get("CCOSTO_EXCZPREFIX", "EXCZ979")
+DEFAULT_COD_EXCZ_PREFIX = os.environ.get("COD_EXCZPREFIX", "EXCZ978")
 ACCOUNTING_FORMAT = '_-[$$-409]* #,##0.00_-;_-[$$-409]* (#,##0.00);_-[$$-409]* "-"??_-;_-@_-'
 
 def _norm(s: str) -> str:
@@ -120,6 +121,16 @@ def _guess_map(df_cols):
             "zona"
 
         ),
+        "vendedor": pick(
+            "cod vendedor",
+            "cod. vendedor",
+            "codigo vendedor",
+            "código vendedor",
+            "vendedor",
+            "nom vendedor",
+            "nombre vendedor",
+            "vendedor cod",
+        ),
         "nit": pick("nit","nit cliente","identificacion","identificación"),
         "cliente_combo": pick("nit - sucursal - cliente","cliente sucursal","cliente","razon social","razón social"),
         "descripcion": pick("descripcion","descripción","producto","nombre producto","item"),
@@ -142,7 +153,7 @@ def _strip_accents(text: str) -> str:
     return "".join(ch for ch in normalized if not unicodedata.combining(ch))
 
 
-def _normalize_ccosto_value(value) -> str:
+def _normalize_lookup_value(value) -> str:
     if pd.isna(value):
         return ""
     text = str(value).strip().lower()
@@ -151,12 +162,19 @@ def _normalize_ccosto_value(value) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def _select_ccosto_rows(df: pd.DataFrame, label: str) -> pd.DataFrame:
-    target_norm = _normalize_ccosto_value(label)
+def _normalize_ccosto_value(value) -> str:
+    return _normalize_lookup_value(value)
+
+
+def _select_rows_by_norm(df: pd.DataFrame, label: str, norm_col: str) -> pd.DataFrame:
+    if norm_col not in df.columns:
+        return df.iloc[0:0].copy()
+
+    target_norm = _normalize_lookup_value(label)
     if not target_norm:
         return df.iloc[0:0].copy()
 
-    series = df["ccosto_norm"].fillna("")
+    series = df[norm_col].fillna("")
     masks = []
 
     masks.append(series == target_norm)
@@ -196,6 +214,14 @@ def _select_ccosto_rows(df: pd.DataFrame, label: str) -> pd.DataFrame:
             return df.loc[mask].copy()
 
     return df.iloc[0:0].copy()
+
+
+def _select_ccosto_rows(df: pd.DataFrame, label: str) -> pd.DataFrame:
+    return _select_rows_by_norm(df, label, "ccosto_norm")
+
+
+def _select_cod_rows(df: pd.DataFrame, label: str) -> pd.DataFrame:
+    return _select_rows_by_norm(df, label, "cod_norm")
 
 
 def _update_ccosto_sheets(wb, excz_dir, prefix, accounting_fmt, border):
@@ -382,6 +408,192 @@ def _update_ccosto_sheets(wb, excz_dir, prefix, accounting_fmt, border):
 
     return summary, latest
 
+
+def _update_cod_sheets(wb, excz_dir, prefix, accounting_fmt, border):
+    config = [
+        ("COD24", "0024", "CR CARLOS ALBERTO TOVAR HERRER"),
+        ("COD25", "0025", "CO CARLOS ALBERTO TOVAR HERRER"),
+        ("COD26", "0026", "CR OMAR SMITH PARRADO BELTRAN"),
+        ("COD27", "0027", "CR OMAR SMITH PARRADO BELTRAN"),
+        ("COD29", "0029", "CO BEATRIZ LONDOÑO VELASQUEZ"),
+        ("COD30", "0030", "CR BEATRIZ LONDOÑO VELASQUEZ"),
+        ("COD51", "0051", "CR MARICELY LONDOÑO"),
+        ("COD52", "0052", "CO MARICELY LONDOÑO"),
+    ]
+
+    excz_dir = Path(excz_dir)
+    if not excz_dir.exists():
+        print(f"ERROR: No existe la carpeta de EXCZ para COD: {excz_dir}")
+        raise SystemExit(18)
+
+    latest = _pick_latest_excz(excz_dir, prefix)
+    if not latest:
+        print(f"ERROR: No se encontró EXCZ para COD con prefijo {prefix} en {excz_dir}")
+        raise SystemExit(16)
+
+    df = _read_excz_df(latest)
+    if df.empty:
+        df = pd.DataFrame()
+
+    mapping = _guess_map(df.columns)
+    vendedor_col = mapping.get("vendedor") or mapping.get("centro_costo")
+    if not vendedor_col:
+        print("ERROR: El EXCZ para COD no contiene columna de Vendedor")
+        raise SystemExit(17)
+
+    columns = {}
+    for key in ["vendedor", "descripcion", "cantidad", "ventas", "costos", "renta", "utili"]:
+        if key == "vendedor":
+            columns[key] = vendedor_col
+        else:
+            col = mapping.get(key)
+            if col:
+                columns[key] = col
+
+    sub = df[list(dict.fromkeys(columns.values()))].copy() if columns else pd.DataFrame()
+    sub.rename(columns={v: k for k, v in columns.items()}, inplace=True)
+
+    for col in ["vendedor", "descripcion", "cantidad", "ventas", "costos", "renta", "utili"]:
+        if col not in sub.columns:
+            sub[col] = pd.NA
+
+    sub = sub.dropna(how="all")
+
+    for col in ["cantidad", "ventas", "costos", "renta", "utili"]:
+        if col in sub.columns:
+            sub[col] = pd.to_numeric(sub[col], errors="coerce")
+
+    sub["cod_norm"] = sub["vendedor"].map(_normalize_lookup_value)
+
+    order = ["vendedor", "descripcion", "cantidad", "ventas", "costos", "renta", "utili"]
+    headers = [
+        "COD. VENDEDOR",
+        "DESCRIPCION",
+        "CANTIDAD",
+        "VENTAS",
+        "COSTOS",
+        "% RENTA",
+        "% UTIL.",
+    ]
+
+    summary = {}
+    bold_font = Font(bold=True)
+
+    for sheet_name, code, description in config:
+        if sheet_name not in wb.sheetnames:
+            continue
+
+        ws = wb[sheet_name]
+        ws.delete_rows(1, ws.max_row)
+
+        data = _select_cod_rows(sub, code)
+        if data.empty and description:
+            data = _select_cod_rows(sub, description)
+        if data.empty and description:
+            combo_label = f"{code} {description}".strip()
+            data = _select_cod_rows(sub, combo_label)
+
+        if data.empty:
+            ws["A1"] = "ESTE VENDEDOR NO REGISTRA VENTAS"
+            summary[sheet_name] = 0
+            continue
+
+        data = data[order]
+
+        mask_valid = data[["descripcion", "cantidad", "ventas", "costos", "renta", "utili"]].notna().any(axis=1)
+        data = data[mask_valid]
+
+        if data.empty:
+            ws["A1"] = "ESTE VENDEDOR NO REGISTRA VENTAS"
+            summary[sheet_name] = 0
+            continue
+
+        subtotal_mask = data["descripcion"].astype(str).str.contains("subtotal", case=False, na=False)
+        detail = data[~subtotal_mask]
+        subtotal_rows = data[subtotal_mask]
+
+        if not detail.empty and detail["renta"].notna().any():
+            detail = detail.sort_values(by="renta", ascending=True, na_position="last")
+
+        data = pd.concat([detail, subtotal_rows], ignore_index=True)
+
+        for idx, header in enumerate(headers, start=1):
+            ws.cell(row=1, column=idx, value=header)
+
+        start_row = 2
+        last_data_row = start_row - 1
+
+        for i, row in enumerate(data.itertuples(index=False), start=start_row):
+            values = [
+                getattr(row, "vendedor"),
+                getattr(row, "descripcion"),
+                getattr(row, "cantidad"),
+                getattr(row, "ventas"),
+                getattr(row, "costos"),
+                getattr(row, "renta"),
+                getattr(row, "utili"),
+            ]
+            for col_idx, value in enumerate(values, start=1):
+                cell = ws.cell(row=i, column=col_idx)
+                cell.value = None if pd.isna(value) else value
+                if col_idx in (4, 5) and cell.value is not None:
+                    cell.number_format = accounting_fmt
+                cell.border = border
+
+            last_data_row = i
+
+        summary[sheet_name] = len(data)
+
+        if last_data_row >= start_row:
+            total_row = last_data_row + 1
+            label_col_idx = order.index("descripcion") + 1
+            label_cell = ws.cell(total_row, label_col_idx, "Total General")
+            label_cell.font = bold_font
+            label_cell.border = border
+
+            def set_sum_for(col_key, number_format=None):
+                col_idx = order.index(col_key) + 1
+                cell = ws.cell(total_row, col_idx)
+                col_letter = get_column_letter(col_idx)
+                cell.value = f"=SUM({col_letter}{start_row}:{col_letter}{last_data_row})"
+                if number_format:
+                    cell.number_format = number_format
+                cell.font = bold_font
+                cell.border = border
+                return cell
+
+            set_sum_for("cantidad")
+            total_ventas_cell = set_sum_for("ventas", accounting_fmt)
+            total_costos_cell = set_sum_for("costos", accounting_fmt)
+
+            util_col_idx = order.index("utili") + 1
+            util_cell = ws.cell(total_row, util_col_idx)
+            if total_ventas_cell and total_costos_cell:
+                ventas_ref = total_ventas_cell.coordinate
+                costos_ref = total_costos_cell.coordinate
+                util_cell.value = f"=IF({costos_ref}=0,0,({ventas_ref}/{costos_ref})-1)"
+            else:
+                util_cell.value = 0
+            util_cell.number_format = "0.00%"
+            util_cell.font = bold_font
+            util_cell.border = border
+
+            ventas_ref = f"{get_column_letter(order.index('ventas') + 1)}{total_row}"
+            costos_ref = f"{get_column_letter(order.index('costos') + 1)}{total_row}"
+
+            rent_cell = ws.cell(total_row, order.index("renta") + 1)
+            rent_cell.value = f"=IF({ventas_ref}=0,0,1-({costos_ref}/{ventas_ref}))"
+            rent_cell.number_format = "0.00%"
+            rent_cell.font = bold_font
+            rent_cell.border = border
+
+            for col_idx in range(1, len(order) + 1):
+                cell = ws.cell(total_row, col_idx)
+                cell.border = border
+
+    return summary, latest
+
+
 def main():
     p = argparse.ArgumentParser(description="Importa último EXCZ a Hoja 1 y aplica fórmulas fijas.")
     p.add_argument("--excel",   default=DEFAULT_EXCEL,   help="Ruta al INFORME_YYYYMMDD.xlsx")
@@ -395,6 +607,9 @@ def main():
     p.add_argument("--skip-ccosto", action="store_true", help="No actualizar hojas CCOSTO")
     p.add_argument("--ccosto-excz-prefix", default=DEFAULT_CCOSTO_EXCZ_PREFIX,
                    help="Prefijo del archivo EXCZ para hojas CCOSTO")
+    p.add_argument("--skip-cod", action="store_true", help="No actualizar hojas COD")
+    p.add_argument("--cod-excz-prefix", default=DEFAULT_COD_EXCZ_PREFIX,
+                   help="Prefijo del archivo EXCZ para hojas COD")
     args = p.parse_args()
 
     path = Path(args.excel)
@@ -415,6 +630,8 @@ def main():
 
     ccosto_summary = {}
     ccosto_file = None
+    cod_summary = {}
+    cod_file = None
 
     # --- Actualizar encabezado con fechas dinámicas -----------------------
     now = datetime.now()
@@ -537,6 +754,11 @@ def main():
             wb, args.exczdir, args.ccosto_excz_prefix, accounting_fmt, border
         )
 
+    if not args.skip_import and not args.skip_cod:
+        cod_summary, cod_file = _update_cod_sheets(
+            wb, args.exczdir, args.cod_excz_prefix, accounting_fmt, border
+        )
+
     # Aplicar fórmulas fijas
     vend_range = "G:H"   # VENDEDORES (NIT en G, COD_VENDEDOR en H)
     prec_range = "A:B"   # PRECIOS (DESCRIPCION en A, PRECIO en B)
@@ -644,6 +866,9 @@ def main():
     if ccosto_file:
         items = ", ".join(f"{k}={v}" for k, v in sorted(ccosto_summary.items())) or "sin datos"
         msg += f" | CCOSTO ({ccosto_file.name}): {items}"
+    if cod_file:
+        items = ", ".join(f"{k}={v}" for k, v in sorted(cod_summary.items())) or "sin datos"
+        msg += f" | COD ({cod_file.name}): {items}"
     print(msg)
 
 if __name__ == "__main__":
