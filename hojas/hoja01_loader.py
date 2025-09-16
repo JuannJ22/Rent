@@ -1,4 +1,4 @@
-import argparse, os, re
+import argparse, os, re, unicodedata
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
@@ -136,6 +136,54 @@ def _normalize_spaces(value):
     return re.sub(r"\s+", " ", str(value).strip()).lower()
 
 
+def _strip_accents(text: str) -> str:
+    normalized = unicodedata.normalize("NFKD", text)
+    return "".join(ch for ch in normalized if not unicodedata.combining(ch))
+
+
+def _normalize_ccosto_value(value) -> str:
+    if pd.isna(value):
+        return ""
+    text = str(value).strip().lower()
+    text = _strip_accents(text)
+    text = re.sub(r"[^0-9a-z]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _select_ccosto_rows(df: pd.DataFrame, label: str) -> pd.DataFrame:
+    target_norm = _normalize_ccosto_value(label)
+    if not target_norm:
+        return df.iloc[0:0].copy()
+
+    series = df["ccosto_norm"]
+    masks = []
+
+    masks.append(series == target_norm)
+    compact_target = target_norm.replace(" ", "")
+    masks.append(series.str.replace(" ", "", regex=False) == compact_target)
+
+    target_tokens = tuple(target_norm.split())
+    if target_tokens:
+        target_set = set(target_tokens)
+
+        def token_match(val: str) -> bool:
+            tokens = val.split()
+            if not tokens:
+                return False
+            val_set = set(tokens)
+            return target_set.issubset(val_set) or val_set.issubset(target_set)
+
+        masks.append(series.apply(token_match))
+
+    masks.append(series.str.contains(target_norm, na=False, regex=False))
+
+    for mask in masks:
+        if mask.any():
+            return df.loc[mask].copy()
+
+    return df.iloc[0:0].copy()
+
+
 def _update_ccosto_sheets(wb, excz_dir, prefix, currency_fmt, border):
     config = [
         ("CCOSTO1", "0001   MOST. PRINCIPAL"),
@@ -184,7 +232,7 @@ def _update_ccosto_sheets(wb, excz_dir, prefix, currency_fmt, border):
         if col in sub.columns:
             sub[col] = pd.to_numeric(sub[col], errors="coerce")
 
-    sub["ccosto_norm"] = sub["centro_costo"].map(_normalize_spaces)
+    sub["ccosto_norm"] = sub["centro_costo"].map(_normalize_ccosto_value)
 
     order = ["centro_costo", "descripcion", "cantidad", "ventas", "costos", "renta", "utili"]
     headers = [
@@ -206,8 +254,7 @@ def _update_ccosto_sheets(wb, excz_dir, prefix, currency_fmt, border):
         ws = wb[sheet_name]
         ws.delete_rows(1, ws.max_row)
 
-        target_norm = _normalize_spaces(label)
-        data = sub[sub["ccosto_norm"] == target_norm].copy()
+        data = _select_ccosto_rows(sub, label)
 
         if data.empty:
             ws["A1"] = "ESTE PUNTO DE VENTA NO ABRIÓ HOY"
