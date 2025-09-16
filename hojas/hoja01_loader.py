@@ -114,7 +114,10 @@ def _guess_map(df_cols):
             "punto de venta",
             "pto de venta",
             "punto",
-            "centro"
+
+            "centro",
+            "zona"
+
         ),
         "nit": pick("nit","nit cliente","identificacion","identificación"),
         "cliente_combo": pick("nit - sucursal - cliente","cliente sucursal","cliente","razon social","razón social"),
@@ -157,7 +160,9 @@ def _update_ccosto_sheets(wb, excz_dir, prefix, currency_fmt, border):
     mapping = _guess_map(df.columns)
     centro_col = mapping.get("centro_costo")
     if not centro_col:
-        print("ERROR: El EXCZ para CCOSTO no contiene columna de Centro de Costo")
+
+        print("ERROR: El EXCZ para CCOSTO no contiene columna de Centro de Costo o Zona")
+
         raise SystemExit(7)
 
     columns = {
