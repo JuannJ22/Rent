@@ -342,6 +342,7 @@ def _update_ccosto_sheets(wb, excz_dir, prefix, currency_fmt, border):
             set_sum_for("cantidad")
             set_sum_for("ventas", currency_fmt)
             set_sum_for("costos", currency_fmt)
+            set_sum_for("utili", currency_fmt)
 
             ventas_ref = f"{get_column_letter(order.index('ventas') + 1)}{total_row}"
             costos_ref = f"{get_column_letter(order.index('costos') + 1)}{total_row}"
@@ -351,12 +352,6 @@ def _update_ccosto_sheets(wb, excz_dir, prefix, currency_fmt, border):
             rent_cell.number_format = "0.00%"
             rent_cell.font = bold_font
             rent_cell.border = border
-
-            util_cell = ws.cell(total_row, order.index("utili") + 1)
-            util_cell.value = f"={ventas_ref}-{costos_ref}"
-            util_cell.number_format = currency_fmt
-            util_cell.font = bold_font
-            util_cell.border = border
 
             for col_idx in range(1, len(order) + 1):
                 cell = ws.cell(total_row, col_idx)
@@ -606,6 +601,7 @@ def main():
     total_cant_cell = set_sum(col_cant)
     total_ventas_cell = set_sum(col_ventas, currency_fmt)
     total_costos_cell = set_sum(col_costos, currency_fmt)
+    set_sum(col_utili, currency_fmt)
 
     if col_renta and total_ventas_cell and total_costos_cell:
         ventas_ref = f"{get_column_letter(col_ventas)}{total_row}"
@@ -615,13 +611,6 @@ def main():
         rent_cell.number_format = "0.00%"
         rent_cell.font = bold
         rent_cell.border = border
-
-    if col_utili and total_ventas_cell and total_costos_cell:
-        util_cell = ws.cell(total_row, col_utili)
-        util_cell.value = f"={get_column_letter(col_ventas)}{total_row}-{get_column_letter(col_costos)}{total_row}"
-        util_cell.number_format = currency_fmt
-        util_cell.font = bold
-        util_cell.border = border
 
     for _, (_, col_idx) in hmap.items():
         cell = ws.cell(total_row, col_idx)
