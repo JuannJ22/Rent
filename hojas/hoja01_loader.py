@@ -2,6 +2,7 @@ import argparse, os, re, unicodedata
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
+from pandas.api.types import is_numeric_dtype
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import Border, Side, Font
@@ -166,6 +167,38 @@ def _normalize_ccosto_value(value) -> str:
     return _normalize_lookup_value(value)
 
 
+def _parse_numeric_series(series: pd.Series, *, is_percent: bool = False) -> pd.Series:
+    """Convert a series with numeric-like strings into floats.
+
+    Handles values that include percentage symbols as well as numbers that use
+    comma or dot as decimal/thousand separators.
+    """
+
+    if series.empty:
+        return series
+
+    if is_numeric_dtype(series):
+        result = pd.to_numeric(series, errors="coerce")
+    else:
+        text = series.astype(str).str.strip()
+        has_percent = text.str.contains("%", regex=False, na=False)
+        cleaned = text.str.replace(r"[^0-9,\-.]+", "", regex=True)
+        both_sep = cleaned.str.contains(",", na=False) & cleaned.str.contains(".", na=False)
+        cleaned = cleaned.where(~both_sep, cleaned.str.replace(".", "", regex=False))
+        cleaned = cleaned.str.replace(",", ".", regex=False)
+        result = pd.to_numeric(cleaned, errors="coerce")
+
+    if is_percent:
+        if "has_percent" not in locals():
+            text = series.astype(str).str.strip()
+            has_percent = text.str.contains("%", regex=False, na=False)
+        result = result.where(~has_percent, result / 100)
+        adjust_mask = (~has_percent) & result.notna() & result.abs().between(1, 100)
+        result.loc[adjust_mask] = result.loc[adjust_mask] / 100
+
+    return result
+
+
 def _select_rows_by_norm(df: pd.DataFrame, label: str, norm_col: str) -> pd.DataFrame:
     if norm_col not in df.columns:
         return df.iloc[0:0].copy()
@@ -268,9 +301,12 @@ def _update_ccosto_sheets(wb, excz_dir, prefix, accounting_fmt, border):
 
     sub = sub.dropna(how="all")
 
-    for col in ["cantidad", "ventas", "costos", "renta", "utili"]:
+    for col in ["cantidad", "ventas", "costos"]:
         if col in sub.columns:
-            sub[col] = pd.to_numeric(sub[col], errors="coerce")
+            sub[col] = _parse_numeric_series(sub[col])
+    for col in ["renta", "utili"]:
+        if col in sub.columns:
+            sub[col] = _parse_numeric_series(sub[col], is_percent=True)
 
     sub["ccosto_norm"] = sub["centro_costo"].map(_normalize_ccosto_value)
 
@@ -342,6 +378,8 @@ def _update_ccosto_sheets(wb, excz_dir, prefix, accounting_fmt, border):
                 cell.value = None if pd.isna(value) else value
                 if col_idx in (4, 5) and cell.value is not None:
                     cell.number_format = accounting_fmt
+                if col_idx in (6, 7) and cell.value is not None:
+                    cell.number_format = "0.00%"
                 cell.border = border
 
             last_data_row = i
@@ -459,9 +497,12 @@ def _update_cod_sheets(wb, excz_dir, prefix, accounting_fmt, border):
 
     sub = sub.dropna(how="all")
 
-    for col in ["cantidad", "ventas", "costos", "renta", "utili"]:
+    for col in ["cantidad", "ventas", "costos"]:
         if col in sub.columns:
-            sub[col] = pd.to_numeric(sub[col], errors="coerce")
+            sub[col] = _parse_numeric_series(sub[col])
+    for col in ["renta", "utili"]:
+        if col in sub.columns:
+            sub[col] = _parse_numeric_series(sub[col], is_percent=True)
 
     sub["cod_norm"] = sub["vendedor"].map(_normalize_lookup_value)
 
@@ -508,6 +549,20 @@ def _update_cod_sheets(wb, excz_dir, prefix, accounting_fmt, border):
             summary[sheet_name] = 0
             continue
 
+        total_000_mask = pd.Series(False, index=data.index)
+        for col in ["vendedor", "descripcion"]:
+            if col in data.columns:
+                total_000_mask |= data[col].astype(str).str.contains(
+                    r"total\s+0{2,}", case=False, regex=True, na=False
+                )
+        if total_000_mask.any():
+            data = data[~total_000_mask]
+
+        if data.empty:
+            ws["A1"] = "ESTE VENDEDOR NO REGISTRA VENTAS"
+            summary[sheet_name] = 0
+            continue
+
         subtotal_mask = data["descripcion"].astype(str).str.contains("subtotal", case=False, na=False)
         detail = data[~subtotal_mask]
         subtotal_rows = data[subtotal_mask]
@@ -538,6 +593,8 @@ def _update_cod_sheets(wb, excz_dir, prefix, accounting_fmt, border):
                 cell.value = None if pd.isna(value) else value
                 if col_idx in (4, 5) and cell.value is not None:
                     cell.number_format = accounting_fmt
+                if col_idx in (6, 7) and cell.value is not None:
+                    cell.number_format = "0.00%"
                 cell.border = border
 
             last_data_row = i
@@ -705,9 +762,12 @@ def main():
             )
 
         # Convertir datos numéricos y ordenar por rentabilidad
-        for col in ["ventas", "costos", "renta", "utili"]:
+        for col in ["cantidad", "ventas", "costos"]:
             if col in sub.columns:
-                sub[col] = pd.to_numeric(sub[col], errors="coerce")
+                sub[col] = _parse_numeric_series(sub[col])
+        for col in ["renta", "utili"]:
+            if col in sub.columns:
+                sub[col] = _parse_numeric_series(sub[col], is_percent=True)
         if "renta" in sub.columns:
             sub = sub.sort_values(by="renta", ascending=True, na_position="last")
 
@@ -739,9 +799,13 @@ def main():
                 c.number_format = accounting_fmt
                 cells.append(c)
             if col_renta and "renta" in sub.columns:
-                cells.append(ws.cell(i, col_renta, getattr(row, "renta")))
+                c = ws.cell(i, col_renta, getattr(row, "renta"))
+                c.number_format = "0.00%"
+                cells.append(c)
             if col_utili and "utili" in sub.columns:
-                cells.append(ws.cell(i, col_utili, getattr(row, "utili")))
+                c = ws.cell(i, col_utili, getattr(row, "utili"))
+                c.number_format = "0.00%"
+                cells.append(c)
             if col_excz:
                 cells.append(ws.cell(i, col_excz, latest.stem))
             for c in cells:
