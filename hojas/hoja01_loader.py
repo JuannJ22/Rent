@@ -259,6 +259,7 @@ def _update_ccosto_sheets(wb, excz_dir, prefix, currency_fmt, border):
     ]
 
     summary = {}
+    bold_font = Font(bold=True)
 
     for sheet_name, label in config:
         if sheet_name not in wb.sheetnames:
@@ -296,7 +297,10 @@ def _update_ccosto_sheets(wb, excz_dir, prefix, currency_fmt, border):
         for idx, header in enumerate(headers, start=1):
             ws.cell(row=1, column=idx, value=header)
 
-        for i, row in enumerate(data.itertuples(index=False), start=2):
+        start_row = 2
+        last_data_row = start_row - 1
+
+        for i, row in enumerate(data.itertuples(index=False), start=start_row):
             values = [
                 getattr(row, "centro_costo"),
                 getattr(row, "descripcion"),
@@ -313,7 +317,61 @@ def _update_ccosto_sheets(wb, excz_dir, prefix, currency_fmt, border):
                     cell.number_format = currency_fmt
                 cell.border = border
 
+            last_data_row = i
+
         summary[sheet_name] = len(data)
+
+        if last_data_row >= start_row:
+            total_row = last_data_row + 1
+            label_col_idx = order.index("descripcion") + 1
+            label_cell = ws.cell(total_row, label_col_idx, "Total General")
+            label_cell.font = bold_font
+            label_cell.border = border
+
+            def set_sum_for(col_key, number_format=None):
+                col_idx = order.index(col_key) + 1
+                cell = ws.cell(total_row, col_idx)
+                col_letter = get_column_letter(col_idx)
+                cell.value = f"=SUM({col_letter}{start_row}:{col_letter}{last_data_row})"
+                if number_format:
+                    cell.number_format = number_format
+                cell.font = bold_font
+                cell.border = border
+                return cell
+
+            set_sum_for("cantidad")
+            set_sum_for("ventas", currency_fmt)
+            set_sum_for("costos", currency_fmt)
+
+            ventas_ref = f"{get_column_letter(order.index('ventas') + 1)}{total_row}"
+            costos_ref = f"{get_column_letter(order.index('costos') + 1)}{total_row}"
+
+            rent_cell = ws.cell(total_row, order.index("renta") + 1)
+            rent_cell.value = f"=IF({ventas_ref}=0,0,({ventas_ref}-{costos_ref})/{ventas_ref})"
+            rent_cell.number_format = "0.00%"
+            rent_cell.font = bold_font
+            rent_cell.border = border
+
+            util_cell = ws.cell(total_row, order.index("utili") + 1)
+            util_cell.value = f"={ventas_ref}-{costos_ref}"
+            util_cell.number_format = currency_fmt
+            util_cell.font = bold_font
+            util_cell.border = border
+
+            for col_idx in range(1, len(order) + 1):
+                cell = ws.cell(total_row, col_idx)
+                cell.border = border
+
+            if sheet_name == "CCOSTO 4":
+                for row_idx in range(start_row, last_data_row + 1):
+                    cell = ws.cell(row_idx, 1)
+                    value = cell.value
+                    if value in (None, ""):
+                        continue
+                    text_value = str(value)
+                    new_value = text_value.replace("7", "4")
+                    if new_value != text_value:
+                        cell.value = new_value
 
     return summary, latest
 
