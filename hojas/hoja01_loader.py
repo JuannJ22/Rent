@@ -199,10 +199,10 @@ def _select_ccosto_rows(df: pd.DataFrame, label: str) -> pd.DataFrame:
 
 def _update_ccosto_sheets(wb, excz_dir, prefix, currency_fmt, border):
     config = [
-        ("CCOSTO1", "0001   MOST. PRINCIPAL"),
-        ("CCOSTO2", "0002   MOST. SUCURSAL"),
-        ("CCOSTO3", "0003   MOSTRADOR CALARCA"),
-        ("CCOSTO4", "0007   TIENDA PINTUCO"),
+        ("CCOSTO 1", "0001   MOST. PRINCIPAL"),
+        ("CCOSTO 2", "0002   MOST. SUCURSAL"),
+        ("CCOSTO 3", "0003   MOSTRADOR CALARCA"),
+        ("CCOSTO 4", "0007   TIENDA PINTUCO"),
     ]
 
     excz_dir = Path(excz_dir)
