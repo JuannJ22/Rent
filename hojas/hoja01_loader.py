@@ -27,6 +27,7 @@ DEFAULT_EXCEL = os.environ.get(
 DEFAULT_EXCZDIR = os.environ.get("EXCZDIR", r"D:\\SIIWI01\\LISTADOS")
 DEFAULT_EXCZ_PREFIX = os.environ.get("EXCZPREFIX", "EXCZ980")
 DEFAULT_CCOSTO_EXCZ_PREFIX = os.environ.get("CCOSTO_EXCZPREFIX", "EXCZ979")
+ACCOUNTING_FORMAT = '_-[$$-409]* #,##0.00_-;_-[$$-409]* (#,##0.00);_-[$$-409]* "-"??_-;_-@_-'
 
 def _norm(s: str) -> str:
     return (str(s).strip().lower()
@@ -197,7 +198,7 @@ def _select_ccosto_rows(df: pd.DataFrame, label: str) -> pd.DataFrame:
     return df.iloc[0:0].copy()
 
 
-def _update_ccosto_sheets(wb, excz_dir, prefix, currency_fmt, border):
+def _update_ccosto_sheets(wb, excz_dir, prefix, accounting_fmt, border):
     config = [
         ("CCOSTO 1", "0001   MOST. PRINCIPAL"),
         ("CCOSTO 2", "0002   MOST. SUCURSAL"),
@@ -314,7 +315,7 @@ def _update_ccosto_sheets(wb, excz_dir, prefix, currency_fmt, border):
                 cell = ws.cell(row=i, column=col_idx)
                 cell.value = None if pd.isna(value) else value
                 if col_idx in (4, 5) and cell.value is not None:
-                    cell.number_format = currency_fmt
+                    cell.number_format = accounting_fmt
                 cell.border = border
 
             last_data_row = i
@@ -340,15 +341,26 @@ def _update_ccosto_sheets(wb, excz_dir, prefix, currency_fmt, border):
                 return cell
 
             set_sum_for("cantidad")
-            set_sum_for("ventas", currency_fmt)
-            set_sum_for("costos", currency_fmt)
-            set_sum_for("utili", currency_fmt)
+            total_ventas_cell = set_sum_for("ventas", accounting_fmt)
+            total_costos_cell = set_sum_for("costos", accounting_fmt)
+
+            util_col_idx = order.index("utili") + 1
+            util_cell = ws.cell(total_row, util_col_idx)
+            if total_ventas_cell and total_costos_cell:
+                ventas_ref = total_ventas_cell.coordinate
+                costos_ref = total_costos_cell.coordinate
+                util_cell.value = f"=IF({costos_ref}=0,0,({ventas_ref}/{costos_ref})-1)"
+            else:
+                util_cell.value = 0
+            util_cell.number_format = "0.00%"
+            util_cell.font = bold_font
+            util_cell.border = border
 
             ventas_ref = f"{get_column_letter(order.index('ventas') + 1)}{total_row}"
             costos_ref = f"{get_column_letter(order.index('costos') + 1)}{total_row}"
 
             rent_cell = ws.cell(total_row, order.index("renta") + 1)
-            rent_cell.value = f"=IF({ventas_ref}=0,0,({ventas_ref}-{costos_ref})/{ventas_ref})"
+            rent_cell.value = f"=IF({ventas_ref}=0,0,1-({costos_ref}/{ventas_ref}))"
             rent_cell.number_format = "0.00%"
             rent_cell.font = bold_font
             rent_cell.border = border
@@ -399,7 +411,7 @@ def main():
     thin = Side(style="thin")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
     bold = Font(bold=True)
-    currency_fmt = "$#,##0.00"
+    accounting_fmt = ACCOUNTING_FORMAT
 
     ccosto_summary = {}
     ccosto_file = None
@@ -503,11 +515,11 @@ def main():
                 cells.append(ws.cell(i, col_cant, getattr(row, "cantidad")))
             if col_ventas and "ventas" in sub.columns:
                 c = ws.cell(i, col_ventas, getattr(row, "ventas"))
-                c.number_format = currency_fmt
+                c.number_format = accounting_fmt
                 cells.append(c)
             if col_costos and "costos" in sub.columns:
                 c = ws.cell(i, col_costos, getattr(row, "costos"))
-                c.number_format = currency_fmt
+                c.number_format = accounting_fmt
                 cells.append(c)
             if col_renta and "renta" in sub.columns:
                 cells.append(ws.cell(i, col_renta, getattr(row, "renta")))
@@ -522,7 +534,7 @@ def main():
 
     if not args.skip_import and not args.skip_ccosto:
         ccosto_summary, ccosto_file = _update_ccosto_sheets(
-            wb, args.exczdir, args.ccosto_excz_prefix, currency_fmt, border
+            wb, args.exczdir, args.ccosto_excz_prefix, accounting_fmt, border
         )
 
     # Aplicar fórmulas fijas
@@ -599,15 +611,26 @@ def main():
         return cell
 
     total_cant_cell = set_sum(col_cant)
-    total_ventas_cell = set_sum(col_ventas, currency_fmt)
-    total_costos_cell = set_sum(col_costos, currency_fmt)
-    set_sum(col_utili, currency_fmt)
+    total_ventas_cell = set_sum(col_ventas, accounting_fmt)
+    total_costos_cell = set_sum(col_costos, accounting_fmt)
+
+    if col_utili:
+        total_util_cell = ws.cell(total_row, col_utili)
+        if total_ventas_cell and total_costos_cell:
+            ventas_ref = f"{get_column_letter(col_ventas)}{total_row}"
+            costos_ref = f"{get_column_letter(col_costos)}{total_row}"
+            total_util_cell.value = f"=IF({costos_ref}=0,0,({ventas_ref}/{costos_ref})-1)"
+        else:
+            total_util_cell.value = 0
+        total_util_cell.number_format = "0.00%"
+        total_util_cell.font = bold
+        total_util_cell.border = border
 
     if col_renta and total_ventas_cell and total_costos_cell:
         ventas_ref = f"{get_column_letter(col_ventas)}{total_row}"
         costos_ref = f"{get_column_letter(col_costos)}{total_row}"
         rent_cell = ws.cell(total_row, col_renta)
-        rent_cell.value = f"=IF({ventas_ref}=0,0,({ventas_ref}-{costos_ref})/{ventas_ref})"
+        rent_cell.value = f"=IF({ventas_ref}=0,0,1-({costos_ref}/{ventas_ref}))"
         rent_cell.number_format = "0.00%"
         rent_cell.font = bold
         rent_cell.border = border
