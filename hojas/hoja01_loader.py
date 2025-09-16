@@ -4,7 +4,7 @@ from datetime import datetime
 import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
-from openpyxl.styles import Border, Side
+from openpyxl.styles import Border, Side, Font
 
 
 def _load_env():
@@ -114,8 +114,10 @@ def _guess_map(df_cols):
             "punto de venta",
             "pto de venta",
             "punto",
+
             "centro",
             "zona"
+
         ),
         "nit": pick("nit","nit cliente","identificacion","identificación"),
         "cliente_combo": pick("nit - sucursal - cliente","cliente sucursal","cliente","razon social","razón social"),
@@ -158,7 +160,9 @@ def _update_ccosto_sheets(wb, excz_dir, prefix, currency_fmt, border):
     mapping = _guess_map(df.columns)
     centro_col = mapping.get("centro_costo")
     if not centro_col:
+
         print("ERROR: El EXCZ para CCOSTO no contiene columna de Centro de Costo o Zona")
+
         raise SystemExit(7)
 
     columns = {
@@ -281,6 +285,7 @@ def main():
 
     thin = Side(style="thin")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    bold = Font(bold=True)
     currency_fmt = "$#,##0.00"
 
     ccosto_summary = {}
@@ -327,6 +332,9 @@ def main():
     col_excz = idx("excz")
 
     start_row = header_row + 1
+
+    # Congelar filas superiores para mantener visible el encabezado
+    ws.freeze_panes = ws.cell(row=start_row, column=1)
 
     # Importar EXCZ más reciente
     n_rows = 0
@@ -436,6 +444,70 @@ def main():
             c = ws[f"{L_desc}{r}"]
             c.value = f"=1-(({L_vent}{r}*1.19)/{L_cant}{r}/{L_prec}{r})"
             c.border = border
+
+    # --- Fila de Total General -------------------------------------------
+    total_label = "Total General"
+    total_label_col = col_desc or col_cliente_combo or col_nit or 1
+
+    # Eliminar totales previos para evitar duplicados
+    to_delete = []
+    for r in range(start_row, ws.max_row + 1):
+        cell_val = ws.cell(r, total_label_col).value
+        if isinstance(cell_val, str) and cell_val.strip().lower() == total_label.lower():
+            to_delete.append(r)
+    for offset, r in enumerate(to_delete):
+        ws.delete_rows(r - offset)
+
+    data_check_cols = [c for c in [col_nit, col_cliente_combo, col_desc, col_cant, col_ventas, col_costos] if c]
+    last_data_row = start_row - 1
+    for r in range(ws.max_row, start_row - 1, -1):
+        if any(ws.cell(r, c).value not in (None, "") for c in data_check_cols):
+            last_data_row = r
+            break
+
+    total_row = last_data_row + 1
+    label_cell = ws.cell(total_row, total_label_col, total_label)
+    label_cell.font = bold
+    label_cell.border = border
+
+    def set_sum(col_idx, number_format=None):
+        if not col_idx:
+            return None
+        cell = ws.cell(total_row, col_idx)
+        if last_data_row >= start_row:
+            col_letter = get_column_letter(col_idx)
+            cell.value = f"=SUM({col_letter}{start_row}:{col_letter}{last_data_row})"
+        else:
+            cell.value = 0
+        if number_format:
+            cell.number_format = number_format
+        cell.font = bold
+        cell.border = border
+        return cell
+
+    total_cant_cell = set_sum(col_cant)
+    total_ventas_cell = set_sum(col_ventas, currency_fmt)
+    total_costos_cell = set_sum(col_costos, currency_fmt)
+
+    if col_renta and total_ventas_cell and total_costos_cell:
+        ventas_ref = f"{get_column_letter(col_ventas)}{total_row}"
+        costos_ref = f"{get_column_letter(col_costos)}{total_row}"
+        rent_cell = ws.cell(total_row, col_renta)
+        rent_cell.value = f"=IF({ventas_ref}=0,0,({ventas_ref}-{costos_ref})/{ventas_ref})"
+        rent_cell.number_format = "0.00%"
+        rent_cell.font = bold
+        rent_cell.border = border
+
+    if col_utili and total_ventas_cell and total_costos_cell:
+        util_cell = ws.cell(total_row, col_utili)
+        util_cell.value = f"={get_column_letter(col_ventas)}{total_row}-{get_column_letter(col_costos)}{total_row}"
+        util_cell.number_format = currency_fmt
+        util_cell.font = bold
+        util_cell.border = border
+
+    for _, (_, col_idx) in hmap.items():
+        cell = ws.cell(total_row, col_idx)
+        cell.border = border
 
     wb.save(path)
     msg = f"OK. Procesadas {n_rows} filas y fórmulas aplicadas sobre: {path}"
