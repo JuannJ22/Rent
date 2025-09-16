@@ -155,23 +155,36 @@ def _select_ccosto_rows(df: pd.DataFrame, label: str) -> pd.DataFrame:
     if not target_norm:
         return df.iloc[0:0].copy()
 
-    series = df["ccosto_norm"]
+    series = df["ccosto_norm"].fillna("")
     masks = []
 
     masks.append(series == target_norm)
     compact_target = target_norm.replace(" ", "")
     masks.append(series.str.replace(" ", "", regex=False) == compact_target)
 
-    target_tokens = tuple(target_norm.split())
+    target_tokens = tuple(token for token in target_norm.split() if token)
     if target_tokens:
         target_set = set(target_tokens)
 
         def token_match(val: str) -> bool:
-            tokens = val.split()
+            tokens = tuple(token for token in val.split() if token)
             if not tokens:
                 return False
             val_set = set(tokens)
-            return target_set.issubset(val_set) or val_set.issubset(target_set)
+            if target_set.issubset(val_set) or val_set.issubset(target_set):
+                return True
+
+            # Verificación adicional considerando coincidencias parciales y números sin ceros a la izquierda
+            def check_token(target_token: str) -> bool:
+                if target_token.isdigit():
+                    target_num = int(target_token)
+                    for token in tokens:
+                        if token.isdigit() and int(token) == target_num:
+                            return True
+                    return target_token in val
+                return target_token in val
+
+            return all(check_token(t) for t in target_tokens)
 
         masks.append(series.apply(token_match))
 
