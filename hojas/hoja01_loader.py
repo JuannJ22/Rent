@@ -102,12 +102,21 @@ def _read_excz_df(file: Path):
     return df
 
 def _guess_map(df_cols):
-    cols = { _norm(c): c for c in df_cols }
-    def pick(*keys):
+    cols = {_norm(c): c for c in df_cols}
+
+    def pick(*keys, contains=None):
         for k in keys:
             nk = _norm(k)
             if nk in cols:
                 return cols[nk]
+
+        if contains:
+            candidates = tuple(_norm(c) for c in contains)
+            for col_norm, original in cols.items():
+                for needle in candidates:
+                    if needle and needle in col_norm:
+                        return original
+
         return None
     return {
         "centro_costo": pick(
@@ -138,8 +147,21 @@ def _guess_map(df_cols):
         "cantidad": pick("cantidad","cant"),
         "ventas": pick("ventas","subtotal sin iva","total sin iva","valor venta","base"),
         "costos": pick("costos","costo","costo total","costo sin iva"),
-        "renta": pick("% renta","renta","rentabilidad","rentabilidad venta"),
-        "utili": pick("% utili","utili","utilidad","utilidad %","utilidad porcentaje"),
+        "renta": pick(
+            "% renta",
+            "renta",
+            "rentabilidad",
+            "rentabilidad venta",
+            contains=("rentab", "rentabilidad", "renta"),
+        ),
+        "utili": pick(
+            "% utili",
+            "utili",
+            "utilidad",
+            "utilidad %",
+            "utilidad porcentaje",
+            contains=("utili", "utilid", "util"),
+        ),
     }
 
 
@@ -306,7 +328,7 @@ def _update_ccosto_sheets(wb, excz_dir, prefix, accounting_fmt, border):
             sub[col] = _parse_numeric_series(sub[col])
     for col in ["renta", "utili"]:
         if col in sub.columns:
-            sub[col] = _parse_numeric_series(sub[col], is_percent=True)
+            sub[col] = _parse_numeric_series(sub[col])
 
     sub["ccosto_norm"] = sub["centro_costo"].map(_normalize_ccosto_value)
 
@@ -378,8 +400,6 @@ def _update_ccosto_sheets(wb, excz_dir, prefix, accounting_fmt, border):
                 cell.value = None if pd.isna(value) else value
                 if col_idx in (4, 5) and cell.value is not None:
                     cell.number_format = accounting_fmt
-                if col_idx in (6, 7) and cell.value is not None:
-                    cell.number_format = "0.00%"
                 cell.border = border
 
             last_data_row = i
@@ -502,7 +522,7 @@ def _update_cod_sheets(wb, excz_dir, prefix, accounting_fmt, border):
             sub[col] = _parse_numeric_series(sub[col])
     for col in ["renta", "utili"]:
         if col in sub.columns:
-            sub[col] = _parse_numeric_series(sub[col], is_percent=True)
+            sub[col] = _parse_numeric_series(sub[col])
 
     sub["cod_norm"] = sub["vendedor"].map(_normalize_lookup_value)
 
@@ -593,8 +613,6 @@ def _update_cod_sheets(wb, excz_dir, prefix, accounting_fmt, border):
                 cell.value = None if pd.isna(value) else value
                 if col_idx in (4, 5) and cell.value is not None:
                     cell.number_format = accounting_fmt
-                if col_idx in (6, 7) and cell.value is not None:
-                    cell.number_format = "0.00%"
                 cell.border = border
 
             last_data_row = i
@@ -767,7 +785,7 @@ def main():
                 sub[col] = _parse_numeric_series(sub[col])
         for col in ["renta", "utili"]:
             if col in sub.columns:
-                sub[col] = _parse_numeric_series(sub[col], is_percent=True)
+                sub[col] = _parse_numeric_series(sub[col])
         if "renta" in sub.columns:
             sub = sub.sort_values(by="renta", ascending=True, na_position="last")
 
@@ -800,11 +818,9 @@ def main():
                 cells.append(c)
             if col_renta and "renta" in sub.columns:
                 c = ws.cell(i, col_renta, getattr(row, "renta"))
-                c.number_format = "0.00%"
                 cells.append(c)
             if col_utili and "utili" in sub.columns:
                 c = ws.cell(i, col_utili, getattr(row, "utili"))
-                c.number_format = "0.00%"
                 cells.append(c)
             if col_excz:
                 cells.append(ws.cell(i, col_excz, latest.stem))
