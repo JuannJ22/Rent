@@ -27,6 +27,7 @@ DEFAULT_EXCEL = os.environ.get(
 DEFAULT_EXCZDIR = os.environ.get("EXCZDIR", r"D:\\SIIWI01\\LISTADOS")
 DEFAULT_EXCZ_PREFIX = os.environ.get("EXCZPREFIX", "EXCZ980")
 DEFAULT_CCOSTO_EXCZ_PREFIX = os.environ.get("CCOSTO_EXCZPREFIX", "EXCZ979")
+DEFAULT_LINEAS_EXCZ_PREFIX = os.environ.get("LINEAS_EXCZPREFIX", "EXCZ973")
 
 def _norm(s: str) -> str:
     return (str(s).strip().lower()
@@ -107,6 +108,21 @@ def _guess_map(df_cols):
                 return cols[nk]
         return None
     return {
+        "linea": pick(
+            "linea descripcion",
+            "linea",
+            "línea descripcion",
+            "línea descripción",
+            "linea desc",
+            "linea descr",
+        ),
+        "grupo": pick(
+            "grupo descripcion",
+            "grupo",
+            "grupo desc",
+            "grupo descr",
+            "grupo descripción",
+        ),
         "centro_costo": pick(
             "centro de costo",
             "centro costo",
@@ -252,6 +268,166 @@ def _update_ccosto_sheets(wb, excz_dir, prefix, currency_fmt, border):
 
     return summary, latest
 
+
+def _update_lineas_sheet(wb, excz_dir, prefix, currency_fmt, border, bold_font):
+    sheet_name = "LINEAS"
+    if sheet_name not in wb.sheetnames:
+        return 0, None
+
+    excz_dir = Path(excz_dir)
+    if not excz_dir.exists():
+        print(f"ERROR: No existe la carpeta de EXCZ para LINEAS: {excz_dir}")
+        raise SystemExit(9)
+
+    latest = _pick_latest_excz(excz_dir, prefix)
+    if not latest:
+        print(f"ERROR: No se encontró EXCZ para LINEAS con prefijo {prefix} en {excz_dir}")
+        raise SystemExit(10)
+
+    df = _read_excz_df(latest)
+    totals = pd.DataFrame()
+
+    if not df.empty:
+        mapping = _guess_map(df.columns)
+        linea_col = mapping.get("linea")
+        grupo_col = mapping.get("grupo")
+        if not linea_col or not grupo_col:
+            print("ERROR: El EXCZ para LINEAS no contiene columnas de Línea/Grupo")
+            raise SystemExit(11)
+
+        numeric_keys = ["cantidad", "ventas", "costos", "renta", "utili"]
+        selected_cols = [linea_col, grupo_col]
+        selected_cols += [mapping[k] for k in numeric_keys if mapping.get(k)]
+
+        sub = df[selected_cols].copy()
+        rename_map = {linea_col: "linea", grupo_col: "grupo"}
+        for key in numeric_keys:
+            col = mapping.get(key)
+            if col:
+                rename_map[col] = key
+        sub.rename(columns=rename_map, inplace=True)
+
+        for key in numeric_keys:
+            if key not in sub.columns:
+                sub[key] = pd.NA
+
+        for key in ["cantidad", "ventas", "costos"]:
+            sub[key] = pd.to_numeric(sub[key], errors="coerce")
+
+        if "renta" in sub.columns:
+            sub["renta"] = pd.to_numeric(sub["renta"], errors="coerce")
+
+        sub["utilidad"] = sub["ventas"] - sub["costos"]
+        if "utili" in sub.columns:
+            sub["utilidad"] = sub["utilidad"].where(
+                sub["utilidad"].notna(),
+                pd.to_numeric(sub["utili"], errors="coerce"),
+            )
+
+        def _clean_label(value):
+            if pd.isna(value):
+                return ""
+            return re.sub(r"\s+", " ", str(value).strip())
+
+        sub["linea"] = sub["linea"].map(_clean_label)
+        sub["grupo"] = sub["grupo"].map(_clean_label)
+
+        mask_linea_total = sub["linea"].str.match(r"(?i)^total")
+        mask_grupo_total = sub["grupo"].str.match(r"(?i)^total")
+        totals = sub[mask_linea_total | mask_grupo_total].copy()
+
+        totals = totals[(totals["linea"] != "") | (totals["grupo"] != "")]
+        totals = totals.drop_duplicates(
+            subset=["linea", "grupo", "cantidad", "ventas", "costos", "renta", "utilidad"],
+            keep="first",
+        )
+
+        mask_valid = totals["ventas"].notna() & (totals["ventas"] != 0)
+        totals["renta_calc"] = pd.NA
+        totals.loc[mask_valid, "renta_calc"] = (
+            (totals.loc[mask_valid, "ventas"] - totals.loc[mask_valid, "costos"]) / totals.loc[mask_valid, "ventas"]
+        )
+        totals["renta_calc"] = pd.to_numeric(totals["renta_calc"], errors="coerce")
+        totals["renta"] = totals["renta"].where(~totals["renta"].isna(), totals["renta_calc"])
+
+        renta_series = totals["renta"].dropna()
+        if not renta_series.empty and renta_series.abs().max() > 1:
+            totals["renta"] = totals["renta"] / 100
+
+        totals.drop(columns=["renta_calc"], inplace=True)
+        totals.reset_index(drop=True, inplace=True)
+
+    ws = wb[sheet_name]
+    ws.delete_rows(1, ws.max_row)
+
+    headers = [
+        "LINEA DESCRIPCION",
+        "GRUPO DESCRIPCION",
+        "CANTIDAD",
+        "VENTAS",
+        "COSTO",
+        "RENTABILIDAD",
+        "UTILIDAD",
+    ]
+
+    for idx, header in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=idx, value=header)
+        cell.font = bold_font
+        cell.border = border
+
+    percent_fmt = "0.00%"
+    row_idx = 2
+    prev_base_linea = None
+    data_rows = 0
+
+    for row in totals.itertuples(index=False):
+        linea = (row.linea or "").strip()
+        grupo = (row.grupo or "").strip()
+        if not linea and grupo.lower().startswith("total general"):
+            linea, grupo = grupo, ""
+        base_linea = linea if linea and not linea.lower().startswith("total") else None
+        if base_linea:
+            if prev_base_linea is not None and base_linea != prev_base_linea:
+                row_idx += 1
+            prev_base_linea = base_linea
+
+        is_total_linea = linea.lower().startswith("total") if linea else False
+        is_total_grupo = grupo.lower().startswith("total") if grupo else False
+        is_total_general = linea.lower() == "total general" if linea else False
+        apply_bold = is_total_linea or is_total_grupo
+
+        values = [
+            linea or None,
+            grupo or None,
+            row.cantidad,
+            row.ventas,
+            row.costos,
+            row.renta,
+            row.utilidad,
+        ]
+
+        for col_idx, value in enumerate(values, start=1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            if pd.isna(value):
+                cell.value = None
+            else:
+                cell.value = value
+            cell.border = border
+            if col_idx in (4, 5, 7) and cell.value is not None:
+                cell.number_format = currency_fmt
+            elif col_idx == 6 and cell.value is not None:
+                cell.number_format = percent_fmt
+            if apply_bold and cell.value not in (None, ""):
+                cell.font = bold_font
+
+        row_idx += 1
+        data_rows += 1
+
+        if is_total_linea and not is_total_general:
+            row_idx += 1
+
+    return data_rows, latest
+
 def main():
     p = argparse.ArgumentParser(description="Importa último EXCZ a Hoja 1 y aplica fórmulas fijas.")
     p.add_argument("--excel",   default=DEFAULT_EXCEL,   help="Ruta al INFORME_YYYYMMDD.xlsx")
@@ -265,6 +441,9 @@ def main():
     p.add_argument("--skip-ccosto", action="store_true", help="No actualizar hojas CCOSTO")
     p.add_argument("--ccosto-excz-prefix", default=DEFAULT_CCOSTO_EXCZ_PREFIX,
                    help="Prefijo del archivo EXCZ para hojas CCOSTO")
+    p.add_argument("--skip-lineas", action="store_true", help="No actualizar hoja LINEAS")
+    p.add_argument("--lineas-excz-prefix", default=DEFAULT_LINEAS_EXCZ_PREFIX,
+                   help="Prefijo del archivo EXCZ para hoja LINEAS")
     args = p.parse_args()
 
     path = Path(args.excel)
@@ -285,6 +464,8 @@ def main():
 
     ccosto_summary = {}
     ccosto_file = None
+    lineas_rows = 0
+    lineas_file = None
 
     # --- Actualizar encabezado con fechas dinámicas -----------------------
     now = datetime.now()
@@ -407,6 +588,11 @@ def main():
             wb, args.exczdir, args.ccosto_excz_prefix, currency_fmt, border
         )
 
+    if not args.skip_import and not args.skip_lineas:
+        lineas_rows, lineas_file = _update_lineas_sheet(
+            wb, args.exczdir, args.lineas_excz_prefix, currency_fmt, border, bold
+        )
+
     # Aplicar fórmulas fijas
     vend_range = "G:H"   # VENDEDORES (NIT en G, COD_VENDEDOR en H)
     prec_range = "A:B"   # PRECIOS (DESCRIPCION en A, PRECIO en B)
@@ -509,6 +695,8 @@ def main():
     if ccosto_file:
         items = ", ".join(f"{k}={v}" for k, v in sorted(ccosto_summary.items())) or "sin datos"
         msg += f" | CCOSTO ({ccosto_file.name}): {items}"
+    if lineas_file:
+        msg += f" | LINEAS ({lineas_file.name}): {lineas_rows} filas"
     print(msg)
 
 if __name__ == "__main__":
