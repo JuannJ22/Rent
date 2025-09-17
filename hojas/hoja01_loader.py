@@ -1,4 +1,5 @@
 import argparse, os, re, unicodedata
+from typing import Tuple
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
@@ -143,6 +144,8 @@ def _guess_map(df_cols):
         ),
         "nit": pick("nit","nit cliente","identificacion","identificación"),
         "cliente_combo": pick("nit - sucursal - cliente","cliente sucursal","cliente","razon social","razón social"),
+        "linea": pick("linea", "línea"),
+        "grupo": pick("grupo", "grupo descripción", contains=("grupo",)),
         "descripcion": pick("descripcion","descripción","producto","nombre producto","item"),
         "cantidad": pick("cantidad","cant"),
         "ventas": pick("ventas","subtotal sin iva","total sin iva","valor venta","base"),
@@ -467,6 +470,184 @@ def _update_ccosto_sheets(wb, excz_dir, prefix, accounting_fmt, border):
     return summary, latest
 
 
+def _update_lineas_sheet(wb, data: pd.DataFrame, accounting_fmt: str, border):
+    sheet_name = "LINEAS"
+    if sheet_name not in wb.sheetnames:
+        return {}
+
+    ws = wb[sheet_name]
+    ws.delete_rows(1, ws.max_row)
+
+    headers = [
+        "LÍNEA  DESCRIPCIÓN",
+        "GRUPO  DESCRIPCIÓN",
+        "CANTIDAD",
+        "VENTAS",
+        "COSTO",
+        "%RENTABILIDAD",
+        "%UTILIDAD",
+    ]
+
+    bold_font = Font(bold=True)
+    for idx, header in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=idx, value=header)
+        cell.font = bold_font
+        cell.border = border
+
+    ws.freeze_panes = ws.cell(row=2, column=1)
+
+    required_cols = ["linea", "grupo", "descripcion", "cantidad", "ventas", "costos"]
+    if data is None or data.empty:
+        cell = ws.cell(row=2, column=1, value="SIN DATOS PARA MOSTRAR")
+        cell.border = border
+        return {"lineas": 0, "grupos": 0}
+
+    missing = [col for col in required_cols if col not in data.columns]
+    if missing:
+        cell = ws.cell(row=2, column=1, value="FALTAN COLUMNAS PARA GENERAR EL REPORTE")
+        cell.border = border
+        return {}
+
+    detail_mask = (
+        data["descripcion"].notna()
+        & data["linea"].notna()
+        & data["grupo"].notna()
+        & ~data["linea"].astype(str).str.contains("total", case=False, na=False)
+        & ~data["grupo"].astype(str).str.contains("total", case=False, na=False)
+    )
+    detail = data.loc[detail_mask, required_cols].copy()
+
+    if detail.empty:
+        cell = ws.cell(row=2, column=1, value="SIN DATOS PARA MOSTRAR")
+        cell.border = border
+        return {"lineas": 0, "grupos": 0}
+
+    def clean_text(value):
+        return re.sub(r"\s+", " ", str(value).strip()) if pd.notna(value) else ""
+
+    detail["linea"] = detail["linea"].map(clean_text)
+    detail["grupo"] = detail["grupo"].map(clean_text)
+
+    for col in ["cantidad", "ventas", "costos"]:
+        detail[col] = _parse_numeric_series(detail[col]).fillna(0)
+
+    aggregated = (
+        detail.groupby(["linea", "grupo"], as_index=False)[["cantidad", "ventas", "costos"]]
+        .sum()
+    )
+
+    if aggregated.empty:
+        cell = ws.cell(row=2, column=1, value="SIN DATOS PARA MOSTRAR")
+        cell.border = border
+        return {"lineas": 0, "grupos": 0}
+
+    def extract_code(text: str) -> int:
+        if not text:
+            return 10**6
+        match = re.search(r"\d+", text)
+        if match:
+            try:
+                return int(match.group())
+            except ValueError:
+                return 10**6
+        return 10**6
+
+    aggregated["line_code"] = aggregated["linea"].map(extract_code)
+    aggregated["grupo_code"] = aggregated["grupo"].map(extract_code)
+    aggregated.sort_values(["line_code", "linea", "grupo_code", "grupo"], inplace=True)
+
+    line_summary = (
+        aggregated.groupby(["linea", "line_code"], as_index=False)[["cantidad", "ventas", "costos"]]
+        .sum()
+    )
+    line_summary.sort_values(["line_code", "linea"], inplace=True)
+
+    groups_by_line = {line: grp for line, grp in aggregated.groupby("linea", sort=False)}
+
+    def format_total_label(text: str) -> str:
+        cleaned = re.sub(r"\s+", " ", text.strip()) if text else ""
+        cleaned = cleaned.replace("-", " ")
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        return f"Total {cleaned}" if cleaned else "Total"
+
+    def compute_metrics(ventas: float, costos: float) -> Tuple[float, float]:
+        ventas_val = 0.0 if pd.isna(ventas) else float(ventas)
+        costos_val = 0.0 if pd.isna(costos) else float(costos)
+        rent = 0.0 if ventas_val == 0 else 1 - (costos_val / ventas_val)
+        util = 0.0 if costos_val == 0 else (ventas_val / costos_val) - 1
+        return rent, util
+
+    def safe_numeric(value):
+        return 0.0 if pd.isna(value) else float(value)
+
+    def write_cell(row, col, value, *, number_format=None, bold=False):
+        cell = ws.cell(row=row, column=col)
+        cell.value = None if pd.isna(value) else value
+        if number_format:
+            cell.number_format = number_format
+        if bold:
+            cell.font = bold_font
+        cell.border = border
+        return cell
+
+    cantidad_format = "#,##0.00"
+    row_idx = 2
+    for _, line_row in line_summary.iterrows():
+        line_name = line_row["linea"]
+        line_label = format_total_label(line_name)
+        line_cant = safe_numeric(line_row["cantidad"])
+        line_ventas = safe_numeric(line_row["ventas"])
+        line_costos = safe_numeric(line_row["costos"])
+        line_rent, line_util = compute_metrics(line_ventas, line_costos)
+
+        write_cell(row_idx, 1, line_label, bold=True)
+        write_cell(row_idx, 2, None, bold=True)
+        write_cell(row_idx, 3, line_cant, number_format=cantidad_format, bold=True)
+        write_cell(row_idx, 4, line_ventas, number_format=accounting_fmt, bold=True)
+        write_cell(row_idx, 5, line_costos, number_format=accounting_fmt, bold=True)
+        write_cell(row_idx, 6, line_rent, number_format="0.00%", bold=True)
+        write_cell(row_idx, 7, line_util, number_format="0.00%", bold=True)
+
+        row_idx += 1
+
+        groups = groups_by_line.get(line_name)
+        if groups is None:
+            continue
+
+        for _, group_row in groups.iterrows():
+            group_label = format_total_label(group_row["grupo"])
+            group_cant = safe_numeric(group_row["cantidad"])
+            group_ventas = safe_numeric(group_row["ventas"])
+            group_costos = safe_numeric(group_row["costos"])
+            group_rent, group_util = compute_metrics(group_ventas, group_costos)
+
+            write_cell(row_idx, 1, None)
+            write_cell(row_idx, 2, group_label)
+            write_cell(row_idx, 3, group_cant, number_format=cantidad_format)
+            write_cell(row_idx, 4, group_ventas, number_format=accounting_fmt)
+            write_cell(row_idx, 5, group_costos, number_format=accounting_fmt)
+            write_cell(row_idx, 6, group_rent, number_format="0.00%")
+            write_cell(row_idx, 7, group_util, number_format="0.00%")
+
+            row_idx += 1
+
+    totals = line_summary[["cantidad", "ventas", "costos"]].sum()
+    total_rent, total_util = compute_metrics(totals["ventas"], totals["costos"])
+
+    write_cell(row_idx, 1, "Total General", bold=True)
+    write_cell(row_idx, 2, None, bold=True)
+    write_cell(row_idx, 3, safe_numeric(totals["cantidad"]), number_format=cantidad_format, bold=True)
+    write_cell(row_idx, 4, safe_numeric(totals["ventas"]), number_format=accounting_fmt, bold=True)
+    write_cell(row_idx, 5, safe_numeric(totals["costos"]), number_format=accounting_fmt, bold=True)
+    write_cell(row_idx, 6, total_rent, number_format="0.00%", bold=True)
+    write_cell(row_idx, 7, total_util, number_format="0.00%", bold=True)
+
+    return {
+        "lineas": int(line_summary.shape[0]),
+        "grupos": int(aggregated.shape[0]),
+    }
+
+
 def _update_cod_sheets(wb, excz_dir, prefix, accounting_fmt, border):
     config = [
         ("COD24", "0024", "CR CARLOS ALBERTO TOVAR HERRER"),
@@ -707,6 +888,7 @@ def main():
     ccosto_file = None
     cod_summary = {}
     cod_file = None
+    lineas_summary = {}
 
     # --- Actualizar encabezado con fechas dinámicas -----------------------
     now = datetime.now()
@@ -793,6 +975,8 @@ def main():
         if "descripcion" in sub.columns:
             sub = sub[~sub["descripcion"].astype(str).str.contains("total", case=False, na=False)]
             sub = sub[sub["descripcion"].notna()]
+
+        lineas_summary = _update_lineas_sheet(wb, sub.copy(), accounting_fmt, border)
 
         if args.max_rows and len(sub) > args.max_rows:
             sub = sub.iloc[:args.max_rows].copy()
@@ -949,6 +1133,9 @@ def main():
     if cod_file:
         items = ", ".join(f"{k}={v}" for k, v in sorted(cod_summary.items())) or "sin datos"
         msg += f" | COD ({cod_file.name}): {items}"
+    if lineas_summary:
+        items = ", ".join(f"{k}={v}" for k, v in sorted(lineas_summary.items())) or "sin datos"
+        msg += f" | LINEAS: {items}"
     print(msg)
 
 if __name__ == "__main__":
