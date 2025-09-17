@@ -600,6 +600,25 @@ def _update_lineas_sheet(wb, data: pd.DataFrame, accounting_fmt: str, border):
         line_costos = safe_numeric(line_row["costos"])
         line_rent, line_util = compute_metrics(line_ventas, line_costos)
 
+        groups = groups_by_line.get(line_name)
+        if groups is not None:
+            for _, group_row in groups.iterrows():
+                group_label = format_total_label(group_row["grupo"])
+                group_cant = safe_numeric(group_row["cantidad"])
+                group_ventas = safe_numeric(group_row["ventas"])
+                group_costos = safe_numeric(group_row["costos"])
+                group_rent, group_util = compute_metrics(group_ventas, group_costos)
+
+                write_cell(row_idx, 1, None)
+                write_cell(row_idx, 2, group_label)
+                write_cell(row_idx, 3, group_cant, number_format=cantidad_format)
+                write_cell(row_idx, 4, group_ventas, number_format=accounting_fmt)
+                write_cell(row_idx, 5, group_costos, number_format=accounting_fmt)
+                write_cell(row_idx, 6, group_rent, number_format="0.00%")
+                write_cell(row_idx, 7, group_util, number_format="0.00%")
+
+                row_idx += 1
+
         write_cell(row_idx, 1, line_label, bold=True)
         write_cell(row_idx, 2, None, bold=True)
         write_cell(row_idx, 3, line_cant, number_format=cantidad_format, bold=True)
@@ -609,27 +628,6 @@ def _update_lineas_sheet(wb, data: pd.DataFrame, accounting_fmt: str, border):
         write_cell(row_idx, 7, line_util, number_format="0.00%", bold=True)
 
         row_idx += 1
-
-        groups = groups_by_line.get(line_name)
-        if groups is None:
-            continue
-
-        for _, group_row in groups.iterrows():
-            group_label = format_total_label(group_row["grupo"])
-            group_cant = safe_numeric(group_row["cantidad"])
-            group_ventas = safe_numeric(group_row["ventas"])
-            group_costos = safe_numeric(group_row["costos"])
-            group_rent, group_util = compute_metrics(group_ventas, group_costos)
-
-            write_cell(row_idx, 1, None)
-            write_cell(row_idx, 2, group_label)
-            write_cell(row_idx, 3, group_cant, number_format=cantidad_format)
-            write_cell(row_idx, 4, group_ventas, number_format=accounting_fmt)
-            write_cell(row_idx, 5, group_costos, number_format=accounting_fmt)
-            write_cell(row_idx, 6, group_rent, number_format="0.00%")
-            write_cell(row_idx, 7, group_util, number_format="0.00%")
-
-            row_idx += 1
 
     totals = line_summary[["cantidad", "ventas", "costos"]].sum()
     total_rent, total_util = compute_metrics(totals["ventas"], totals["costos"])
