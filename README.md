@@ -10,6 +10,7 @@ Automatiza la creación de un informe de rentabilidad a partir de una plantilla 
    - `solo_clonar.bat` crea el informe a partir de la plantilla.
    - `solo_loader.bat` importa el EXCZ a un informe existente.
    - `todo_en_un_click.bat` ejecuta ambos pasos de forma secuencial.
+   - `GenerarListadoProductos.bat` genera un catálogo de productos desde SIIGO y lo depura.
 
 ## Requisitos previos
 
@@ -50,3 +51,29 @@ Automatiza la creación de un informe de rentabilidad a partir de una plantilla 
   ```
 
 Cada script muestra mensajes en consola y pausa al final.
+
+## Servicio: listado de productos desde SIIGO
+
+`servicios/generar_listado_productos.py` ejecuta el comando `ExcelSIIGO` para
+generar un Excel de productos en `C:\\Rentabilidad\\Productos` (carpeta
+configurable) y luego deja únicamente las columnas **D**, **G** a **R** y
+**AX**, filtrando además los productos cuyo campo `ACTIVO` (columna AX) sea
+`S`.
+
+- Ejecución rápida desde Windows:
+
+  ```
+  GenerarListadoProductos.bat
+  ```
+
+- Variables de entorno (opcionales) que ajustan las rutas por defecto:
+  - `SIIGO_DIR`: carpeta donde está instalado SIIGO (por defecto `C:\\Siigo`).
+  - `SIIGO_BASE`: ruta base pasada como primer parámetro a `ExcelSIIGO`
+    (por defecto `D:\\SIIWI01`).
+  - `PRODUCTOS_DIR`: carpeta destino de los Excel generados
+    (por defecto `C:\\Rentabilidad\\Productos`).
+  - `SIIGO_LOG`: ruta del archivo de log usado por `ExcelSIIGO`
+    (por defecto `D:\\SIIWI01\\LOGS\\log_catalogos.txt`).
+
+El archivo resultante sigue el formato `ProductosMMDD.xlsx`, usando la fecha
+actual si no se indica otra con la opción `--fecha`.
