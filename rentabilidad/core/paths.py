@@ -8,18 +8,18 @@ from pathlib import Path
 from typing import Mapping
 
 SPANISH_MONTHS: Mapping[int, str] = {
-    1: "01 - Enero",
-    2: "02 - Febrero",
-    3: "03 - Marzo",
-    4: "04 - Abril",
-    5: "05 - Mayo",
-    6: "06 - Junio",
-    7: "07 - Julio",
-    8: "08 - Agosto",
-    9: "09 - Septiembre",
-    10: "10 - Octubre",
-    11: "11 - Noviembre",
-    12: "12 - Diciembre",
+    1: "Enero",
+    2: "Febrero",
+    3: "Marzo",
+    4: "Abril",
+    5: "Mayo",
+    6: "Junio",
+    7: "Julio",
+    8: "Agosto",
+    9: "Septiembre",
+    10: "Octubre",
+    11: "Noviembre",
+    12: "Diciembre",
 }
 
 
@@ -42,8 +42,7 @@ class PathContext:
         """Retorna la carpeta del mes para ``target_date`` dentro de Informes."""
 
         month_name = SPANISH_MONTHS[target_date.month]
-        year_dir = self.informes_dir / str(target_date.year)
-        month_dir = year_dir / month_name
+        month_dir = self.informes_dir / month_name
         month_dir.mkdir(parents=True, exist_ok=True)
         return month_dir
 
@@ -51,13 +50,19 @@ class PathContext:
         """Ruta completa al informe estándar para ``target_date``."""
 
         month_dir = self.informe_month_dir(target_date)
-        return month_dir / f"INFORME_{target_date:%Y%m%d}.xlsx"
+        return month_dir / self.informe_filename(target_date)
+
+    def informe_filename(self, target_date: date) -> str:
+        """Nombre del archivo de informe para ``target_date``."""
+
+        month_name = SPANISH_MONTHS[target_date.month]
+        return f"{month_name} {target_date:%d}.xlsx"
 
     def productos_path(self, target_date: date) -> Path:
         """Ruta completa al archivo de productos para ``target_date``."""
 
         self.productos_dir.mkdir(parents=True, exist_ok=True)
-        return self.productos_dir / f"Productos{target_date:%m%d}.xlsx"
+        return self.productos_dir / f"productos{target_date:%m%d}.xlsx"
 
     def template_path(self) -> Path:
         """Ruta esperada de la plantilla base."""

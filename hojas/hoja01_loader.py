@@ -17,7 +17,7 @@ from openpyxl.utils import get_column_letter
 from rentabilidad.core.dates import DateResolver, YesterdayStrategy
 from rentabilidad.core.env import load_env
 from rentabilidad.core.excz import ExczFileFinder, ExczMetadata
-from rentabilidad.core.paths import PathContext, PathContextFactory
+from rentabilidad.core.paths import PathContext, PathContextFactory, SPANISH_MONTHS
 
 
 load_env()
@@ -28,8 +28,47 @@ DEFAULT_EXCZ_PREFIX = os.environ.get("EXCZPREFIX", "EXCZ980")
 DEFAULT_CCOSTO_EXCZ_PREFIX = os.environ.get("CCOSTO_EXCZPREFIX", "EXCZ979")
 DEFAULT_COD_EXCZ_PREFIX = os.environ.get("COD_EXCZPREFIX", "EXCZ978")
 DEFAULT_PRECIOS_DIR = os.environ.get("PRECIOS_DIR", str(PATH_CONTEXT.productos_dir))
-DEFAULT_PRECIOS_PREFIX = os.environ.get("PRECIOS_PREFIX", "Productos")
+DEFAULT_PRECIOS_PREFIX = os.environ.get("PRECIOS_PREFIX", "productos")
 ACCOUNTING_FORMAT = '_-[$$-409]* #,##0.00_-;_-[$$-409]* (#,##0.00);_-[$$-409]* "-"??_-;_-@_-'
+
+
+def _normalize_month_string(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value))
+    stripped = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+    cleaned = re.sub(r"[\-_/]+", " ", stripped)
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned.strip().lower()
+
+
+_MONTH_NAME_LOOKUP = {
+    _normalize_month_string(name): month for month, name in SPANISH_MONTHS.items()
+}
+
+
+def _extract_report_datetime(path: Path, fallback: date) -> datetime:
+    stem = path.stem
+
+    match = re.search(r"(\d{4})(\d{2})(\d{2})", stem)
+    if match:
+        year, month, day = map(int, match.groups())
+        try:
+            return datetime(year, month, day)
+        except ValueError:
+            pass
+
+    normalized = _normalize_month_string(stem)
+    for month_key, month_number in _MONTH_NAME_LOOKUP.items():
+        pattern = rf"{re.escape(month_key)}\s*(\d{{1,2}})"
+        match = re.search(pattern, normalized)
+        if match:
+            day = int(match.group(1))
+            year = fallback.year
+            try:
+                return datetime(year, month_number, day)
+            except ValueError:
+                continue
+
+    return datetime.combine(fallback, datetime.min.time())
 
 def _norm(s: str) -> str:
     return (str(s).strip().lower()
@@ -997,7 +1036,11 @@ def _update_precios_sheet(
 
 def main():
     p = argparse.ArgumentParser(description="Importa el EXCZ del día previo y aplica fórmulas fijas.")
-    p.add_argument("--excel", default=None, help="Ruta al INFORME_YYYYMMDD.xlsx a actualizar")
+    p.add_argument(
+        "--excel",
+        default=None,
+        help="Ruta al informe '<Mes> DD.xlsx' a actualizar",
+    )
     p.add_argument("--exczdir", default=DEFAULT_EXCZDIR, help="Carpeta de EXCZ")
     p.add_argument("--hoja",    default=None,            help="Nombre de la Hoja 1 (por defecto la primera)")
     p.add_argument("--excz-prefix", default=DEFAULT_EXCZ_PREFIX,
@@ -1021,12 +1064,12 @@ def main():
     p.add_argument(
         "--precios-dir",
         default=DEFAULT_PRECIOS_DIR,
-        help="Carpeta donde se buscará ProductosMMDD.xlsx si no se especifica archivo",
+        help="Carpeta donde se buscará productosMMDD.xlsx si no se especifica archivo",
     )
     p.add_argument(
         "--precios-prefix",
         default=DEFAULT_PRECIOS_PREFIX,
-        help="Prefijo del archivo de precios (Productos por defecto)",
+        help="Prefijo del archivo de precios (productos por defecto)",
     )
     args = p.parse_args()
 
@@ -1065,8 +1108,8 @@ def main():
     # --- Actualizar encabezado con fechas dinámicas -----------------------
     now = datetime.now()
 
-    m = re.search(r"(\d{4})(\d{2})(\d{2})", path.stem)
-    report_date = datetime(int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else now
+    report_dt = _extract_report_datetime(path, report_date)
+    report_date = report_dt.date()
 
     for row in ws.iter_rows(min_row=1, max_row=6, max_col=ws.max_column):
         for cell in row:
@@ -1076,7 +1119,7 @@ def main():
             if "MES/DIA/ANIO" in val:
                 cell.value = now.strftime("%m/%d/%Y")
             elif "FECHA DEL INFORME" in val:
-                cell.value = val.replace("FECHA DEL INFORME", report_date.strftime("%m/%d/%Y"))
+                cell.value = val.replace("FECHA DEL INFORME", report_dt.strftime("%m/%d/%Y"))
             elif "Procesado en" in val:
                 cell.value = f"Procesado en: {now.strftime('%Y/%m/%d %H:%M:%S:%f')[:-3]}"
     # ---------------------------------------------------------------------

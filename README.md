@@ -9,8 +9,8 @@ las rutas son configurables mediante variables de entorno):
 
 ```
 C:\Rentabilidad\
- ├── Informes\<año>\<MM - Mes>\INFORME_YYYYMMDD.xlsx
- └── Productos\ProductosMMDD.xlsx
+ ├── Informes\<Mes>\<Mes> DD.xlsx
+ └── Productos\productosMMDD.xlsx
 ```
 
 Cada informe se almacena dentro del mes correspondiente y los listados
@@ -20,7 +20,7 @@ de productos se guardan en la carpeta `Productos`.
 
 1. **Clonado de plantilla**: `excel_base/clone_from_template.py` copia
    `C:\Rentabilidad\PLANTILLA.xlsx` a la carpeta del mes
-   correspondiente generando `INFORME_YYYYMMDD.xlsx`. La fecha objetivo
+   correspondiente generando `<Mes> DD.xlsx`. La fecha objetivo
    es, por defecto, el día inmediatamente anterior.
 2. **Carga de EXCZ**: `hojas/hoja01_loader.py` identifica el archivo
    `EXCZ***YYYYMMDDHHMMSS` cuya fecha coincide con la solicitada (por
@@ -80,7 +80,7 @@ para generar un Excel de productos en `C:\\Rentabilidad\\Productos`
 (carpeta configurable) y luego deja únicamente las columnas **D**, **G** a
 **R** y **AX**, filtrando además los productos cuyo campo `ACTIVO`
 (columna AX) sea `S`. El nombre resultante sigue el formato
-`ProductosMMDD.xlsx` y, por defecto, utiliza la fecha actual.
+`productosMMDD.xlsx` y, por defecto, utiliza la fecha actual.
 
 - Ejecución rápida desde Windows:
 
@@ -97,5 +97,5 @@ para generar un Excel de productos en `C:\\Rentabilidad\\Productos`
   - `SIIGO_LOG`: ruta del archivo de log usado por `ExcelSIIGO`
     (por defecto `D:\\SIIWI01\\LOGS\\log_catalogos.txt`).
 
-El archivo resultante sigue el formato `ProductosMMDD.xlsx`, usando la fecha
+El archivo resultante sigue el formato `productosMMDD.xlsx`, usando la fecha
 actual si no se indica otra con la opción `--fecha`.
