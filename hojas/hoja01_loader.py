@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import sys
 import unicodedata
 from datetime import date, datetime
 from pathlib import Path
@@ -13,6 +14,13 @@ from pandas.api.types import is_numeric_dtype
 from openpyxl import load_workbook
 from openpyxl.styles import Border, Font, Side
 from openpyxl.utils import get_column_letter
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    # Garantiza que las importaciones absolutas funcionen incluso al ejecutar el
+    # script directamente (por ejemplo, desde un .bat).
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from rentabilidad.core.dates import DateResolver, YesterdayStrategy
 from rentabilidad.core.env import load_env
