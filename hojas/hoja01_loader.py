@@ -30,6 +30,10 @@ DEFAULT_EXCZDIR = os.environ.get("EXCZDIR", r"D:\\SIIWI01\\LISTADOS")
 DEFAULT_EXCZ_PREFIX = os.environ.get("EXCZPREFIX", "EXCZ980")
 DEFAULT_CCOSTO_EXCZ_PREFIX = os.environ.get("CCOSTO_EXCZPREFIX", "EXCZ979")
 DEFAULT_COD_EXCZ_PREFIX = os.environ.get("COD_EXCZPREFIX", "EXCZ978")
+DEFAULT_PRECIOS_DIR = os.environ.get(
+    "PRECIOS_DIR", str(Path(DEFAULT_RENT_DIR) / "Productos")
+)
+DEFAULT_PRECIOS_PREFIX = os.environ.get("PRECIOS_PREFIX", "Productos")
 ACCOUNTING_FORMAT = '_-[$$-409]* #,##0.00_-;_-[$$-409]* (#,##0.00);_-[$$-409]* "-"??_-;_-@_-'
 
 def _norm(s: str) -> str:
@@ -101,6 +105,74 @@ def _read_excz_df(file: Path):
     df = df_raw.iloc[header_row + 1:].copy()
     df.columns = df_raw.iloc[header_row].astype(str).tolist()
     return df
+
+
+def _precios_candidate_dirs(base_dir):
+    candidates = []
+    seen = set()
+
+    def add(path):
+        if not path:
+            return
+        p = Path(path)
+        key = str(p).lower()
+        if key in seen:
+            return
+        seen.add(key)
+        candidates.append(p)
+
+    if base_dir:
+        p = Path(base_dir)
+        if p.is_file():
+            add(p)
+        else:
+            add(p)
+            if p.name.lower() != "productos":
+                add(p / "Productos")
+
+    default_dir = Path(DEFAULT_PRECIOS_DIR)
+    if default_dir.is_file():
+        add(default_dir)
+    else:
+        add(default_dir)
+        if default_dir.name.lower() != "productos":
+            add(default_dir / "Productos")
+
+    rent_dir = Path(DEFAULT_RENT_DIR)
+    add(rent_dir / "Productos")
+    add(rent_dir)
+
+    return candidates
+
+
+def _resolve_precios_path(report_date, *, explicit_file=None, directory=None, prefix=None):
+    prefix = prefix or DEFAULT_PRECIOS_PREFIX
+
+    if explicit_file:
+        path = Path(explicit_file)
+        return (path if path.exists() else None), [path.parent], [path.name], True
+
+    base_name = report_date.strftime("%m%d")
+    if prefix:
+        base_name = f"{prefix}{base_name}"
+
+    candidate_names = [f"{base_name}{ext}" for ext in (".xlsx", ".xlsm", ".xls")]
+
+    candidate_dirs = _precios_candidate_dirs(directory)
+    for dir_path in candidate_dirs:
+        if dir_path.is_file():
+            if dir_path.exists():
+                return dir_path, candidate_dirs, candidate_names, False
+            continue
+        if not dir_path.exists():
+            continue
+        for name in candidate_names:
+            candidate = dir_path / name
+            if candidate.exists():
+                return candidate, candidate_dirs, candidate_names, False
+
+    return None, candidate_dirs, candidate_names, False
+
 
 def _guess_map(df_cols):
     cols = {_norm(c): c for c in df_cols}
@@ -848,6 +920,81 @@ def _update_cod_sheets(wb, excz_dir, prefix, accounting_fmt, border):
     return summary, latest
 
 
+def _update_precios_sheet(
+    wb,
+    *,
+    report_date,
+    precios_file=None,
+    precios_dir=None,
+    precios_prefix=None,
+):
+    sheet_name = "PRECIOS"
+    if sheet_name not in wb.sheetnames:
+        return {}, None
+
+    path, search_dirs, candidate_names, explicit = _resolve_precios_path(
+        report_date,
+        explicit_file=precios_file,
+        directory=precios_dir,
+        prefix=precios_prefix,
+    )
+
+    if not path or not path.exists():
+        if explicit:
+            print(
+                "ERROR: No existe el archivo de precios especificado "
+                f"({precios_file})."
+            )
+        else:
+            locations = [str(d) for d in search_dirs if d]
+            if not locations:
+                base_location = Path(precios_dir) if precios_dir else Path(DEFAULT_PRECIOS_DIR)
+                locations = [str(base_location)]
+            names = ", ".join(candidate_names) if candidate_names else ""
+            print(
+                "ERROR: No se encontró archivo de precios "
+                f"({names}) en: {', '.join(locations)}"
+            )
+        raise SystemExit(19)
+
+    src_wb = load_workbook(filename=path, data_only=True, read_only=True)
+    try:
+        src_ws = src_wb.active
+        rows = [tuple(row) for row in src_ws.iter_rows(values_only=True)]
+    finally:
+        src_wb.close()
+
+    ws = wb[sheet_name]
+    ws.delete_rows(1, ws.max_row)
+
+    rows_with_data = 0
+    last_row_index = 0
+    max_used_cols = 0
+
+    for row_idx, values in enumerate(rows, start=1):
+        if not values:
+            continue
+        row_has_data = False
+        for col_idx, value in enumerate(values, start=1):
+            if value in (None, ""):
+                continue
+            ws.cell(row=row_idx, column=col_idx, value=value)
+            row_has_data = True
+            if col_idx > max_used_cols:
+                max_used_cols = col_idx
+        if row_has_data:
+            rows_with_data += 1
+        last_row_index = row_idx
+
+    summary = {
+        "rows": rows_with_data,
+        "total_rows": last_row_index,
+        "columns": max_used_cols,
+    }
+
+    return summary, path
+
+
 def main():
     p = argparse.ArgumentParser(description="Importa último EXCZ a Hoja 1 y aplica fórmulas fijas.")
     p.add_argument("--excel",   default=DEFAULT_EXCEL,   help="Ruta al INFORME_YYYYMMDD.xlsx")
@@ -864,6 +1011,22 @@ def main():
     p.add_argument("--skip-cod", action="store_true", help="No actualizar hojas COD")
     p.add_argument("--cod-excz-prefix", default=DEFAULT_COD_EXCZ_PREFIX,
                    help="Prefijo del archivo EXCZ para hojas COD")
+    p.add_argument("--skip-precios", action="store_true", help="No actualizar hoja PRECIOS")
+    p.add_argument(
+        "--precios-file",
+        default=None,
+        help="Ruta exacta del archivo de precios a copiar en la hoja PRECIOS",
+    )
+    p.add_argument(
+        "--precios-dir",
+        default=DEFAULT_PRECIOS_DIR,
+        help="Carpeta donde se buscará ProductosMMDD.xlsx si no se especifica archivo",
+    )
+    p.add_argument(
+        "--precios-prefix",
+        default=DEFAULT_PRECIOS_PREFIX,
+        help="Prefijo del archivo de precios (Productos por defecto)",
+    )
     args = p.parse_args()
 
     path = Path(args.excel)
@@ -887,6 +1050,8 @@ def main():
     cod_summary = {}
     cod_file = None
     lineas_summary = {}
+    precios_summary = {}
+    precios_file = None
 
     # --- Actualizar encabezado con fechas dinámicas -----------------------
     now = datetime.now()
@@ -905,6 +1070,19 @@ def main():
                 cell.value = val.replace("FECHA DEL INFORME", report_date.strftime("%m/%d/%Y"))
             elif "Procesado en" in val:
                 cell.value = f"Procesado en: {now.strftime('%Y/%m/%d %H:%M:%S:%f')[:-3]}"
+    # ---------------------------------------------------------------------
+
+    if not args.skip_precios:
+        resumen, archivo = _update_precios_sheet(
+            wb,
+            report_date=report_date,
+            precios_file=args.precios_file,
+            precios_dir=args.precios_dir,
+            precios_prefix=args.precios_prefix,
+        )
+        if archivo:
+            precios_summary = resumen
+            precios_file = archivo
     # ---------------------------------------------------------------------
 
     header_row, hmap = _find_header_row_and_map(ws)
@@ -1134,6 +1312,9 @@ def main():
     if lineas_summary:
         items = ", ".join(f"{k}={v}" for k, v in sorted(lineas_summary.items())) or "sin datos"
         msg += f" | LINEAS: {items}"
+    if precios_file:
+        items = ", ".join(f"{k}={v}" for k, v in sorted(precios_summary.items())) or "sin datos"
+        msg += f" | PRECIOS ({precios_file.name}): {items}"
     print(msg)
 
 if __name__ == "__main__":
