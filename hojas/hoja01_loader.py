@@ -1201,7 +1201,7 @@ def main():
 
     # Aplicar fórmulas fijas
     vend_range = "G:H"   # VENDEDORES (NIT en G, COD_VENDEDOR en H)
-    prec_range = "A:B"   # PRECIOS (DESCRIPCION en A, PRECIO en B)
+    prec_range = "A:M"   # PRECIOS (DESCRIPCION en A, PRECIO en M)
 
     L = lambda c: get_column_letter(c) if c else None
     L_vend = L(col_vendedor); L_prec = L(col_precio); L_desc = L(col_descuento)
