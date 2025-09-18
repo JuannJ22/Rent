@@ -16,7 +16,10 @@ def main() -> None:
     context = PathContextFactory(os.environ).create()
 
     parser = argparse.ArgumentParser(
-        description="Clona PLANTILLA.xlsx a INFORME_YYYYMMDD.xlsx en la estructura de C:\\Rentabilidad\\Informes."
+        description=(
+            "Clona PLANTILLA.xlsx a '<Mes> DD.xlsx' dentro de la estructura de "
+            r"C:\Rentabilidad\Informes."
+        )
     )
     parser.add_argument("--template", default=str(context.template_path()), help="Ruta a PLANTILLA.xlsx")
     parser.add_argument(
@@ -24,7 +27,7 @@ def main() -> None:
         default=None,
         help=(
             "Carpeta de salida. Por defecto se utiliza la carpeta del mes dentro de"
-            " C\\Rentabilidad\\Informes"
+            r" C:\Rentabilidad\Informes"
         ),
     )
     parser.add_argument("--fecha", default=None, help="YYYY-MM-DD (por defecto el día anterior)")
@@ -44,7 +47,7 @@ def main() -> None:
     else:
         outdir = context.informe_month_dir(target_date)
 
-    out_path = outdir / f"INFORME_{target_date:%Y%m%d}.xlsx"
+    out_path = outdir / context.informe_filename(target_date)
 
     shutil.copyfile(template_path, out_path)
     print(out_path)
