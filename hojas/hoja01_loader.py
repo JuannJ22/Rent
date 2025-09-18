@@ -1,38 +1,33 @@
-import argparse, os, re, unicodedata
-from typing import Tuple
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import unicodedata
+from datetime import date, datetime
 from pathlib import Path
-from datetime import datetime
+from typing import Tuple
+
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
 from openpyxl import load_workbook
+from openpyxl.styles import Border, Font, Side
 from openpyxl.utils import get_column_letter
-from openpyxl.styles import Border, Side, Font
+
+from rentabilidad.core.dates import DateResolver, YesterdayStrategy
+from rentabilidad.core.env import load_env
+from rentabilidad.core.excz import ExczFileFinder, ExczMetadata
+from rentabilidad.core.paths import PathContext, PathContextFactory
 
 
-def _load_env():
-    env_file = Path(__file__).resolve().parent.parent / ".env"
-    if env_file.exists():
-        for line in env_file.read_text().splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            os.environ.setdefault(key.strip(), value.strip())
-
-
-_load_env()
-DEFAULT_RENT_DIR = os.environ.get("RENT_DIR", r"C:\\Rentabilidad")
-DEFAULT_EXCEL = os.environ.get(
-    "EXCEL",
-    str(Path(DEFAULT_RENT_DIR) / f"INFORME_{datetime.now().strftime('%Y%m%d')}.xlsx"),
-)
+load_env()
+PATH_CONTEXT: PathContext = PathContextFactory(os.environ).create()
+DEFAULT_RENT_DIR = os.environ.get("RENT_DIR", str(PATH_CONTEXT.base_dir))
 DEFAULT_EXCZDIR = os.environ.get("EXCZDIR", r"D:\\SIIWI01\\LISTADOS")
 DEFAULT_EXCZ_PREFIX = os.environ.get("EXCZPREFIX", "EXCZ980")
 DEFAULT_CCOSTO_EXCZ_PREFIX = os.environ.get("CCOSTO_EXCZPREFIX", "EXCZ979")
 DEFAULT_COD_EXCZ_PREFIX = os.environ.get("COD_EXCZPREFIX", "EXCZ978")
-DEFAULT_PRECIOS_DIR = os.environ.get(
-    "PRECIOS_DIR", str(Path(DEFAULT_RENT_DIR) / "Productos")
-)
+DEFAULT_PRECIOS_DIR = os.environ.get("PRECIOS_DIR", str(PATH_CONTEXT.productos_dir))
 DEFAULT_PRECIOS_PREFIX = os.environ.get("PRECIOS_PREFIX", "Productos")
 ACCOUNTING_FORMAT = '_-[$$-409]* #,##0.00_-;_-[$$-409]* (#,##0.00);_-[$$-409]* "-"??_-;_-@_-'
 
@@ -60,19 +55,14 @@ def _letter_from_header(header_map, *candidates):
             return header_map[key][1]
     return None
 
-def _pick_latest_excz(path: Path, prefix: str):
-    pattern = rf'^{re.escape(prefix.lower())}.*\.(xlsx|xls|csv)$'
-    candidates = []
-    for p in path.iterdir():
-        if not p.is_file():
-            continue
-        name = p.name.lower()
-        if re.match(pattern, name):
-            candidates.append(p)
-    if not candidates:
-        return None
-    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    return candidates[0]
+def _pick_excz_for_date(path: Path, prefix: str, report_date: date) -> Tuple[Path | None, list[ExczMetadata]]:
+    directory = Path(path)
+    finder = ExczFileFinder(directory)
+    matches = list(finder.iter_matches(prefix))
+    for meta in matches:
+        if meta.timestamp.date() == report_date:
+            return meta.path, matches
+    return None, matches
 
 def _read_excz_df(file: Path):
     """
@@ -354,7 +344,7 @@ def _select_cod_rows(df: pd.DataFrame, label: str) -> pd.DataFrame:
     return _select_rows_by_norm(df, label, "cod_norm")
 
 
-def _update_ccosto_sheets(wb, excz_dir, prefix, accounting_fmt, border):
+def _update_ccosto_sheets(wb, excz_dir, prefix, accounting_fmt, border, report_date: date):
     config = [
         ("CCOSTO 1", "0001   MOST. PRINCIPAL"),
         ("CCOSTO 2", "0002   MOST. SUCURSAL"),
@@ -366,9 +356,14 @@ def _update_ccosto_sheets(wb, excz_dir, prefix, accounting_fmt, border):
     if not excz_dir.exists():
         print(f"ERROR: No existe la carpeta de EXCZ para CCOSTO: {excz_dir}")
         raise SystemExit(8)
-    latest = _pick_latest_excz(excz_dir, prefix)
+    latest, matches = _pick_excz_for_date(excz_dir, prefix, report_date)
     if not latest:
-        print(f"ERROR: No se encontró EXCZ para CCOSTO con prefijo {prefix} en {excz_dir}")
+        available = ", ".join(meta.path.name for meta in matches) or "sin archivos"
+        print(
+            "ERROR: No se encontró EXCZ para CCOSTO "
+            f"con prefijo {prefix} y fecha {report_date:%Y-%m-%d} en {excz_dir}. "
+            f"Disponibles: {available}"
+        )
         raise SystemExit(6)
 
     df = _read_excz_df(latest)
@@ -718,7 +713,7 @@ def _update_lineas_sheet(wb, data: pd.DataFrame, accounting_fmt: str, border):
     }
 
 
-def _update_cod_sheets(wb, excz_dir, prefix, accounting_fmt, border):
+def _update_cod_sheets(wb, excz_dir, prefix, accounting_fmt, border, report_date: date):
     config = [
         ("COD24", "0024", "CR CARLOS ALBERTO TOVAR HERRER"),
         ("COD25", "0025", "CO CARLOS ALBERTO TOVAR HERRER"),
@@ -735,9 +730,14 @@ def _update_cod_sheets(wb, excz_dir, prefix, accounting_fmt, border):
         print(f"ERROR: No existe la carpeta de EXCZ para COD: {excz_dir}")
         raise SystemExit(18)
 
-    latest = _pick_latest_excz(excz_dir, prefix)
+    latest, matches = _pick_excz_for_date(excz_dir, prefix, report_date)
     if not latest:
-        print(f"ERROR: No se encontró EXCZ para COD con prefijo {prefix} en {excz_dir}")
+        available = ", ".join(meta.path.name for meta in matches) or "sin archivos"
+        print(
+            "ERROR: No se encontró EXCZ para COD "
+            f"con prefijo {prefix} y fecha {report_date:%Y-%m-%d} en {excz_dir}. "
+            f"Disponibles: {available}"
+        )
         raise SystemExit(16)
 
     df = _read_excz_df(latest)
@@ -996,12 +996,13 @@ def _update_precios_sheet(
 
 
 def main():
-    p = argparse.ArgumentParser(description="Importa último EXCZ a Hoja 1 y aplica fórmulas fijas.")
-    p.add_argument("--excel",   default=DEFAULT_EXCEL,   help="Ruta al INFORME_YYYYMMDD.xlsx")
+    p = argparse.ArgumentParser(description="Importa el EXCZ del día previo y aplica fórmulas fijas.")
+    p.add_argument("--excel", default=None, help="Ruta al INFORME_YYYYMMDD.xlsx a actualizar")
     p.add_argument("--exczdir", default=DEFAULT_EXCZDIR, help="Carpeta de EXCZ")
     p.add_argument("--hoja",    default=None,            help="Nombre de la Hoja 1 (por defecto la primera)")
     p.add_argument("--excz-prefix", default=DEFAULT_EXCZ_PREFIX,
                    help="Prefijo del archivo EXCZ a buscar")
+    p.add_argument("--fecha", default=None, help="Fecha del informe (YYYY-MM-DD, por defecto día anterior)")
     p.add_argument("--max-rows", type=int, default=0,    help="Forzar número de filas (0 = según datos)")
     p.add_argument("--skip-import", action="store_true", help="No importar EXCZ, sólo aplicar fórmulas")
     p.add_argument("--safe-fill",  action="store_true", default=True, help="Sólo escribir en filas con datos")
@@ -1029,7 +1030,15 @@ def main():
     )
     args = p.parse_args()
 
-    path = Path(args.excel)
+    resolver = DateResolver(YesterdayStrategy())
+    report_date = resolver.resolve(args.fecha)
+
+    context = PATH_CONTEXT
+    if args.excel:
+        path = Path(args.excel)
+    else:
+        path = context.informe_path(report_date)
+
     if not path.exists():
         print(f"ERROR: No existe el informe: {path}")
         raise SystemExit(2)
@@ -1119,9 +1128,14 @@ def main():
             print(f"ERROR: No existe la carpeta de EXCZ: {excz_dir}")
             raise SystemExit(4)
 
-        latest = _pick_latest_excz(excz_dir, args.excz_prefix)
+        latest, matches = _pick_excz_for_date(excz_dir, args.excz_prefix, report_date)
         if not latest:
-            print("ERROR: No se encontró EXCZ en la carpeta.")
+            available = ", ".join(meta.path.name for meta in matches) or "sin archivos"
+            print(
+                "ERROR: No se encontró EXCZ principal "
+                f"con prefijo {args.excz_prefix} y fecha {report_date:%Y-%m-%d} en {excz_dir}. "
+                f"Disponibles: {available}"
+            )
             raise SystemExit(5)
 
         df = _read_excz_df(latest)
@@ -1191,12 +1205,22 @@ def main():
 
     if not args.skip_import and not args.skip_ccosto:
         ccosto_summary, ccosto_file = _update_ccosto_sheets(
-            wb, args.exczdir, args.ccosto_excz_prefix, accounting_fmt, border
+            wb,
+            args.exczdir,
+            args.ccosto_excz_prefix,
+            accounting_fmt,
+            border,
+            report_date,
         )
 
     if not args.skip_import and not args.skip_cod:
         cod_summary, cod_file = _update_cod_sheets(
-            wb, args.exczdir, args.cod_excz_prefix, accounting_fmt, border
+            wb,
+            args.exczdir,
+            args.cod_excz_prefix,
+            accounting_fmt,
+            border,
+            report_date,
         )
 
     # Aplicar fórmulas fijas
@@ -1303,6 +1327,7 @@ def main():
 
     wb.save(path)
     msg = f"OK. Procesadas {n_rows} filas y fórmulas aplicadas sobre: {path}"
+    msg += f" | FECHA OBJETIVO: {report_date:%Y-%m-%d}"
     if ccosto_file:
         items = ", ".join(f"{k}={v}" for k, v in sorted(ccosto_summary.items())) or "sin datos"
         msg += f" | CCOSTO ({ccosto_file.name}): {items}"
