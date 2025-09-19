@@ -21,6 +21,15 @@ class ExczMetadata:
     def date_key(self) -> str:
         return self.timestamp.strftime("%Y%m%d")
 
+    @property
+    def modified_at(self) -> float:
+        """Marca de tiempo de última modificación en segundos."""
+
+        try:
+            return self.path.stat().st_mtime
+        except FileNotFoundError:
+            return 0.0
+
 
 class ExczPattern(Protocol):
     """Protocolo de coincidencia para nombres de archivos EXCZ."""
@@ -71,6 +80,15 @@ class ExczFileFinder:
             if meta.timestamp.date() == target_date:
                 return meta.path
         return None
+
+    def find_latest(self, prefix: str) -> Path | None:
+        """Devuelve el archivo más reciente según fecha de modificación."""
+
+        matches = list(self.iter_matches(prefix))
+        if not matches:
+            return None
+        latest = max(matches, key=lambda meta: meta.modified_at)
+        return latest.path
 
 
 __all__ = ["ExczFileFinder", "ExczMetadata", "TimestampedExczPattern"]

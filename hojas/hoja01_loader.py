@@ -218,10 +218,21 @@ def _letter_from_header(header_map, *candidates):
             return header_map[key][1]
     return None
 
-def _pick_excz_for_date(path: Path, prefix: str, report_date: date) -> Tuple[Path | None, list[ExczMetadata]]:
+def _pick_excz_for_date(
+    path: Path,
+    prefix: str,
+    report_date: date,
+    *,
+    use_latest: bool = False,
+) -> Tuple[Path | None, list[ExczMetadata]]:
     directory = Path(path)
     finder = ExczFileFinder(directory)
     matches = list(finder.iter_matches(prefix))
+    if use_latest:
+        matches_sorted = sorted(matches, key=lambda meta: meta.modified_at, reverse=True)
+        if matches_sorted:
+            return matches_sorted[0].path, matches
+        return None, matches
     for meta in matches:
         if meta.timestamp.date() == report_date:
             return meta.path, matches
@@ -298,20 +309,87 @@ def _precios_candidate_dirs(base_dir):
     return candidates
 
 
-def _resolve_precios_path(report_date, *, explicit_file=None, directory=None, prefix=None):
+def _find_latest_file_by_prefix(
+    candidate_dirs,
+    prefix: str | None,
+    extensions: Tuple[str, ...],
+):
+    best_path: Path | None = None
+    best_mtime = float("-inf")
+    prefix_lower = prefix.lower() if prefix else ""
+    allowed_exts = tuple(ext.lower() for ext in extensions)
+
+    for dir_path in candidate_dirs:
+        if not dir_path:
+            continue
+        path_obj = Path(dir_path)
+        if path_obj.is_file():
+            if (not prefix_lower or path_obj.name.lower().startswith(prefix_lower)) and (
+                not allowed_exts or path_obj.suffix.lower() in allowed_exts
+            ):
+                try:
+                    mtime = path_obj.stat().st_mtime
+                except FileNotFoundError:
+                    continue
+                if mtime > best_mtime:
+                    best_mtime = mtime
+                    best_path = path_obj
+            continue
+
+        if not path_obj.exists():
+            continue
+
+        for child in path_obj.iterdir():
+            if not child.is_file():
+                continue
+            if allowed_exts and child.suffix.lower() not in allowed_exts:
+                continue
+            if prefix_lower and not child.name.lower().startswith(prefix_lower):
+                continue
+            try:
+                mtime = child.stat().st_mtime
+            except FileNotFoundError:
+                continue
+            if mtime > best_mtime:
+                best_mtime = mtime
+                best_path = child
+
+    return best_path
+
+
+def _resolve_precios_path(
+    report_date,
+    *,
+    explicit_file=None,
+    directory=None,
+    prefix=None,
+    use_latest=False,
+):
     prefix = prefix or DEFAULT_PRECIOS_PREFIX
 
     if explicit_file:
         path = Path(explicit_file)
         return (path if path.exists() else None), [path.parent], [path.name], True
 
-    base_name = report_date.strftime("%m%d")
-    if prefix:
-        base_name = f"{prefix}{base_name}"
-
-    candidate_names = [f"{base_name}{ext}" for ext in (".xlsx", ".xlsm", ".xls")]
-
     candidate_dirs = _precios_candidate_dirs(directory)
+    extensions = (".xlsx", ".xlsm", ".xls")
+
+    if use_latest:
+        pattern_names = [
+            f"{prefix or ''}*{ext}".strip() if prefix else f"*{ext}"
+            for ext in extensions
+        ]
+        latest = _find_latest_file_by_prefix(candidate_dirs, prefix, extensions)
+        if latest:
+            return latest, candidate_dirs, pattern_names, False
+        candidate_names = pattern_names
+    else:
+        base_name = report_date.strftime("%m%d")
+        if prefix:
+            base_name = f"{prefix}{base_name}"
+
+        candidate_names = [f"{base_name}{ext}" for ext in extensions]
+
     for dir_path in candidate_dirs:
         if dir_path.is_file():
             if dir_path.exists():
@@ -361,6 +439,7 @@ def _resolve_vendedores_path(
     explicit_file=None,
     directory=None,
     prefix=None,
+    use_latest=False,
 ):
     prefix = prefix or DEFAULT_VENDEDORES_PREFIX
 
@@ -368,16 +447,26 @@ def _resolve_vendedores_path(
         path = Path(explicit_file)
         return (path if path.exists() else None), [path.parent], [path.name], True
 
-    base_name = report_date.strftime("%d%m")
-    if prefix:
-        base_name = f"{prefix}{base_name}"
-
-    candidate_names = [
-        f"{base_name}{ext}" for ext in (".xlsx", ".xlsm", ".xls", ".csv")
-    ]
-
     candidate_dirs = _vendedores_candidate_dirs(directory)
     search_dirs = []
+
+    extensions = (".xlsx", ".xlsm", ".xls", ".csv")
+
+    if use_latest:
+        pattern_names = [
+            f"{prefix or ''}*{ext}".strip() if prefix else f"*{ext}"
+            for ext in extensions
+        ]
+        latest = _find_latest_file_by_prefix(candidate_dirs, prefix, extensions)
+        if latest:
+            return latest, candidate_dirs, pattern_names, False
+        candidate_names = pattern_names
+    else:
+        base_name = report_date.strftime("%d%m")
+        if prefix:
+            base_name = f"{prefix}{base_name}"
+
+        candidate_names = [f"{base_name}{ext}" for ext in extensions]
 
     for dir_path in candidate_dirs:
         p = Path(dir_path)
@@ -407,6 +496,7 @@ def _update_vendedores_sheet(
     vendedores_file=None,
     vendedores_dir=None,
     vendedores_prefix=None,
+    use_latest=False,
 ):
     sheet_name = "VENDEDORES"
     if sheet_name not in wb.sheetnames:
@@ -417,6 +507,7 @@ def _update_vendedores_sheet(
         explicit_file=vendedores_file,
         directory=vendedores_dir,
         prefix=vendedores_prefix,
+        use_latest=use_latest,
     )
 
     if not path or not path.exists():
@@ -435,10 +526,18 @@ def _update_vendedores_sheet(
                 )
                 locations = [str(base_location)]
             names = ", ".join(candidate_names) if candidate_names else ""
-            print(
-                "ERROR: No se encontró archivo de vendedores "
-                f"({names}) en: {', '.join(locations)}"
-            )
+            if use_latest:
+                print(
+                    "ERROR: No se encontró un archivo de vendedores más "
+                    "reciente "
+                    f"con prefijo {vendedores_prefix or DEFAULT_VENDEDORES_PREFIX} "
+                    f"en: {', '.join(locations)}"
+                )
+            else:
+                print(
+                    "ERROR: No se encontró archivo de vendedores "
+                    f"({names}) en: {', '.join(locations)}"
+                )
         raise SystemExit(20)
 
     src_wb = load_workbook(filename=path, data_only=True, read_only=True)
@@ -646,7 +745,16 @@ def _select_cod_rows(df: pd.DataFrame, label: str) -> pd.DataFrame:
     return _select_rows_by_norm(df, label, "cod_norm")
 
 
-def _update_ccosto_sheets(wb, excz_dir, prefix, accounting_fmt, border, report_date: date):
+def _update_ccosto_sheets(
+    wb,
+    excz_dir,
+    prefix,
+    accounting_fmt,
+    border,
+    report_date: date,
+    *,
+    use_latest: bool = False,
+):
     config = [
         ("CCOSTO 1", "0001   MOST. PRINCIPAL"),
         ("CCOSTO 2", "0002   MOST. SUCURSAL"),
@@ -658,14 +766,25 @@ def _update_ccosto_sheets(wb, excz_dir, prefix, accounting_fmt, border, report_d
     if not excz_dir.exists():
         print(f"ERROR: No existe la carpeta de EXCZ para CCOSTO: {excz_dir}")
         raise SystemExit(8)
-    latest, matches = _pick_excz_for_date(excz_dir, prefix, report_date)
+    latest, matches = _pick_excz_for_date(
+        excz_dir,
+        prefix,
+        report_date,
+        use_latest=use_latest,
+    )
     if not latest:
         available = ", ".join(meta.path.name for meta in matches) or "sin archivos"
-        print(
-            "ERROR: No se encontró EXCZ para CCOSTO "
-            f"con prefijo {prefix} y fecha {report_date:%Y-%m-%d} en {excz_dir}. "
-            f"Disponibles: {available}"
-        )
+        if use_latest:
+            print(
+                "ERROR: No se encontró un EXCZ para CCOSTO más reciente "
+                f"con prefijo {prefix} en {excz_dir}. Disponibles: {available}"
+            )
+        else:
+            print(
+                "ERROR: No se encontró EXCZ para CCOSTO "
+                f"con prefijo {prefix} y fecha {report_date:%Y-%m-%d} en {excz_dir}. "
+                f"Disponibles: {available}"
+            )
         raise SystemExit(6)
 
     df = _read_excz_df(latest)
@@ -1015,7 +1134,16 @@ def _update_lineas_sheet(wb, data: pd.DataFrame, accounting_fmt: str, border):
     }
 
 
-def _update_cod_sheets(wb, excz_dir, prefix, accounting_fmt, border, report_date: date):
+def _update_cod_sheets(
+    wb,
+    excz_dir,
+    prefix,
+    accounting_fmt,
+    border,
+    report_date: date,
+    *,
+    use_latest: bool = False,
+):
     config = [
         ("COD24", "0024", "CR CARLOS ALBERTO TOVAR HERRER"),
         ("COD25", "0025", "CO CARLOS ALBERTO TOVAR HERRER"),
@@ -1032,14 +1160,25 @@ def _update_cod_sheets(wb, excz_dir, prefix, accounting_fmt, border, report_date
         print(f"ERROR: No existe la carpeta de EXCZ para COD: {excz_dir}")
         raise SystemExit(18)
 
-    latest, matches = _pick_excz_for_date(excz_dir, prefix, report_date)
+    latest, matches = _pick_excz_for_date(
+        excz_dir,
+        prefix,
+        report_date,
+        use_latest=use_latest,
+    )
     if not latest:
         available = ", ".join(meta.path.name for meta in matches) or "sin archivos"
-        print(
-            "ERROR: No se encontró EXCZ para COD "
-            f"con prefijo {prefix} y fecha {report_date:%Y-%m-%d} en {excz_dir}. "
-            f"Disponibles: {available}"
-        )
+        if use_latest:
+            print(
+                "ERROR: No se encontró un EXCZ para COD más reciente "
+                f"con prefijo {prefix} en {excz_dir}. Disponibles: {available}"
+            )
+        else:
+            print(
+                "ERROR: No se encontró EXCZ para COD "
+                f"con prefijo {prefix} y fecha {report_date:%Y-%m-%d} en {excz_dir}. "
+                f"Disponibles: {available}"
+            )
         raise SystemExit(16)
 
     df = _read_excz_df(latest)
@@ -1229,6 +1368,7 @@ def _update_precios_sheet(
     precios_file=None,
     precios_dir=None,
     precios_prefix=None,
+    use_latest=False,
 ):
     sheet_name = "PRECIOS"
     if sheet_name not in wb.sheetnames:
@@ -1239,6 +1379,7 @@ def _update_precios_sheet(
         explicit_file=precios_file,
         directory=precios_dir,
         prefix=precios_prefix,
+        use_latest=use_latest,
     )
 
     if not path or not path.exists():
@@ -1253,10 +1394,17 @@ def _update_precios_sheet(
                 base_location = Path(precios_dir) if precios_dir else Path(DEFAULT_PRECIOS_DIR)
                 locations = [str(base_location)]
             names = ", ".join(candidate_names) if candidate_names else ""
-            print(
-                "ERROR: No se encontró archivo de precios "
-                f"({names}) en: {', '.join(locations)}"
-            )
+            if use_latest:
+                print(
+                    "ERROR: No se encontró un archivo de precios más reciente "
+                    f"con prefijo {precios_prefix or DEFAULT_PRECIOS_PREFIX} "
+                    f"en: {', '.join(locations)}"
+                )
+            else:
+                print(
+                    "ERROR: No se encontró archivo de precios "
+                    f"({names}) en: {', '.join(locations)}"
+                )
         raise SystemExit(19)
 
     src_wb = load_workbook(filename=path, data_only=True, read_only=True)
@@ -1312,6 +1460,14 @@ def main():
     p.add_argument("--max-rows", type=int, default=0,    help="Forzar número de filas (0 = según datos)")
     p.add_argument("--skip-import", action="store_true", help="No importar EXCZ, sólo aplicar fórmulas")
     p.add_argument("--safe-fill",  action="store_true", default=True, help="Sólo escribir en filas con datos")
+    p.add_argument(
+        "--use-latest-sources",
+        action="store_true",
+        help=(
+            "Usa los archivos más recientes por fecha de modificación "
+            "para EXCZ, vendedores y precios, ignorando la búsqueda por fecha."
+        ),
+    )
     p.add_argument("--skip-ccosto", action="store_true", help="No actualizar hojas CCOSTO")
     p.add_argument("--ccosto-excz-prefix", default=DEFAULT_CCOSTO_EXCZ_PREFIX,
                    help="Prefijo del archivo EXCZ para hojas CCOSTO")
@@ -1354,6 +1510,8 @@ def main():
 
     resolver = DateResolver(YesterdayStrategy())
     report_date = resolver.resolve(args.fecha)
+
+    use_latest = args.use_latest_sources
 
     context = PATH_CONTEXT
     if args.excel:
@@ -1420,6 +1578,7 @@ def main():
             vendedores_file=args.vendedores_file,
             vendedores_dir=args.vendedores_dir,
             vendedores_prefix=args.vendedores_prefix,
+            use_latest=use_latest,
         )
         if archivo:
             vendedores_summary = resumen
@@ -1432,6 +1591,7 @@ def main():
             precios_file=args.precios_file,
             precios_dir=args.precios_dir,
             precios_prefix=args.precios_prefix,
+            use_latest=use_latest,
         )
         if archivo:
             precios_summary = resumen
@@ -1472,14 +1632,26 @@ def main():
             print(f"ERROR: No existe la carpeta de EXCZ: {excz_dir}")
             raise SystemExit(4)
 
-        latest, matches = _pick_excz_for_date(excz_dir, args.excz_prefix, report_date)
+        latest, matches = _pick_excz_for_date(
+            excz_dir,
+            args.excz_prefix,
+            report_date,
+            use_latest=use_latest,
+        )
         if not latest:
             available = ", ".join(meta.path.name for meta in matches) or "sin archivos"
-            print(
-                "ERROR: No se encontró EXCZ principal "
-                f"con prefijo {args.excz_prefix} y fecha {report_date:%Y-%m-%d} en {excz_dir}. "
-                f"Disponibles: {available}"
-            )
+            if use_latest:
+                print(
+                    "ERROR: No se encontró un EXCZ principal más reciente "
+                    f"con prefijo {args.excz_prefix} en {excz_dir}. "
+                    f"Disponibles: {available}"
+                )
+            else:
+                print(
+                    "ERROR: No se encontró EXCZ principal "
+                    f"con prefijo {args.excz_prefix} y fecha {report_date:%Y-%m-%d} en {excz_dir}. "
+                    f"Disponibles: {available}"
+                )
             raise SystemExit(5)
 
         df = _read_excz_df(latest)
@@ -1563,6 +1735,7 @@ def main():
             accounting_fmt,
             border,
             report_date,
+            use_latest=use_latest,
         )
 
     if not args.skip_import and not args.skip_cod:
@@ -1573,6 +1746,7 @@ def main():
             accounting_fmt,
             border,
             report_date,
+            use_latest=use_latest,
         )
 
     # Aplicar fórmulas fijas
