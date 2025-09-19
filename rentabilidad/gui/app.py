@@ -70,6 +70,21 @@ class RentApp(tk.Tk):
         self.geometry("960x720")
         self.minsize(860, 640)
 
+        self.colors = {
+            "background": "#0f172a",
+            "surface": "#111f30",
+            "surface_alt": "#1c2a44",
+            "accent": "#6366f1",
+            "accent_hover": "#818cf8",
+            "border": "#1f2a3d",
+            "text": "#f9fafb",
+            "muted": "#c7d2fe",
+            "status_bg": "#0b1628",
+            "log_bg": "#0b1220",
+            "log_fg": "#e2e8f0",
+        }
+        self.configure(bg=self.colors["background"])
+
         self._log_queue: queue.Queue[str] = queue.Queue()
         self._current_task: threading.Thread | None = None
         self._action_buttons: list[ttk.Button] = []
@@ -92,21 +107,147 @@ class RentApp(tk.Tk):
             pass
 
         font_family = "Segoe UI" if sys.platform.startswith("win") else "Helvetica"
-        style.configure("Header.TLabel", font=(font_family, 18, "bold"))
-        style.configure("Subtitle.TLabel", font=(font_family, 11))
-        style.configure("Accent.TButton", font=(font_family, 11, "bold"))
-        style.configure("Status.TLabel", font=(font_family, 10))
-        style.configure("TLabelframe", padding=12)
-        style.configure("TLabelframe.Label", font=(font_family, 12, "bold"))
+        style.configure("TFrame", background=self.colors["surface"])
+        style.configure("Background.TFrame", background=self.colors["background"])
+        style.configure("Tab.TFrame", background=self.colors["surface"])
+        style.configure("CardInner.TFrame", background=self.colors["surface"])
+
+        style.configure("TLabel", background=self.colors["surface"], foreground=self.colors["text"])
+        style.configure(
+            "Header.TLabel",
+            background=self.colors["background"],
+            foreground=self.colors["text"],
+            font=(font_family, 22, "bold"),
+        )
+        style.configure(
+            "Subtitle.TLabel",
+            background=self.colors["background"],
+            foreground=self.colors["muted"],
+            font=(font_family, 12),
+        )
+        style.configure(
+            "Body.TLabel",
+            background=self.colors["surface"],
+            foreground=self.colors["text"],
+            font=(font_family, 11),
+        )
+        style.configure(
+            "BodyMuted.TLabel",
+            background=self.colors["surface"],
+            foreground=self.colors["muted"],
+            font=(font_family, 10),
+        )
+        style.configure(
+            "FormLabel.TLabel",
+            background=self.colors["surface"],
+            foreground=self.colors["muted"],
+            font=(font_family, 10, "bold"),
+        )
+        style.configure(
+            "Status.TLabel",
+            background=self.colors["status_bg"],
+            foreground=self.colors["muted"],
+            font=(font_family, 10),
+        )
+
+        style.configure(
+            "Accent.TButton",
+            font=(font_family, 11, "bold"),
+            padding=(18, 10),
+            background=self.colors["accent"],
+            foreground=self.colors["text"],
+            borderwidth=0,
+            focusthickness=3,
+            focuscolor=self.colors["accent"],
+        )
+        style.map(
+            "Accent.TButton",
+            background=[
+                ("pressed", self.colors["accent_hover"]),
+                ("active", self.colors["accent_hover"]),
+                ("disabled", self.colors["border"]),
+            ],
+            foreground=[("disabled", self.colors["muted"])],
+        )
+        style.configure(
+            "Secondary.TButton",
+            font=(font_family, 11),
+            padding=(14, 8),
+            background=self.colors["surface_alt"],
+            foreground=self.colors["text"],
+            borderwidth=0,
+        )
+        style.map(
+            "Secondary.TButton",
+            background=[
+                ("pressed", self.colors["surface"]),
+                ("active", self.colors["surface"]),
+                ("disabled", self.colors["surface"]),
+            ],
+            foreground=[("disabled", self.colors["muted"])],
+        )
+
+        style.configure("Card.TNotebook", background=self.colors["background"], borderwidth=0, padding=0)
+        style.configure(
+            "Card.TNotebook.Tab",
+            background=self.colors["surface_alt"],
+            foreground=self.colors["muted"],
+            font=(font_family, 11, "bold"),
+            padding=(20, 12),
+        )
+        style.map(
+            "Card.TNotebook.Tab",
+            background=[("selected", self.colors["accent"]), ("active", self.colors["surface_alt"])],
+            foreground=[("selected", self.colors["text"])],
+        )
+
+        style.configure(
+            "Card.TLabelframe",
+            background=self.colors["surface"],
+            borderwidth=0,
+            padding=18,
+        )
+        style.configure(
+            "Card.TLabelframe.Label",
+            background=self.colors["surface"],
+            foreground=self.colors["text"],
+            font=(font_family, 12, "bold"),
+        )
+
+        style.configure(
+            "Filled.TEntry",
+            fieldbackground=self.colors["surface_alt"],
+            background=self.colors["surface_alt"],
+            foreground=self.colors["text"],
+            bordercolor=self.colors["border"],
+            lightcolor=self.colors["accent"],
+            darkcolor=self.colors["border"],
+            padding=8,
+        )
+        style.map(
+            "Filled.TEntry",
+            fieldbackground=[("focus", self.colors["background"])],
+            bordercolor=[("focus", self.colors["accent"])],
+        )
+
+        style.configure(
+            "Vertical.TScrollbar",
+            background=self.colors["surface"],
+            troughcolor=self.colors["surface"],
+            bordercolor=self.colors["border"],
+            arrowcolor=self.colors["text"],
+        )
+        style.map("Vertical.TScrollbar", background=[("active", self.colors["accent"])])
 
     def _build_layout(self) -> None:
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
 
-        container = ttk.Frame(self, padding=20)
+        container = ttk.Frame(self, padding=32, style="Background.TFrame")
         container.grid(row=0, column=0, sticky="nsew")
         container.columnconfigure(0, weight=1)
-        container.rowconfigure(1, weight=1)
+        container.rowconfigure(2, weight=3)
+        container.rowconfigure(3, weight=2)
 
         title = ttk.Label(container, text="Panel de automatización", style="Header.TLabel")
         title.grid(row=0, column=0, sticky="w")
@@ -115,67 +256,85 @@ class RentApp(tk.Tk):
             container,
             text="Gestiona informes de rentabilidad y listados de productos desde una interfaz amigable.",
             style="Subtitle.TLabel",
-            wraplength=780,
+            wraplength=760,
         )
-        subtitle.grid(row=0, column=0, sticky="w", pady=(36, 12))
+        subtitle.grid(row=1, column=0, sticky="w", pady=(12, 28))
 
-        notebook = ttk.Notebook(container)
-        notebook.grid(row=1, column=0, sticky="nsew")
+        notebook = ttk.Notebook(container, style="Card.TNotebook")
+        notebook.grid(row=2, column=0, sticky="nsew", pady=(0, 24))
 
-        report_tab = ttk.Frame(notebook, padding=15)
+        report_tab = ttk.Frame(notebook, padding=24, style="Tab.TFrame")
         report_tab.columnconfigure(0, weight=1)
         notebook.add(report_tab, text="Informe de rentabilidad")
         self._build_report_tab(report_tab)
 
-        products_tab = ttk.Frame(notebook, padding=15)
+        products_tab = ttk.Frame(notebook, padding=24, style="Tab.TFrame")
         products_tab.columnconfigure(0, weight=1)
         notebook.add(products_tab, text="Listado de productos")
         self._build_products_tab(products_tab)
 
-        log_frame = ttk.LabelFrame(container, text="Registro de actividades")
-        log_frame.grid(row=2, column=0, sticky="nsew", pady=(15, 0))
+        log_frame = ttk.LabelFrame(container, text="Registro de actividades", style="Card.TLabelframe")
+        log_frame.grid(row=3, column=0, sticky="nsew")
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
 
         self.log_text = tk.Text(
             log_frame,
-            height=14,
+            height=12,
             state="disabled",
             wrap="word",
-            background="#1e1e1e",
-            foreground="#f1f1f1",
-            insertbackground="#ffffff",
+            background=self.colors["log_bg"],
+            foreground=self.colors["log_fg"],
+            insertbackground=self.colors["text"],
             borderwidth=0,
             relief="flat",
             font=("Consolas", 10),
+            padx=12,
+            pady=12,
         )
         self.log_text.grid(row=0, column=0, sticky="nsew")
 
-        scrollbar = ttk.Scrollbar(log_frame, orient="vertical", command=self.log_text.yview)
+        scrollbar = ttk.Scrollbar(
+            log_frame,
+            orient="vertical",
+            style="Vertical.TScrollbar",
+            command=self.log_text.yview,
+        )
         scrollbar.grid(row=0, column=1, sticky="ns")
         self.log_text.configure(yscrollcommand=scrollbar.set)
 
-        actions_frame = ttk.Frame(log_frame)
-        actions_frame.grid(row=1, column=0, columnspan=2, sticky="e", pady=(8, 0))
-        ttk.Button(actions_frame, text="Limpiar", command=self._clear_log).grid(row=0, column=0, padx=(0, 8))
+        actions_frame = ttk.Frame(log_frame, style="CardInner.TFrame")
+        actions_frame.grid(row=1, column=0, columnspan=2, sticky="e", pady=(12, 0))
+        ttk.Button(
+            actions_frame,
+            text="Limpiar",
+            command=self._clear_log,
+            style="Secondary.TButton",
+        ).grid(row=0, column=0, padx=(0, 8))
 
-        status_bar = ttk.Label(container, textvariable=self.status_var, style="Status.TLabel")
-        status_bar.grid(row=3, column=0, sticky="ew", pady=(12, 0))
+        status_bar = ttk.Label(
+            container,
+            textvariable=self.status_var,
+            style="Status.TLabel",
+            anchor="w",
+            padding=(0, 12),
+        )
+        status_bar.grid(row=4, column=0, sticky="ew", pady=(20, 0))
 
     def _build_report_tab(self, parent: ttk.Frame) -> None:
-        info_frame = ttk.Frame(parent)
-        info_frame.grid(row=0, column=0, sticky="ew", pady=(0, 15))
+        info_frame = ttk.Frame(parent, style="Tab.TFrame")
+        info_frame.grid(row=0, column=0, sticky="ew", pady=(0, 16))
         info_frame.columnconfigure(0, weight=1)
 
         template_label = ttk.Label(
             info_frame,
             text=f"Plantilla base: {self.context.template_path()}",
-            style="Subtitle.TLabel",
-            wraplength=720,
+            style="BodyMuted.TLabel",
+            wraplength=700,
         )
         template_label.grid(row=0, column=0, sticky="w")
 
-        auto_frame = ttk.LabelFrame(parent, text="Informe del día anterior")
+        auto_frame = ttk.LabelFrame(parent, text="Informe del día anterior", style="Card.TLabelframe")
         auto_frame.grid(row=1, column=0, sticky="ew")
         auto_frame.columnconfigure(0, weight=1)
 
@@ -186,7 +345,8 @@ class RentApp(tk.Tk):
                 "La aplicación clonará la plantilla, localizará los EXCZ más recientes "
                 "y actualizará todas las hojas correspondientes."
             ),
-            wraplength=720,
+            style="BodyMuted.TLabel",
+            wraplength=660,
         )
         desc.grid(row=0, column=0, sticky="w")
 
@@ -196,11 +356,11 @@ class RentApp(tk.Tk):
             style="Accent.TButton",
             command=self._on_generate_auto,
         )
-        auto_button.grid(row=1, column=0, sticky="e", pady=(12, 0))
+        auto_button.grid(row=1, column=0, sticky="e", pady=(18, 0))
         self._register_action(auto_button)
 
-        manual_frame = ttk.LabelFrame(parent, text="Informe por fecha específica")
-        manual_frame.grid(row=2, column=0, sticky="ew", pady=(15, 0))
+        manual_frame = ttk.LabelFrame(parent, text="Informe por fecha específica", style="Card.TLabelframe")
+        manual_frame.grid(row=2, column=0, sticky="ew", pady=(20, 0))
         manual_frame.columnconfigure(1, weight=1)
 
         manual_desc = ttk.Label(
@@ -209,20 +369,26 @@ class RentApp(tk.Tk):
                 "Selecciona la fecha del informe y se utilizarán los archivos cuyo nombre "
                 "contenga la fecha indicada."
             ),
-            wraplength=720,
+            style="BodyMuted.TLabel",
+            wraplength=660,
         )
-        manual_desc.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 6))
+        manual_desc.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
 
-        ttk.Label(manual_frame, text="Fecha (YYYY-MM-DD):").grid(row=1, column=0, sticky="w")
-        entry = ttk.Entry(manual_frame, textvariable=self.manual_date_var, width=20)
-        entry.grid(row=1, column=1, sticky="w", padx=(6, 0))
+        ttk.Label(manual_frame, text="Fecha (YYYY-MM-DD):", style="FormLabel.TLabel").grid(
+            row=1,
+            column=0,
+            sticky="w",
+        )
+        entry = ttk.Entry(manual_frame, textvariable=self.manual_date_var, width=20, style="Filled.TEntry")
+        entry.grid(row=1, column=1, sticky="w", padx=(10, 0))
 
         today_button = ttk.Button(
             manual_frame,
             text="Hoy",
             command=lambda: self.manual_date_var.set(date.today().strftime("%Y-%m-%d")),
+            style="Secondary.TButton",
         )
-        today_button.grid(row=1, column=2, padx=(8, 0))
+        today_button.grid(row=1, column=2, padx=(12, 0))
 
         manual_button = ttk.Button(
             manual_frame,
@@ -230,7 +396,7 @@ class RentApp(tk.Tk):
             style="Accent.TButton",
             command=self._on_generate_manual,
         )
-        manual_button.grid(row=2, column=0, columnspan=3, sticky="e", pady=(12, 0))
+        manual_button.grid(row=2, column=0, columnspan=3, sticky="e", pady=(20, 0))
         self._register_action(manual_button)
 
     def _build_products_tab(self, parent: ttk.Frame) -> None:
@@ -240,24 +406,26 @@ class RentApp(tk.Tk):
                 "Crea el listado de productos ejecutando ExcelSIIGO y limpiando el resultado. "
                 "Se emplearán las credenciales configuradas en las variables de entorno."
             ),
-            wraplength=720,
+            style="BodyMuted.TLabel",
+            wraplength=660,
         )
         info.grid(row=0, column=0, sticky="w")
 
-        form = ttk.LabelFrame(parent, text="Generación de listado")
-        form.grid(row=1, column=0, sticky="ew", pady=(15, 0))
+        form = ttk.LabelFrame(parent, text="Generación de listado", style="Card.TLabelframe")
+        form.grid(row=1, column=0, sticky="ew", pady=(20, 0))
         form.columnconfigure(1, weight=1)
 
-        ttk.Label(form, text="Fecha (YYYY-MM-DD):").grid(row=0, column=0, sticky="w")
-        entry = ttk.Entry(form, textvariable=self.products_date_var, width=20)
-        entry.grid(row=0, column=1, sticky="w", padx=(6, 0))
+        ttk.Label(form, text="Fecha (YYYY-MM-DD):", style="FormLabel.TLabel").grid(row=0, column=0, sticky="w")
+        entry = ttk.Entry(form, textvariable=self.products_date_var, width=20, style="Filled.TEntry")
+        entry.grid(row=0, column=1, sticky="w", padx=(10, 0))
 
         set_today = ttk.Button(
             form,
             text="Hoy",
             command=lambda: self.products_date_var.set(date.today().strftime("%Y-%m-%d")),
+            style="Secondary.TButton",
         )
-        set_today.grid(row=0, column=2, padx=(8, 0))
+        set_today.grid(row=0, column=2, padx=(12, 0))
 
         button = ttk.Button(
             form,
@@ -265,7 +433,7 @@ class RentApp(tk.Tk):
             style="Accent.TButton",
             command=self._on_generate_products,
         )
-        button.grid(row=1, column=0, columnspan=3, sticky="e", pady=(12, 0))
+        button.grid(row=1, column=0, columnspan=3, sticky="e", pady=(20, 0))
         self._register_action(button)
 
     # -------------------------------------------------------------- Helpers --
