@@ -1300,7 +1300,7 @@ def main():
             c.border = border
         if L_prec and L_desc_src:
             c = ws[f"{L_prec}{r}"]
-            c.value = f"=VLOOKUP({L_desc_src}{r},PRECIOS!{prec_range},2,0)"
+            c.value = f"=VLOOKUP({L_desc_src}{r},PRECIOS!{prec_range},13,0)"
             c.border = border
         if L_desc and L_vent and L_cant and L_prec:
             c = ws[f"{L_desc}{r}"]
