@@ -31,7 +31,7 @@ if exist "%PROJ_DIR%requirements.txt" (
 )
 
 for /f "usebackq delims=" %%F in (`
-  python "%PROJ_DIR%excel_base\clone_from_template.py" --template "%TEMPLATE%" --outdir "%RENT_DIR%"
+  python "%PROJ_DIR%excel_base\clone_from_template.py" --template "%TEMPLATE%"
 `) do set "INFORME=%%F"
 
 if not defined INFORME (
