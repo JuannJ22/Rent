@@ -84,6 +84,57 @@ def _extract_report_datetime(path: Path, fallback: date) -> datetime:
 
     return datetime.combine(fallback, datetime.min.time())
 
+
+def _make_unique_sheet_title(base: str, existing_titles: set[str]) -> str:
+    """Genera un título de hoja único basado en ``base``.
+
+    Si ``base`` ya existe en ``existing_titles`` se agregan sufijos numéricos
+    hasta encontrar un nombre disponible.  Se respeta el límite de 31
+    caracteres impuesto por Excel ajustando el prefijo cuando es necesario.
+    """
+
+    max_len = 31
+    suffix = 1
+    while True:
+        suffix_text = f"_{suffix}"
+        trimmed_base = base
+        if len(trimmed_base + suffix_text) > max_len:
+            trimmed_base = trimmed_base[: max_len - len(suffix_text)]
+            if not trimmed_base:
+                # Como último recurso usar sólo el número de sufijo.
+                trimmed_base = str(suffix)
+                suffix_text = ""
+        candidate = f"{trimmed_base}{suffix_text}"
+        if candidate not in existing_titles:
+            return candidate
+        suffix += 1
+
+
+def _ensure_primary_sheet_title(wb, desired_title: str) -> None:
+    """Renombra la hoja principal del libro a ``desired_title``.
+
+    En caso de que exista otra hoja con el mismo nombre se renombra primero a
+    un título único para evitar que openpyxl agregue sufijos automáticos.
+    """
+
+    if not wb.worksheets:
+        return
+
+    primary_sheet = wb.worksheets[0]
+    if primary_sheet.title == desired_title:
+        return
+
+    existing_titles = {sheet.title for sheet in wb.worksheets if sheet is not primary_sheet}
+    for sheet in wb.worksheets[1:]:
+        if sheet.title != desired_title:
+            continue
+        existing_titles.discard(sheet.title)
+        new_title = _make_unique_sheet_title(sheet.title, existing_titles)
+        sheet.title = new_title
+        existing_titles.add(new_title)
+
+    primary_sheet.title = desired_title
+
 def _norm(s: str) -> str:
     return (str(s).strip().lower()
             .replace("%","").replace(".","")
@@ -1256,6 +1307,14 @@ def main():
         raise SystemExit(2)
 
     wb = load_workbook(path)
+
+    desired_main_sheet_name = path.stem.upper()
+    original_primary_title = wb.worksheets[0].title if wb.worksheets else None
+    if desired_main_sheet_name and wb.worksheets:
+        _ensure_primary_sheet_title(wb, desired_main_sheet_name)
+        if args.hoja and args.hoja == original_primary_title:
+            args.hoja = desired_main_sheet_name
+
     ws = wb[args.hoja] if args.hoja else wb.worksheets[0]
 
     # Asegurar encabezado fijo para código de vendedor
