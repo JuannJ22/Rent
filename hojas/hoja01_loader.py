@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import numbers
 import os
 import re
 import sys
@@ -12,7 +13,7 @@ from typing import Tuple
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
 from openpyxl import load_workbook
-from openpyxl.styles import Border, Font, Side
+from openpyxl.styles import Alignment, Border, Font, Side
 from openpyxl.utils import get_column_letter
 
 
@@ -145,6 +146,32 @@ def _clean_cell_value(value):
     if isinstance(value, float) and pd.isna(value):
         return None
     return value
+
+
+def _normalize_nit_value(value):
+    """Normaliza un NIT eliminando espacios y forzando representación textual."""
+
+    if value is None or value is pd.NA:
+        return None
+
+    if isinstance(value, str):
+        text = value.strip()
+    else:
+        if pd.isna(value):
+            return None
+        if isinstance(value, numbers.Integral):
+            text = f"{int(value)}"
+        elif isinstance(value, numbers.Real):
+            value_float = float(value)
+            if value_float.is_integer():
+                text = f"{int(value_float)}"
+            else:
+                text = str(value).strip()
+        else:
+            text = str(value).strip()
+
+    text = re.sub(r"\s+", "", text)
+    return text or None
 
 def _norm(s: str) -> str:
     return (str(s).strip().lower()
@@ -1471,8 +1498,13 @@ def main():
         for i, row in enumerate(sub.itertuples(index=False), start=start_row):
             cells = []
             if col_nit and "nit" in sub.columns:
-                value = _clean_cell_value(getattr(row, "nit"))
-                cells.append(ws.cell(i, col_nit, value))
+                raw_value = getattr(row, "nit")
+                value = _normalize_nit_value(raw_value)
+                cell = ws.cell(i, col_nit, value)
+                if value is not None:
+                    cell.number_format = "@"
+                    cell.alignment = Alignment(horizontal="left")
+                cells.append(cell)
             if col_cliente_combo and "cliente_combo" in sub.columns:
                 value = _clean_cell_value(getattr(row, "cliente_combo"))
                 cells.append(ws.cell(i, col_cliente_combo, value))
