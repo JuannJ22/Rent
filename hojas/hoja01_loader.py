@@ -135,6 +135,17 @@ def _ensure_primary_sheet_title(wb, desired_title: str) -> None:
 
     primary_sheet.title = desired_title
 
+
+def _clean_cell_value(value):
+    if isinstance(value, str):
+        cleaned = value.strip()
+        return cleaned if cleaned else None
+    if value is pd.NA:
+        return None
+    if isinstance(value, float) and pd.isna(value):
+        return None
+    return value
+
 def _norm(s: str) -> str:
     return (str(s).strip().lower()
             .replace("%","").replace(".","")
@@ -1460,11 +1471,14 @@ def main():
         for i, row in enumerate(sub.itertuples(index=False), start=start_row):
             cells = []
             if col_nit and "nit" in sub.columns:
-                cells.append(ws.cell(i, col_nit, getattr(row, "nit")))
+                value = _clean_cell_value(getattr(row, "nit"))
+                cells.append(ws.cell(i, col_nit, value))
             if col_cliente_combo and "cliente_combo" in sub.columns:
-                cells.append(ws.cell(i, col_cliente_combo, getattr(row, "cliente_combo")))
+                value = _clean_cell_value(getattr(row, "cliente_combo"))
+                cells.append(ws.cell(i, col_cliente_combo, value))
             if col_desc and "descripcion" in sub.columns:
-                cells.append(ws.cell(i, col_desc, getattr(row, "descripcion")))
+                value = _clean_cell_value(getattr(row, "descripcion"))
+                cells.append(ws.cell(i, col_desc, value))
             if col_cant and "cantidad" in sub.columns:
                 cells.append(ws.cell(i, col_cant, getattr(row, "cantidad")))
             if col_ventas and "ventas" in sub.columns:
@@ -1482,7 +1496,7 @@ def main():
                 c = ws.cell(i, col_utili, getattr(row, "utili"))
                 cells.append(c)
             if col_excz:
-                cells.append(ws.cell(i, col_excz, latest.stem))
+                cells.append(ws.cell(i, col_excz, _clean_cell_value(latest.stem)))
             for c in cells:
                 c.border = border
 
