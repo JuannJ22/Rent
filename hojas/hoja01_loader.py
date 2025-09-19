@@ -37,6 +37,12 @@ DEFAULT_CCOSTO_EXCZ_PREFIX = os.environ.get("CCOSTO_EXCZPREFIX", "EXCZ979")
 DEFAULT_COD_EXCZ_PREFIX = os.environ.get("COD_EXCZPREFIX", "EXCZ978")
 DEFAULT_PRECIOS_DIR = os.environ.get("PRECIOS_DIR", str(PATH_CONTEXT.productos_dir))
 DEFAULT_PRECIOS_PREFIX = os.environ.get("PRECIOS_PREFIX", "productos")
+DEFAULT_VENDEDORES_DIR = os.environ.get(
+    "VENDEDORES_DIR", str(PATH_CONTEXT.base_dir / "CodVendedor")
+)
+DEFAULT_VENDEDORES_PREFIX = os.environ.get(
+    "VENDEDORES_PREFIX", "movimientocontable"
+)
 ACCOUNTING_FORMAT = '_-[$$-409]* #,##0.00_-;_-[$$-409]* (#,##0.00);_-[$$-409]* "-"??_-;_-@_-'
 
 
@@ -209,6 +215,145 @@ def _resolve_precios_path(report_date, *, explicit_file=None, directory=None, pr
                 return candidate, candidate_dirs, candidate_names, False
 
     return None, candidate_dirs, candidate_names, False
+
+
+def _vendedores_candidate_dirs(base_dir):
+    candidates = []
+    seen = set()
+
+    def add(path):
+        if not path:
+            return
+        p = Path(path)
+        key = str(p).lower()
+        if key in seen:
+            return
+        seen.add(key)
+        candidates.append(p)
+
+    if base_dir:
+        p = Path(base_dir)
+        add(p)
+
+    default_dir = Path(DEFAULT_VENDEDORES_DIR)
+    add(default_dir)
+
+    rent_dir = Path(DEFAULT_RENT_DIR)
+    add(rent_dir / "CodVendedor")
+    add(rent_dir)
+
+    return candidates
+
+
+def _resolve_vendedores_path(
+    report_date,
+    *,
+    explicit_file=None,
+    directory=None,
+    prefix=None,
+):
+    prefix = prefix or DEFAULT_VENDEDORES_PREFIX
+
+    if explicit_file:
+        path = Path(explicit_file)
+        return (path if path.exists() else None), [path.parent], [path.name], True
+
+    base_name = report_date.strftime("%d%m")
+    if prefix:
+        base_name = f"{prefix}{base_name}"
+
+    candidate_names = [
+        f"{base_name}{ext}" for ext in (".xlsx", ".xlsm", ".xls", ".csv")
+    ]
+
+    candidate_dirs = _vendedores_candidate_dirs(directory)
+    search_dirs = []
+
+    for dir_path in candidate_dirs:
+        p = Path(dir_path)
+        if p.is_file():
+            if p.exists() and p.name.lower() in (name.lower() for name in candidate_names):
+                return p, [p.parent], candidate_names, False
+            search_dirs.append(p.parent)
+            continue
+
+        if not p.exists():
+            search_dirs.append(p)
+            continue
+
+        search_dirs.append(p)
+        for name in candidate_names:
+            candidate = p / name
+            if candidate.exists():
+                return candidate, search_dirs, candidate_names, False
+
+    return None, search_dirs or candidate_dirs, candidate_names, False
+
+
+def _update_vendedores_sheet(
+    wb,
+    *,
+    report_date,
+    vendedores_file=None,
+    vendedores_dir=None,
+    vendedores_prefix=None,
+):
+    sheet_name = "VENDEDORES"
+    if sheet_name not in wb.sheetnames:
+        return {}, None
+
+    path, search_dirs, candidate_names, explicit = _resolve_vendedores_path(
+        report_date,
+        explicit_file=vendedores_file,
+        directory=vendedores_dir,
+        prefix=vendedores_prefix,
+    )
+
+    if not path or not path.exists():
+        if explicit:
+            print(
+                "ERROR: No existe el archivo de vendedores especificado "
+                f"({vendedores_file})."
+            )
+        else:
+            locations = [str(d) for d in search_dirs if d]
+            if not locations:
+                base_location = (
+                    Path(vendedores_dir)
+                    if vendedores_dir
+                    else Path(DEFAULT_VENDEDORES_DIR)
+                )
+                locations = [str(base_location)]
+            names = ", ".join(candidate_names) if candidate_names else ""
+            print(
+                "ERROR: No se encontró archivo de vendedores "
+                f"({names}) en: {', '.join(locations)}"
+            )
+        raise SystemExit(20)
+
+    src_wb = load_workbook(filename=path, data_only=True, read_only=True)
+    try:
+        src_ws = src_wb.active
+        rows = [
+            (row[0], row[1])
+            for row in src_ws.iter_rows(min_row=1, max_col=2, values_only=True)
+        ]
+    finally:
+        src_wb.close()
+
+    ws = wb[sheet_name]
+    ws.delete_rows(1, ws.max_row)
+
+    rows_written = 0
+    for col_a, col_b in rows:
+        if col_a in (None, "") and col_b in (None, ""):
+            continue
+        rows_written += 1
+        ws.cell(row=rows_written, column=1, value=None if col_b in ("", None) else col_b)
+        ws.cell(row=rows_written, column=2, value=None if col_a in ("", None) else col_a)
+
+    summary = {"rows": rows_written}
+    return summary, path
 
 
 def _guess_map(df_cols):
@@ -1063,6 +1208,22 @@ def main():
     p.add_argument("--skip-cod", action="store_true", help="No actualizar hojas COD")
     p.add_argument("--cod-excz-prefix", default=DEFAULT_COD_EXCZ_PREFIX,
                    help="Prefijo del archivo EXCZ para hojas COD")
+    p.add_argument("--skip-vendedores", action="store_true", help="No actualizar hoja VENDEDORES")
+    p.add_argument(
+        "--vendedores-file",
+        default=None,
+        help="Ruta exacta del archivo de vendedores a copiar en la hoja VENDEDORES",
+    )
+    p.add_argument(
+        "--vendedores-dir",
+        default=DEFAULT_VENDEDORES_DIR,
+        help="Carpeta donde se buscará movimientocontableDDMM.* si no se especifica archivo",
+    )
+    p.add_argument(
+        "--vendedores-prefix",
+        default=DEFAULT_VENDEDORES_PREFIX,
+        help="Prefijo del archivo de vendedores (movimientocontable por defecto)",
+    )
     p.add_argument("--skip-precios", action="store_true", help="No actualizar hoja PRECIOS")
     p.add_argument(
         "--precios-file",
@@ -1110,6 +1271,8 @@ def main():
     cod_summary = {}
     cod_file = None
     lineas_summary = {}
+    vendedores_summary = {}
+    vendedores_file = None
     precios_summary = {}
     precios_file = None
 
@@ -1131,6 +1294,18 @@ def main():
             elif "Procesado en" in val:
                 cell.value = f"Procesado en: {now.strftime('%Y/%m/%d %H:%M:%S:%f')[:-3]}"
     # ---------------------------------------------------------------------
+
+    if not args.skip_vendedores:
+        resumen, archivo = _update_vendedores_sheet(
+            wb,
+            report_date=report_date,
+            vendedores_file=args.vendedores_file,
+            vendedores_dir=args.vendedores_dir,
+            vendedores_prefix=args.vendedores_prefix,
+        )
+        if archivo:
+            vendedores_summary = resumen
+            vendedores_file = archivo
 
     if not args.skip_precios:
         resumen, archivo = _update_precios_sheet(
@@ -1386,6 +1561,11 @@ def main():
     if cod_file:
         items = ", ".join(f"{k}={v}" for k, v in sorted(cod_summary.items())) or "sin datos"
         msg += f" | COD ({cod_file.name}): {items}"
+    if vendedores_file:
+        items = ", ".join(
+            f"{k}={v}" for k, v in sorted(vendedores_summary.items())
+        ) or "sin datos"
+        msg += f" | VENDEDORES ({vendedores_file.name}): {items}"
     if lineas_summary:
         items = ", ".join(f"{k}={v}" for k, v in sorted(lineas_summary.items())) or "sin datos"
         msg += f" | LINEAS: {items}"
