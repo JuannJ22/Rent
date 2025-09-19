@@ -137,19 +137,23 @@ def _ensure_primary_sheet_title(wb, desired_title: str) -> None:
     primary_sheet.title = desired_title
 
 
-def _clean_cell_value(value):
-    if isinstance(value, str):
-        cleaned = value.strip()
-        return cleaned if cleaned else None
+def _clean_cell_value(value, *, strip: bool = True):
+    if value is None:
+        return None
     if value is pd.NA:
         return None
     if isinstance(value, float) and pd.isna(value):
         return None
+    if isinstance(value, str):
+        if strip:
+            cleaned = value.strip()
+            return cleaned if cleaned else None
+        return value if value != "" else None
     return value
 
 
 def _normalize_nit_value(value):
-    """Normaliza un NIT eliminando espacios y forzando representación textual."""
+    """Normaliza un NIT eliminando espacios y convirtiéndolo a número si es posible."""
 
     if value is None or value is pd.NA:
         return None
@@ -171,7 +175,24 @@ def _normalize_nit_value(value):
             text = str(value).strip()
 
     text = re.sub(r"\s+", "", text)
-    return text or None
+    if not text:
+        return None
+
+    numeric_value = _try_convert_numeric(text)
+    return numeric_value if numeric_value is not None else text
+
+
+def _try_convert_numeric(text: str):
+    if not text:
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        pass
+    try:
+        return float(text)
+    except ValueError:
+        return None
 
 def _norm(s: str) -> str:
     return (str(s).strip().lower()
@@ -1501,7 +1522,7 @@ def main():
                 raw_value = getattr(row, "nit")
                 value = _normalize_nit_value(raw_value)
                 cell = ws.cell(i, col_nit, value)
-                if value is not None:
+                if isinstance(value, str):
                     cell.number_format = "@"
                     cell.alignment = Alignment(horizontal="left")
                 cells.append(cell)
@@ -1509,7 +1530,7 @@ def main():
                 value = _clean_cell_value(getattr(row, "cliente_combo"))
                 cells.append(ws.cell(i, col_cliente_combo, value))
             if col_desc and "descripcion" in sub.columns:
-                value = _clean_cell_value(getattr(row, "descripcion"))
+                value = _clean_cell_value(getattr(row, "descripcion"), strip=False)
                 cells.append(ws.cell(i, col_desc, value))
             if col_cant and "cantidad" in sub.columns:
                 cells.append(ws.cell(i, col_cant, getattr(row, "cantidad")))
