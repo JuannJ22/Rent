@@ -1,0 +1,507 @@
+from __future__ import annotations
+
+import os
+import queue
+import shutil
+import subprocess
+import sys
+import threading
+from contextlib import redirect_stderr, redirect_stdout
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
+from pathlib import Path
+from typing import Callable, Optional
+
+import tkinter as tk
+from tkinter import messagebox, ttk
+
+from openpyxl.utils import column_index_from_string
+
+from rentabilidad.core.env import load_env
+from rentabilidad.core.paths import PathContext, PathContextFactory
+from rentabilidad.services.products import (
+    ProductGenerationConfig,
+    ProductListingService,
+    SiigoCredentials,
+)
+from servicios.generar_listado_productos import KEEP_COLUMN_NUMBERS
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+LOADER_SCRIPT = REPO_ROOT / "hojas" / "hoja01_loader.py"
+
+
+@dataclass
+class TaskResult:
+    message: str
+    output: Optional[Path] = None
+
+
+class LogStream:
+    """Adaptador simple que redirige ``print`` hacia el registro de la GUI."""
+
+    def __init__(self, callback: Callable[[str], None]):
+        self._callback = callback
+
+    def write(self, data: str) -> None:  # pragma: no cover - integración I/O
+        if not data:
+            return
+        text = data.strip()
+        if not text:
+            return
+        for line in text.splitlines():
+            self._callback(line)
+
+    def flush(self) -> None:  # pragma: no cover - requerido por interface
+        return
+
+
+def ensure_trailing_backslash(path: str) -> str:
+    return path if path.endswith(("\\", "/")) else path + "\\"
+
+
+class RentApp(tk.Tk):
+    """Ventana principal del panel de control."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        load_env()
+        self.title("Rentabilidad - Panel de control")
+        self.geometry("960x720")
+        self.minsize(860, 640)
+
+        self._log_queue: queue.Queue[str] = queue.Queue()
+        self._current_task: threading.Thread | None = None
+        self._action_buttons: list[ttk.Button] = []
+        self.context: PathContext = PathContextFactory(os.environ).create()
+
+        self.status_var = tk.StringVar(value="Listo")
+        self.manual_date_var = tk.StringVar(value=date.today().strftime("%Y-%m-%d"))
+        self.products_date_var = tk.StringVar(value=date.today().strftime("%Y-%m-%d"))
+
+        self._build_styles()
+        self._build_layout()
+        self.after(150, self._poll_log_queue)
+
+    # ------------------------------------------------------------------ UI --
+    def _build_styles(self) -> None:
+        style = ttk.Style(self)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:  # pragma: no cover - depende del sistema
+            pass
+
+        font_family = "Segoe UI" if sys.platform.startswith("win") else "Helvetica"
+        style.configure("Header.TLabel", font=(font_family, 18, "bold"))
+        style.configure("Subtitle.TLabel", font=(font_family, 11))
+        style.configure("Accent.TButton", font=(font_family, 11, "bold"))
+        style.configure("Status.TLabel", font=(font_family, 10))
+        style.configure("TLabelframe", padding=12)
+        style.configure("TLabelframe.Label", font=(font_family, 12, "bold"))
+
+    def _build_layout(self) -> None:
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+
+        container = ttk.Frame(self, padding=20)
+        container.grid(row=0, column=0, sticky="nsew")
+        container.columnconfigure(0, weight=1)
+        container.rowconfigure(1, weight=1)
+
+        title = ttk.Label(container, text="Panel de automatización", style="Header.TLabel")
+        title.grid(row=0, column=0, sticky="w")
+
+        subtitle = ttk.Label(
+            container,
+            text="Gestiona informes de rentabilidad y listados de productos desde una interfaz amigable.",
+            style="Subtitle.TLabel",
+            wraplength=780,
+        )
+        subtitle.grid(row=0, column=0, sticky="w", pady=(36, 12))
+
+        notebook = ttk.Notebook(container)
+        notebook.grid(row=1, column=0, sticky="nsew")
+
+        report_tab = ttk.Frame(notebook, padding=15)
+        report_tab.columnconfigure(0, weight=1)
+        notebook.add(report_tab, text="Informe de rentabilidad")
+        self._build_report_tab(report_tab)
+
+        products_tab = ttk.Frame(notebook, padding=15)
+        products_tab.columnconfigure(0, weight=1)
+        notebook.add(products_tab, text="Listado de productos")
+        self._build_products_tab(products_tab)
+
+        log_frame = ttk.LabelFrame(container, text="Registro de actividades")
+        log_frame.grid(row=2, column=0, sticky="nsew", pady=(15, 0))
+        log_frame.columnconfigure(0, weight=1)
+        log_frame.rowconfigure(0, weight=1)
+
+        self.log_text = tk.Text(
+            log_frame,
+            height=14,
+            state="disabled",
+            wrap="word",
+            background="#1e1e1e",
+            foreground="#f1f1f1",
+            insertbackground="#ffffff",
+            borderwidth=0,
+            relief="flat",
+            font=("Consolas", 10),
+        )
+        self.log_text.grid(row=0, column=0, sticky="nsew")
+
+        scrollbar = ttk.Scrollbar(log_frame, orient="vertical", command=self.log_text.yview)
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        self.log_text.configure(yscrollcommand=scrollbar.set)
+
+        actions_frame = ttk.Frame(log_frame)
+        actions_frame.grid(row=1, column=0, columnspan=2, sticky="e", pady=(8, 0))
+        ttk.Button(actions_frame, text="Limpiar", command=self._clear_log).grid(row=0, column=0, padx=(0, 8))
+
+        status_bar = ttk.Label(container, textvariable=self.status_var, style="Status.TLabel")
+        status_bar.grid(row=3, column=0, sticky="ew", pady=(12, 0))
+
+    def _build_report_tab(self, parent: ttk.Frame) -> None:
+        info_frame = ttk.Frame(parent)
+        info_frame.grid(row=0, column=0, sticky="ew", pady=(0, 15))
+        info_frame.columnconfigure(0, weight=1)
+
+        template_label = ttk.Label(
+            info_frame,
+            text=f"Plantilla base: {self.context.template_path()}",
+            style="Subtitle.TLabel",
+            wraplength=720,
+        )
+        template_label.grid(row=0, column=0, sticky="w")
+
+        auto_frame = ttk.LabelFrame(parent, text="Informe del día anterior")
+        auto_frame.grid(row=1, column=0, sticky="ew")
+        auto_frame.columnconfigure(0, weight=1)
+
+        desc = ttk.Label(
+            auto_frame,
+            text=(
+                "Genera automáticamente el informe del día anterior. "
+                "La aplicación clonará la plantilla, localizará los EXCZ más recientes "
+                "y actualizará todas las hojas correspondientes."
+            ),
+            wraplength=720,
+        )
+        desc.grid(row=0, column=0, sticky="w")
+
+        auto_button = ttk.Button(
+            auto_frame,
+            text="Generar informe automático",
+            style="Accent.TButton",
+            command=self._on_generate_auto,
+        )
+        auto_button.grid(row=1, column=0, sticky="e", pady=(12, 0))
+        self._register_action(auto_button)
+
+        manual_frame = ttk.LabelFrame(parent, text="Informe por fecha específica")
+        manual_frame.grid(row=2, column=0, sticky="ew", pady=(15, 0))
+        manual_frame.columnconfigure(1, weight=1)
+
+        manual_desc = ttk.Label(
+            manual_frame,
+            text=(
+                "Selecciona la fecha del informe y se utilizarán los archivos cuyo nombre "
+                "contenga la fecha indicada."
+            ),
+            wraplength=720,
+        )
+        manual_desc.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 6))
+
+        ttk.Label(manual_frame, text="Fecha (YYYY-MM-DD):").grid(row=1, column=0, sticky="w")
+        entry = ttk.Entry(manual_frame, textvariable=self.manual_date_var, width=20)
+        entry.grid(row=1, column=1, sticky="w", padx=(6, 0))
+
+        today_button = ttk.Button(
+            manual_frame,
+            text="Hoy",
+            command=lambda: self.manual_date_var.set(date.today().strftime("%Y-%m-%d")),
+        )
+        today_button.grid(row=1, column=2, padx=(8, 0))
+
+        manual_button = ttk.Button(
+            manual_frame,
+            text="Generar informe",
+            style="Accent.TButton",
+            command=self._on_generate_manual,
+        )
+        manual_button.grid(row=2, column=0, columnspan=3, sticky="e", pady=(12, 0))
+        self._register_action(manual_button)
+
+    def _build_products_tab(self, parent: ttk.Frame) -> None:
+        info = ttk.Label(
+            parent,
+            text=(
+                "Crea el listado de productos ejecutando ExcelSIIGO y limpiando el resultado. "
+                "Se emplearán las credenciales configuradas en las variables de entorno."
+            ),
+            wraplength=720,
+        )
+        info.grid(row=0, column=0, sticky="w")
+
+        form = ttk.LabelFrame(parent, text="Generación de listado")
+        form.grid(row=1, column=0, sticky="ew", pady=(15, 0))
+        form.columnconfigure(1, weight=1)
+
+        ttk.Label(form, text="Fecha (YYYY-MM-DD):").grid(row=0, column=0, sticky="w")
+        entry = ttk.Entry(form, textvariable=self.products_date_var, width=20)
+        entry.grid(row=0, column=1, sticky="w", padx=(6, 0))
+
+        set_today = ttk.Button(
+            form,
+            text="Hoy",
+            command=lambda: self.products_date_var.set(date.today().strftime("%Y-%m-%d")),
+        )
+        set_today.grid(row=0, column=2, padx=(8, 0))
+
+        button = ttk.Button(
+            form,
+            text="Generar listado de productos",
+            style="Accent.TButton",
+            command=self._on_generate_products,
+        )
+        button.grid(row=1, column=0, columnspan=3, sticky="e", pady=(12, 0))
+        self._register_action(button)
+
+    # -------------------------------------------------------------- Helpers --
+    def _register_action(self, button: ttk.Button) -> None:
+        self._action_buttons.append(button)
+
+    def _set_actions_state(self, state: str) -> None:
+        for btn in self._action_buttons:
+            btn.state([state]) if state == "disabled" else btn.state(["!disabled"])
+
+    def _poll_log_queue(self) -> None:
+        try:
+            while True:
+                message = self._log_queue.get_nowait()
+                self._append_log(message)
+        except queue.Empty:
+            pass
+        finally:
+            self.after(150, self._poll_log_queue)
+
+    def _append_log(self, message: str) -> None:
+        self.log_text.configure(state="normal")
+        self.log_text.insert("end", message)
+        self.log_text.insert("end", "\n")
+        self.log_text.configure(state="disabled")
+        self.log_text.see("end")
+
+    def _clear_log(self) -> None:
+        self.log_text.configure(state="normal")
+        self.log_text.delete("1.0", "end")
+        self.log_text.configure(state="disabled")
+
+    def _log(self, message: str) -> None:
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self._log_queue.put(f"[{timestamp}] {message}")
+
+    # -------------------------------------------------------------- Actions --
+    def _on_generate_auto(self) -> None:
+        target_date = date.today() - timedelta(days=1)
+        self._start_task(
+            f"Generando informe automático del {target_date:%Y-%m-%d}",
+            lambda: self._task_generate_report(target_date, use_latest=True),
+        )
+
+    def _on_generate_manual(self) -> None:
+        raw = self.manual_date_var.get().strip()
+        if not raw:
+            messagebox.showerror("Fecha requerida", "Ingresa una fecha en formato YYYY-MM-DD.")
+            return
+        try:
+            target_date = datetime.strptime(raw, "%Y-%m-%d").date()
+        except ValueError:
+            messagebox.showerror("Formato inválido", "La fecha debe tener el formato YYYY-MM-DD.")
+            return
+
+        self._start_task(
+            f"Generando informe para {target_date:%Y-%m-%d}",
+            lambda: self._task_generate_report(target_date, use_latest=False),
+        )
+
+    def _on_generate_products(self) -> None:
+        raw = self.products_date_var.get().strip()
+        if raw:
+            try:
+                target_date = datetime.strptime(raw, "%Y-%m-%d").date()
+            except ValueError:
+                messagebox.showerror("Formato inválido", "La fecha debe tener el formato YYYY-MM-DD.")
+                return
+        else:
+            target_date = date.today()
+
+        self._start_task(
+            f"Generando listado de productos para {target_date:%Y-%m-%d}",
+            lambda: self._task_generate_products(target_date),
+        )
+
+    # ------------------------------------------------------------ Task flow --
+    def _start_task(self, status_message: str, task: Callable[[], TaskResult]) -> None:
+        if self._current_task and self._current_task.is_alive():
+            messagebox.showinfo("Tarea en curso", "Espera a que finalice la operación actual.")
+            return
+
+        self.status_var.set(status_message)
+        self._log_queue.put("")
+        self._log(status_message)
+        self._set_actions_state("disabled")
+
+        def runner() -> None:
+            try:
+                result = task()
+            except Exception as exc:  # noqa: BLE001 - mostrar cualquier error
+                self._log(f"ERROR: {exc}")
+                self.after(0, lambda: self._finish_task(False, str(exc), None))
+            else:
+                self.after(0, lambda: self._finish_task(True, result.message, result.output))
+
+        thread = threading.Thread(target=runner, daemon=True)
+        self._current_task = thread
+        thread.start()
+
+    def _finish_task(self, success: bool, message: str, output: Optional[Path]) -> None:
+        self._current_task = None
+        self._set_actions_state("normal")
+        if success:
+            self.status_var.set(f"✅ {message}")
+            if output:
+                self._log(f"Archivo generado: {output}")
+            messagebox.showinfo("Proceso completado", message)
+        else:
+            self.status_var.set(f"❌ {message}")
+            messagebox.showerror("Ocurrió un problema", message)
+
+    # ----------------------------------------------------------- Operations --
+    def _task_generate_report(self, target_date: date, *, use_latest: bool) -> TaskResult:
+        template = self.context.template_path()
+        if not template.exists():
+            raise FileNotFoundError(f"No existe la plantilla base: {template}")
+
+        output_dir = self.context.informe_month_dir(target_date)
+        output_path = output_dir / self.context.informe_filename(target_date)
+        self._log(f"Clonando plantilla hacia {output_path}")
+        shutil.copyfile(template, output_path)
+
+        self._log("Ejecutando loader de rentabilidad...")
+        return_code = self._run_loader(output_path, target_date, use_latest=use_latest)
+        if return_code != 0:
+            raise RuntimeError(f"El loader finalizó con código {return_code}")
+
+        return TaskResult(
+            message=f"Informe actualizado correctamente ({output_path.name})",
+            output=output_path,
+        )
+
+    def _run_loader(self, excel_path: Path, target_date: date, *, use_latest: bool) -> int:
+        if not LOADER_SCRIPT.exists():
+            raise FileNotFoundError(f"No se encuentra el script: {LOADER_SCRIPT}")
+
+        cmd = [
+            sys.executable,
+            str(LOADER_SCRIPT),
+            "--excel",
+            str(excel_path),
+            "--fecha",
+            target_date.isoformat(),
+        ]
+        if use_latest:
+            cmd.append("--use-latest-sources")
+
+        env = os.environ.copy()
+        process = subprocess.Popen(  # noqa: S603, S607 - ejecución controlada
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            env=env,
+            cwd=str(REPO_ROOT),
+        )
+
+        assert process.stdout is not None
+        for line in process.stdout:  # pragma: no cover - flujo interactivo
+            self._log(line.rstrip())
+        return process.wait()
+
+    def _collect_product_settings(self) -> tuple[PathContext, ProductGenerationConfig]:
+        context = PathContextFactory(os.environ).create()
+        defaults = {
+            "SIIGO_DIR": os.environ.get("SIIGO_DIR", r"C:\\Siigo"),
+            "SIIGO_BASE": os.environ.get("SIIGO_BASE", r"D:\\SIIWI01"),
+            "SIIGO_LOG": os.environ.get(
+                "SIIGO_LOG",
+                str(Path(os.environ.get("SIIGO_BASE", r"D:\\SIIWI01")) / "LOGS" / "log_catalogos.txt"),
+            ),
+            "SIIGO_REPORTE": os.environ.get("SIIGO_REPORTE", "GETINV"),
+            "SIIGO_EMPRESA": os.environ.get("SIIGO_EMPRESA", "L"),
+            "SIIGO_USUARIO": os.environ.get("SIIGO_USUARIO", "JUAN"),
+            "SIIGO_CLAVE": os.environ.get("SIIGO_CLAVE", "0110"),
+            "SIIGO_ESTADO_PARAM": os.environ.get("SIIGO_ESTADO_PARAM", "S"),
+            "SIIGO_RANGO_INI": os.environ.get("SIIGO_RANGO_INI", "0010001000001"),
+            "SIIGO_RANGO_FIN": os.environ.get("SIIGO_RANGO_FIN", "0400027999999"),
+            "SIIGO_ACTIVO_COL": os.environ.get("SIIGO_ACTIVO_COL", "AX"),
+            "PRODUCTOS_DIR": os.environ.get("PRODUCTOS_DIR", str(context.productos_dir)),
+        }
+
+        productos_dir = Path(defaults["PRODUCTOS_DIR"])
+        context = PathContext(
+            base_dir=context.base_dir,
+            productos_dir=productos_dir,
+            informes_dir=context.informes_dir,
+        )
+        context.ensure_structure()
+
+        siigo_dir = Path(defaults["SIIGO_DIR"])
+        if not siigo_dir.exists():
+            raise FileNotFoundError(f"No existe la carpeta de SIIGO: {siigo_dir}")
+
+        credentials = SiigoCredentials(
+            reporte=defaults["SIIGO_REPORTE"],
+            empresa=defaults["SIIGO_EMPRESA"],
+            usuario=defaults["SIIGO_USUARIO"],
+            clave=defaults["SIIGO_CLAVE"],
+            estado_param=defaults["SIIGO_ESTADO_PARAM"],
+            rango_ini=defaults["SIIGO_RANGO_INI"],
+            rango_fin=defaults["SIIGO_RANGO_FIN"],
+        )
+
+        activo_col = defaults["SIIGO_ACTIVO_COL"]
+        keep_columns = KEEP_COLUMN_NUMBERS + (column_index_from_string(activo_col),)
+
+        config = ProductGenerationConfig(
+            siigo_dir=siigo_dir,
+            base_path=ensure_trailing_backslash(defaults["SIIGO_BASE"]),
+            log_path=defaults["SIIGO_LOG"],
+            credentials=credentials,
+            activo_column=activo_col,
+            keep_columns=keep_columns,
+        )
+        return context, config
+
+    def _task_generate_products(self, target_date: date) -> TaskResult:
+        context, config = self._collect_product_settings()
+        service = ProductListingService(context, config)
+
+        log_stream = LogStream(self._log)
+        with redirect_stdout(log_stream), redirect_stderr(log_stream):
+            output_path = service.generate(target_date)
+
+        return TaskResult(
+            message=f"Listado de productos generado ({output_path.name})",
+            output=output_path,
+        )
+
+
+def main() -> None:
+    app = RentApp()
+    app.mainloop()
+
+
+if __name__ == "__main__":  # pragma: no cover - punto de entrada manual
+    main()
