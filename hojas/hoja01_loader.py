@@ -1306,6 +1306,7 @@ def main():
             c = ws[f"{L_desc}{r}"]
             c.value = f"=1-(({L_vent}{r}*1.19)/{L_cant}{r}/{L_prec}{r})"
             c.border = border
+            c.number_format = "0.00%"
 
     # --- Fila de Total General -------------------------------------------
     total_label = "Total General"
