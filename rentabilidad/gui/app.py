@@ -113,7 +113,8 @@ class RentApp(tk.Tk):
         self._header_canvas: tk.Canvas | None = None
         self._header_title_id: int | None = None
         self._header_subtitle_id: int | None = None
-        self._header_icons: list[tuple[int, int]] = []
+        self._header_gradient_image: tk.PhotoImage | None = None
+        self._header_gradient_id: int | None = None
 
         self._log_has_content = False
 
@@ -417,7 +418,7 @@ class RentApp(tk.Tk):
         self._render_empty_log()
 
     def _build_header(self, parent: ttk.Frame) -> None:
-        """Crea la cabecera con degradado e iconos informativos."""
+        """Crea la cabecera con el degradado principal."""
 
         header_container = tk.Frame(parent, bg=self.colors["background"], bd=0, highlightthickness=0)
         header_container.grid(row=0, column=0, sticky="ew")
@@ -451,14 +452,6 @@ class RentApp(tk.Tk):
             fill="#e0e7ff",
         )
 
-        bell_circle = canvas.create_oval(0, 0, 0, 0, fill="#ffffff", outline="")
-        bell_icon = canvas.create_text(0, 0, text="🔔", font=(self._font_family, 16))
-        settings_circle = canvas.create_oval(0, 0, 0, 0, fill="#ffffff", outline="")
-        settings_icon = canvas.create_text(0, 0, text="⚙️", font=(self._font_family, 16))
-        self._header_icons = [
-            (bell_circle, bell_icon),
-            (settings_circle, settings_icon),
-        ]
 
     def _on_header_configure(self, event: tk.Event) -> None:
         """Redibuja el degradado y reposiciona los elementos al cambiar de tamaño."""
@@ -475,35 +468,38 @@ class RentApp(tk.Tk):
         if self._header_subtitle_id is not None:
             self._header_canvas.coords(self._header_subtitle_id, 32, height / 2 + 16)
 
-        icon_size = 44
-        spacing = 12
-        start_x = width - 32 - icon_size
-        center_y = height / 2
-        for index, (circle_id, icon_id) in enumerate(self._header_icons):
-            x1 = start_x - index * (icon_size + spacing)
-            y1 = center_y - icon_size / 2
-            x2 = x1 + icon_size
-            y2 = center_y + icon_size / 2
-            self._header_canvas.coords(circle_id, x1, y1, x2, y2)
-            self._header_canvas.coords(icon_id, (x1 + x2) / 2, center_y)
 
     def _draw_header_gradient(self, width: int, height: int) -> None:
-        """Pinta un degradado vertical azul-violeta en la cabecera."""
+        """Pinta un degradado diagonal azul en la cabecera."""
 
         if self._header_canvas is None:
             return
 
-        start = self._hex_to_rgb("#6366f1")
-        end = self._hex_to_rgb("#8b5cf6")
-        self._header_canvas.delete("gradient")
-        for i in range(height):
-            ratio = i / max(height - 1, 1)
-            r = int(start[0] + (end[0] - start[0]) * ratio)
-            g = int(start[1] + (end[1] - start[1]) * ratio)
-            b = int(start[2] + (end[2] - start[2]) * ratio)
-            color = f"#{r:02x}{g:02x}{b:02x}"
-            self._header_canvas.create_line(0, i, width, i, fill=color, tags=("gradient",))
-        self._header_canvas.tag_lower("gradient")
+        start = self._hex_to_rgb("#1366f1")
+        end = self._hex_to_rgb("#1b5cf6")
+
+        steps_width = max(width - 1, 1)
+        steps_height = max(height - 1, 1)
+        x_ratios = [x / steps_width for x in range(width)]
+        y_ratios = [y / steps_height for y in range(height)]
+
+        gradient_image = tk.PhotoImage(width=width, height=height)
+        for y, y_ratio in enumerate(y_ratios):
+            row_colors: list[str] = []
+            for x_ratio in x_ratios:
+                ratio = min(1.0, max(0.0, (x_ratio + y_ratio) / 2))
+                r = int(start[0] + (end[0] - start[0]) * ratio)
+                g = int(start[1] + (end[1] - start[1]) * ratio)
+                b = int(start[2] + (end[2] - start[2]) * ratio)
+                row_colors.append(f"#{r:02x}{g:02x}{b:02x}")
+            gradient_image.put("{" + " ".join(row_colors) + "}", to=(0, y))
+
+        if self._header_gradient_id is not None:
+            self._header_canvas.delete(self._header_gradient_id)
+
+        self._header_gradient_image = gradient_image
+        self._header_gradient_id = self._header_canvas.create_image(0, 0, anchor="nw", image=gradient_image)
+        self._header_canvas.tag_lower(self._header_gradient_id)
 
     @staticmethod
     def _hex_to_rgb(value: str) -> tuple[int, int, int]:
