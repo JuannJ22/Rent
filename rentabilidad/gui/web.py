@@ -6,11 +6,12 @@ import json
 import os
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Callable
+from types import SimpleNamespace
 
 from nicegui import ui
-from nicegui.element import Element
 
 from rentabilidad.core.env import load_env
 from rentabilidad.core.paths import PathContextFactory
@@ -21,24 +22,36 @@ load_env()
 _CONTEXT = PathContextFactory(os.environ).create()
 RUTA_PLANTILLA = str(_CONTEXT.template_path())
 
+# --- estilos soft globales ---
+ui.add_head_html(
+    """
+<style>
+  .q-card { border-radius: 1rem !important; }
+  .q-field__control, .q-btn { border-radius: .75rem !important; }
+  .q-btn { box-shadow: 0 1px 2px rgba(0,0,0,.06) !important; }
+</style>
+"""
+)
 
-empty_state: Element | None = None
-log_list: Element | None = None
+state = SimpleNamespace(empty=None, log=None, last_update=None)
+card_classes = "rounded-2xl shadow-sm border border-gray-200 bg-white"
 
 
-def _copiar_ruta() -> None:
+def copiar_ruta() -> None:
     """Copia ``RUTA_PLANTILLA`` al portapapeles usando JavaScript."""
 
     ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(RUTA_PLANTILLA)})")
     agregar_log("Ruta de la plantilla copiada al portapapeles.")
+    touch_last_update()
 
 
-def _abrir_carpeta() -> None:
+def abrir_carpeta() -> None:
     """Intenta abrir la carpeta que contiene la plantilla base."""
 
     carpeta = Path(RUTA_PLANTILLA).parent
     if not carpeta.exists():
         agregar_log(f"No se encontró la carpeta: {carpeta}")
+        touch_last_update()
         return
 
     if sys.platform.startswith("win"):
@@ -48,6 +61,7 @@ def _abrir_carpeta() -> None:
     else:
         subprocess.run(["xdg-open", str(carpeta)], check=False)
     agregar_log(f"Carpeta abierta: {carpeta}")
+    touch_last_update()
 
 
 def _crear_manejador_log(mensaje: str) -> Callable[[], None]:
@@ -55,6 +69,7 @@ def _crear_manejador_log(mensaje: str) -> Callable[[], None]:
 
     def _handler() -> None:
         agregar_log(mensaje)
+        touch_last_update()
 
     return _handler
 
@@ -87,38 +102,25 @@ REPORT_CARDS = [
 def setup_ui() -> None:
     """Construye la interfaz web siguiendo el estilo solicitado."""
 
-    global empty_state, log_list
-
-    slots: dict[str, Element] = {}
-
     def limpiar_log() -> None:
-        lista = slots.get("log_list")
-        vacio = slots.get("empty_state")
-        if not lista or not vacio:
-            return
-        lista.clear()
-        lista.add_class("hidden")
-        vacio.remove_class("hidden")
+        if state.log:
+            state.log.clear()
+            state.log.add_class("hidden")
+        if state.empty:
+            state.empty.remove_class("hidden")
 
     with ui.column().classes("max-w-5xl mx-auto py-10 gap-6"):
-        with ui.card().classes("rounded-2xl shadow-sm border border-gray-200 bg-white"):
-            with ui.row().classes("items-center gap-2 px-4 pt-4"):
-                ui.icon("description").classes("text-blue-500")
-                ui.label("Plantilla base").classes("font-medium text-slate-700")
-                ui.space()
-                ui.button("Copiar", icon="content_copy", on_click=_copiar_ruta) \
-                    .props("outline").classes("text-sm")
-                ui.button("Abrir carpeta", icon="folder_open", on_click=_abrir_carpeta) \
-                    .props("outline").classes("text-sm")
-            with ui.row().classes("items-center gap-3 px-4 pb-4 w-full"):
+        with ui.column().classes("gap-2 w-full"):
+            ui.label("Plantilla base").classes("font-medium")
+            with ui.row().classes("items-center gap-2 w-full"):
                 ui.input(value=RUTA_PLANTILLA, readonly=True) \
                     .classes("flex-1 bg-blue-50 rounded-xl p-2 h-10 min-h-0 text-sm")
+                ui.button("Copiar", on_click=copiar_ruta)
+                ui.button("Abrir carpeta", on_click=abrir_carpeta)
 
         with ui.row().classes("gap-4 flex-wrap w-full"):
             for card in REPORT_CARDS:
-                with ui.card().classes(
-                    "rounded-2xl shadow-sm border border-gray-200 bg-white flex-1 min-w-[260px]"
-                ):
+                with ui.card().classes(f"{card_classes} flex-1 min-w-[260px]"):
                     with ui.row().classes("items-center gap-2 px-4 pt-4"):
                         ui.icon(card["icon"]).classes("text-violet-500")
                         ui.label(card["title"]).classes("font-medium")
@@ -126,42 +128,54 @@ def setup_ui() -> None:
                     ui.button(card["action_text"], on_click=card["handler"]) \
                         .classes("mx-4 mb-4 w-full").props("color=primary")
 
-        with ui.card().classes(
-            "rounded-2xl shadow-sm border border-gray-200 bg-white mt-6"
-        ):
+        # --- Registro de Actividades ---
+        with ui.card().classes(f"{card_classes} mt-6"):
             with ui.row().classes("items-center gap-2 px-4 pt-4"):
                 ui.icon("activity").classes("text-violet-500")
                 ui.label("Registro de Actividades").classes("font-medium")
+
                 ui.button("Limpiar", icon="delete", on_click=limpiar_log) \
                     .props("flat").classes("ml-auto")
 
             with ui.element("div").classes("px-4 pb-4"):
-                empty = ui.column().classes(
+                state.empty = ui.column().classes(
                     "items-center justify-center h-56 w-full text-gray-400 bg-gray-50 rounded-xl"
                 )
-                with empty:
+                with state.empty:
                     ui.icon("inbox").classes("text-4xl")
                     ui.label("El registro de actividades aparecerá aquí").classes("text-sm")
 
-                logs = ui.column().classes("hidden w-full gap-1 mt-3")
+                state.log = ui.column().classes("hidden w-full gap-1 mt-3")
 
-    slots["empty_state"] = empty
-    slots["log_list"] = logs
-
-    empty_state = empty
-    log_list = logs
+        # Footer
+        with ui.row().classes("items-center justify-between text-xs text-gray-500 mt-2"):
+            with ui.row().classes("items-center gap-1"):
+                ui.icon("check_circle").classes("text-emerald-500")
+                ui.label("Sistema listo")
+            state.last_update = ui.label(
+                f"Última actualización: {datetime.now().strftime('%H:%M:%S')}"
+            )
 
 
 def agregar_log(msg: str) -> None:
     """Muestra ``msg`` en la tarjeta de registro de actividades."""
 
-    if not log_list or not empty_state:
+    if not state.log or not state.empty:
         return
 
-    empty_state.add_class("hidden")
-    log_list.remove_class("hidden")
-    with log_list:
+    state.empty.add_class("hidden")
+    state.log.remove_class("hidden")
+    with state.log:
         ui.label(msg).classes("text-sm text-gray-700")
+
+
+def touch_last_update() -> None:
+    """Actualiza la marca de tiempo del pie de página."""
+
+    if state.last_update:
+        state.last_update.text = (
+            f"Última actualización: {datetime.now().strftime('%H:%M:%S')}"
+        )
 
 
 def main() -> None:  # pragma: no cover - punto de entrada manual
@@ -171,7 +185,7 @@ def main() -> None:  # pragma: no cover - punto de entrada manual
     ui.run()
 
 
-__all__ = ["RUTA_PLANTILLA", "setup_ui", "agregar_log", "main"]
+__all__ = ["RUTA_PLANTILLA", "setup_ui", "agregar_log", "touch_last_update", "main"]
 
 
 if __name__ == "__main__":  # pragma: no cover
