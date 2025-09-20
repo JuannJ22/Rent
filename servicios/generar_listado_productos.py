@@ -1,3 +1,5 @@
+"""CLI para generar el listado de productos utilizando ExcelSIIGO."""
+
 from __future__ import annotations
 
 import argparse
@@ -19,10 +21,14 @@ KEEP_COLUMN_NUMBERS = (4, *range(7, 19))
 
 
 def _ensure_trailing_backslash(path: str) -> str:
+    """Devuelve ``path`` asegurando un separador final."""
+
     return path if path.endswith(("\\", "/")) else path + "\\"
 
 
 def build_parser(defaults: dict[str, str]) -> argparse.ArgumentParser:
+    """Crea el ``ArgumentParser`` principal para la herramienta de consola."""
+
     parser = argparse.ArgumentParser(
         description=(
             "Ejecuta ExcelSIIGO para generar el listado de productos, "
@@ -74,6 +80,8 @@ def build_parser(defaults: dict[str, str]) -> argparse.ArgumentParser:
 
 
 def _collect_defaults() -> dict[str, str]:
+    """Lee variables de entorno y prepara valores por defecto configurables."""
+
     context = PathContextFactory(os.environ).create()
     defaults = {
         "SIIGO_DIR": os.environ.get("SIIGO_DIR", r"C:\\Siigo"),
@@ -93,6 +101,8 @@ def _collect_defaults() -> dict[str, str]:
 
 
 def main() -> None:
+    """Punto de entrada de la herramienta CLI."""
+
     load_env()
     defaults = _collect_defaults()
     parser = build_parser(defaults)

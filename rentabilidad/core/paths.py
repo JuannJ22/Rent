@@ -74,9 +74,13 @@ class PathContextFactory:
     """Fábrica que construye :class:`PathContext` a partir del entorno."""
 
     def __init__(self, environ: Mapping[str, str]):
+        """Guarda la referencia al diccionario de entorno utilizado."""
+
         self._environ = environ
 
     def create(self) -> PathContext:
+        """Crea un :class:`PathContext` garantizando que las carpetas existan."""
+
         base_dir = Path(self._environ.get("RENT_DIR", r"C:\\Rentabilidad"))
         productos_dir = Path(
             self._environ.get("PRODUCTOS_DIR", str(base_dir / "Productos"))

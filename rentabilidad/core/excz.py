@@ -44,6 +44,8 @@ class TimestampedExczPattern:
     _regex_template = r"^{prefix}(?P<ts>\d{{14}})"
 
     def match(self, name: str, prefix: str) -> datetime | None:
+        """Intenta extraer un ``datetime`` del nombre ``name`` usando ``prefix``."""
+
         pattern = self._regex_template.format(prefix=re.escape(prefix.lower()))
         match = re.match(pattern, name.lower())
         if not match:
@@ -58,10 +60,14 @@ class ExczFileFinder:
     """Localiza archivos EXCZ para una fecha específica."""
 
     def __init__(self, directory: Path, pattern: ExczPattern | None = None):
+        """Inicializa el buscador indicando carpeta y patrón opcional."""
+
         self.directory = directory
         self.pattern = pattern or TimestampedExczPattern()
 
     def iter_matches(self, prefix: str) -> Iterable[ExczMetadata]:
+        """Itera sobre los archivos que coinciden con ``prefix`` en ``directory``."""
+
         if not self.directory.exists():
             return []
         results: list[ExczMetadata] = []
@@ -76,6 +82,8 @@ class ExczFileFinder:
         return results
 
     def find_for_date(self, prefix: str, target_date: date) -> Path | None:
+        """Busca un EXCZ cuyo sello temporal coincide con ``target_date``."""
+
         for meta in self.iter_matches(prefix):
             if meta.timestamp.date() == target_date:
                 return meta.path

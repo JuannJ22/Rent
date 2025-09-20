@@ -1,3 +1,5 @@
+"""Actualiza el informe principal de rentabilidad a partir de archivos EXCZ."""
+
 from __future__ import annotations
 
 import argparse
@@ -48,6 +50,8 @@ ACCOUNTING_FORMAT = '_-[$$-409]* #,##0.00_-;_-[$$-409]* (#,##0.00);_-[$$-409]* "
 
 
 def _normalize_month_string(value: str) -> str:
+    """Normaliza nombres de mes eliminando acentos y caracteres separadores."""
+
     normalized = unicodedata.normalize("NFKD", str(value))
     stripped = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
     cleaned = re.sub(r"[\-_/]+", " ", stripped)
@@ -61,6 +65,8 @@ _MONTH_NAME_LOOKUP = {
 
 
 def _extract_report_datetime(path: Path, fallback: date) -> datetime:
+    """Obtiene una fecha tentativa desde ``path`` o usa ``fallback``."""
+
     stem = path.stem
 
     match = re.search(r"(\d{4})(\d{2})(\d{2})", stem)
@@ -138,6 +144,8 @@ def _ensure_primary_sheet_title(wb, desired_title: str) -> None:
 
 
 def _clean_cell_value(value, *, strip: bool = True):
+    """Elimina ruido de valores provenientes de Excel, devolviendo ``None`` si aplica."""
+
     if value is None:
         return None
     if value is pd.NA:
@@ -183,6 +191,8 @@ def _normalize_nit_value(value):
 
 
 def _try_convert_numeric(text: str):
+    """Intenta convertir ``text`` a entero o flotante, devolviendo ``None`` si falla."""
+
     if not text:
         return None
     try:
@@ -195,11 +205,15 @@ def _try_convert_numeric(text: str):
         return None
 
 def _norm(s: str) -> str:
+    """Normaliza cadenas de encabezado para comparaciones tolerantes."""
+
     return (str(s).strip().lower()
             .replace("%","").replace(".","")
             .replace("_"," ").replace("-"," ").replace("  "," "))
 
 def _find_header_row_and_map(ws):
+    """Busca la fila de encabezados en ``ws`` y devuelve un mapa normalizado."""
+
     header_row = None
     header_map = {}
     for i, row in enumerate(ws.iter_rows(min_row=1, max_row=min(ws.max_row, 100), values_only=True), start=1):
@@ -212,6 +226,8 @@ def _find_header_row_and_map(ws):
     return header_row, header_map
 
 def _letter_from_header(header_map, *candidates):
+    """Devuelve el índice de columna asociado a cualquiera de los candidatos."""
+
     for c in candidates:
         key = _norm(c)
         if key in header_map:
@@ -225,6 +241,8 @@ def _pick_excz_for_date(
     *,
     use_latest: bool = False,
 ) -> Tuple[Path | None, list[ExczMetadata]]:
+    """Selecciona el archivo EXCZ con ``prefix`` para ``report_date``."""
+
     directory = Path(path)
     finder = ExczFileFinder(directory)
     matches = list(finder.iter_matches(prefix))
@@ -272,6 +290,8 @@ def _read_excz_df(file: Path):
 
 
 def _precios_candidate_dirs(base_dir):
+    """Devuelve directorios candidatos donde buscar archivos de precios."""
+
     candidates = []
     seen = set()
 
@@ -314,6 +334,8 @@ def _find_latest_file_by_prefix(
     prefix: str | None,
     extensions: Tuple[str, ...],
 ):
+    """Busca el archivo más reciente que cumpla con ``prefix`` y ``extensions``."""
+
     best_path: Path | None = None
     best_mtime = float("-inf")
     prefix_lower = prefix.lower() if prefix else ""
@@ -365,6 +387,8 @@ def _resolve_precios_path(
     prefix=None,
     use_latest=False,
 ):
+    """Determina el archivo de precios a importar según las preferencias dadas."""
+
     prefix = prefix or DEFAULT_PRECIOS_PREFIX
 
     if explicit_file:
@@ -406,6 +430,8 @@ def _resolve_precios_path(
 
 
 def _vendedores_candidate_dirs(base_dir):
+    """Genera directorios posibles para localizar archivos de vendedores."""
+
     candidates = []
     seen = set()
 
@@ -441,6 +467,8 @@ def _resolve_vendedores_path(
     prefix=None,
     use_latest=False,
 ):
+    """Identifica el archivo de vendedores a usar según fecha y prefijo."""
+
     prefix = prefix or DEFAULT_VENDEDORES_PREFIX
 
     if explicit_file:
@@ -498,6 +526,8 @@ def _update_vendedores_sheet(
     vendedores_prefix=None,
     use_latest=False,
 ):
+    """Actualiza la hoja ``VENDEDORES`` copiando datos desde archivos externos."""
+
     sheet_name = "VENDEDORES"
     if sheet_name not in wb.sheetnames:
         return {}, None
@@ -566,6 +596,8 @@ def _update_vendedores_sheet(
 
 
 def _guess_map(df_cols):
+    """Asocia nombres de columnas conocidos con encabezados aproximados."""
+
     cols = {_norm(c): c for c in df_cols}
 
     def pick(*keys, contains=None):
@@ -632,17 +664,23 @@ def _guess_map(df_cols):
 
 
 def _normalize_spaces(value):
+    """Compacta espacios y devuelve el texto en minúsculas."""
+
     if value is None:
         return ""
     return re.sub(r"\s+", " ", str(value).strip()).lower()
 
 
 def _strip_accents(text: str) -> str:
+    """Elimina acentos de ``text`` utilizando normalización Unicode."""
+
     normalized = unicodedata.normalize("NFKD", text)
     return "".join(ch for ch in normalized if not unicodedata.combining(ch))
 
 
 def _normalize_lookup_value(value) -> str:
+    """Genera una representación canónica para comparar etiquetas de lookup."""
+
     if pd.isna(value):
         return ""
     text = str(value).strip().lower()
@@ -652,14 +690,16 @@ def _normalize_lookup_value(value) -> str:
 
 
 def _normalize_ccosto_value(value) -> str:
+    """Normaliza un valor de centro de costo utilizando ``_normalize_lookup_value``."""
+
     return _normalize_lookup_value(value)
 
 
 def _parse_numeric_series(series: pd.Series, *, is_percent: bool = False) -> pd.Series:
-    """Convert a series with numeric-like strings into floats.
+    """Convierte una serie con datos numéricos mezclados a valores ``float``.
 
-    Handles values that include percentage symbols as well as numbers that use
-    comma or dot as decimal/thousand separators.
+    Se toleran símbolos de porcentaje y formatos con separadores de miles o
+    decimales tanto con coma como con punto.
     """
 
     if series.empty:
@@ -688,6 +728,8 @@ def _parse_numeric_series(series: pd.Series, *, is_percent: bool = False) -> pd.
 
 
 def _select_rows_by_norm(df: pd.DataFrame, label: str, norm_col: str) -> pd.DataFrame:
+    """Filtra ``df`` devolviendo filas cuya columna normalizada coincide con ``label``."""
+
     if norm_col not in df.columns:
         return df.iloc[0:0].copy()
 
@@ -738,10 +780,14 @@ def _select_rows_by_norm(df: pd.DataFrame, label: str, norm_col: str) -> pd.Data
 
 
 def _select_ccosto_rows(df: pd.DataFrame, label: str) -> pd.DataFrame:
+    """Devuelve filas de centros de costo que coinciden con ``label``."""
+
     return _select_rows_by_norm(df, label, "ccosto_norm")
 
 
 def _select_cod_rows(df: pd.DataFrame, label: str) -> pd.DataFrame:
+    """Devuelve filas de vendedores (COD) que coinciden con ``label``."""
+
     return _select_rows_by_norm(df, label, "cod_norm")
 
 
@@ -755,6 +801,8 @@ def _update_ccosto_sheets(
     *,
     use_latest: bool = False,
 ):
+    """Actualiza las hojas CCOSTO con datos del EXCZ seleccionado."""
+
     config = [
         ("CCOSTO 1", "0001   MOST. PRINCIPAL"),
         ("CCOSTO 2", "0002   MOST. SUCURSAL"),
@@ -959,6 +1007,8 @@ def _update_ccosto_sheets(
 
 
 def _update_lineas_sheet(wb, data: pd.DataFrame, accounting_fmt: str, border):
+    """Reconstruye la hoja ``LINEAS`` a partir de agregados calculados."""
+
     sheet_name = "LINEAS"
     if sheet_name not in wb.sheetnames:
         return {}
@@ -1144,6 +1194,8 @@ def _update_cod_sheets(
     *,
     use_latest: bool = False,
 ):
+    """Rellena las hojas COD con información de vendedores proveniente de EXCZ."""
+
     config = [
         ("COD24", "0024", "CR CARLOS ALBERTO TOVAR HERRER"),
         ("COD25", "0025", "CO CARLOS ALBERTO TOVAR HERRER"),
@@ -1370,6 +1422,8 @@ def _update_precios_sheet(
     precios_prefix=None,
     use_latest=False,
 ):
+    """Sincroniza la hoja ``PRECIOS`` con el archivo de productos más reciente."""
+
     sheet_name = "PRECIOS"
     if sheet_name not in wb.sheetnames:
         return {}, None
@@ -1446,6 +1500,8 @@ def _update_precios_sheet(
 
 
 def main():
+    """Interfaz de línea de comandos para actualizar el informe de rentabilidad."""
+
     p = argparse.ArgumentParser(description="Importa el EXCZ del día previo y aplica fórmulas fijas.")
     p.add_argument(
         "--excel",
