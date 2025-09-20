@@ -177,6 +177,182 @@ class RoundedCard(tk.Frame):
         )
         self._canvas.tag_lower("card", self._window)
 
+
+class LogPanel(tk.Frame):
+    """Panel desplazable que muestra mensajes con un estado vacío elegante."""
+
+    def __init__(
+        self,
+        parent: tk.Widget,
+        *,
+        background: str,
+        empty_background: str,
+        text_color: str,
+        muted_color: str,
+        font_family: str,
+        emoji_font: str,
+    ) -> None:
+        super().__init__(parent, bg=background, bd=0, highlightthickness=0)
+
+        self._background = background
+        self._text_color = text_color
+        self._muted_color = muted_color
+        self._font_family = font_family
+        self._emoji_font = emoji_font
+
+        self._entries: list[tk.Widget] = []
+        self._has_content = False
+
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+
+        self._empty_state = tk.Frame(
+            self,
+            bg=empty_background,
+            bd=0,
+            highlightthickness=0,
+        )
+        self._empty_state.grid(row=0, column=0, sticky="nsew")
+        self._empty_state.columnconfigure(0, weight=1)
+
+        icon = tk.Label(
+            self._empty_state,
+            text="📥",
+            bg=empty_background,
+            fg=self._muted_color,
+            font=(self._emoji_font, 36),
+        )
+        icon.grid(row=0, column=0, pady=(28, 6))
+
+        message = tk.Label(
+            self._empty_state,
+            text="El registro de actividades aparecerá aquí",
+            bg=empty_background,
+            fg=self._muted_color,
+            font=(self._font_family, 11),
+            wraplength=360,
+            justify="center",
+        )
+        message.grid(row=1, column=0, padx=16)
+
+        self._list_container = tk.Frame(
+            self,
+            bg=background,
+            bd=0,
+            highlightthickness=0,
+        )
+        self._list_container.columnconfigure(0, weight=1)
+        self._list_container.rowconfigure(0, weight=1)
+        self._list_container.grid(row=0, column=0, sticky="nsew")
+        self._list_container.grid_remove()
+
+        self._canvas = tk.Canvas(
+            self._list_container,
+            bg=background,
+            bd=0,
+            highlightthickness=0,
+        )
+        self._canvas.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
+
+        self._scrollbar = ttk.Scrollbar(
+            self._list_container,
+            orient="vertical",
+            style="Vertical.TScrollbar",
+            command=self._canvas.yview,
+        )
+        self._scrollbar.grid(row=0, column=1, sticky="ns", pady=10)
+        self._canvas.configure(yscrollcommand=self._scrollbar.set)
+
+        self._inner = tk.Frame(
+            self._canvas,
+            bg=background,
+            bd=0,
+            highlightthickness=0,
+        )
+        self._window = self._canvas.create_window((0, 0), window=self._inner, anchor="nw")
+
+        self._inner.bind("<Configure>", self._on_inner_configure)
+        self._canvas.bind("<Configure>", self._on_canvas_configure)
+
+        self.clear()
+
+    # ----------------------------------------------------------- Internals --
+    def _on_inner_configure(self, _event: tk.Event) -> None:
+        self._canvas.configure(scrollregion=self._canvas.bbox("all"))
+
+    def _on_canvas_configure(self, event: tk.Event) -> None:
+        width = max(int(event.width), 0)
+        self._canvas.itemconfigure(self._window, width=width)
+        wraplength = max(width - 40, 120)
+        for widget in self._entries:
+            if isinstance(widget, tk.Label):
+                widget.configure(wraplength=wraplength)
+
+    def _show_empty(self) -> None:
+        self._list_container.grid_remove()
+        self._empty_state.grid()
+        self._has_content = False
+
+    def _ensure_list_visible(self) -> None:
+        if not self._list_container.winfo_ismapped():
+            self._empty_state.grid_remove()
+            self._list_container.grid()
+
+    def _scroll_to_end(self) -> None:
+        self.update_idletasks()
+        self._canvas.update_idletasks()
+        self._canvas.yview_moveto(1.0)
+
+    def _add_separator(self) -> None:
+        spacer = tk.Frame(
+            self._inner,
+            height=10,
+            bg=self._background,
+            bd=0,
+            highlightthickness=0,
+        )
+        spacer.pack(fill="x")
+        self._entries.append(spacer)
+        self._scroll_to_end()
+
+    def _add_message(self, content: str) -> None:
+        self._ensure_list_visible()
+        label = tk.Label(
+            self._inner,
+            text=content,
+            anchor="w",
+            justify="left",
+            bg=self._background,
+            fg=self._text_color,
+            font=(self._font_family, 10),
+            wraplength=520,
+        )
+        pady = (8, 0) if self._entries else (0, 0)
+        label.pack(fill="x", padx=16, pady=pady)
+        self._entries.append(label)
+        self._has_content = True
+        self._scroll_to_end()
+
+    # --------------------------------------------------------------- Public --
+    def clear(self) -> None:
+        for widget in self._entries:
+            widget.destroy()
+        self._entries.clear()
+        self._canvas.yview_moveto(0.0)
+        self._show_empty()
+
+    def append(self, message: str) -> None:
+        content = message.rstrip()
+        if not content:
+            if self._has_content:
+                self._add_separator()
+            return
+        self._add_message(content)
+
+    @property
+    def has_content(self) -> bool:
+        return self._has_content
+
 class RentApp(tk.Tk):
     """Ventana principal del panel de control."""
 
@@ -229,7 +405,7 @@ class RentApp(tk.Tk):
         self._header_gradient_image: tk.PhotoImage | None = None
         self._header_gradient_id: int | None = None
 
-        self._log_has_content = False
+        self.log_panel: LogPanel | None = None
 
         self._build_styles()
         self._build_layout()
@@ -254,6 +430,18 @@ class RentApp(tk.Tk):
         else:
             font_family = "Helvetica"
         self._font_family = font_family
+
+        emoji_candidates = [
+            "Segoe UI Emoji",
+            "Noto Color Emoji",
+            "Apple Color Emoji",
+            "Twemoji Mozilla",
+        ]
+        emoji_font = next(
+            (candidate for candidate in emoji_candidates if candidate.casefold() in available_fonts),
+            font_family,
+        )
+        self._emoji_font = emoji_font
 
         style.configure("TFrame", background=self.colors["surface"])
         style.configure("Background.TFrame", background=self.colors["background"])
@@ -565,36 +753,16 @@ class RentApp(tk.Tk):
         text_card.inner.columnconfigure(0, weight=1)
         text_card.inner.rowconfigure(0, weight=1)
 
-        self.log_text = tk.Text(
+        self.log_panel = LogPanel(
             text_card.inner,
-            height=12,
-            state="disabled",
-            wrap="word",
             background=self.colors["log_bg"],
-            foreground=self.colors["log_fg"],
-            insertbackground=self.colors["accent"],
-            borderwidth=0,
-            relief="flat",
-            font=("Consolas", 10),
-            padx=16,
-            pady=16,
+            empty_background=self.colors["log_bg"],
+            text_color=self.colors["log_fg"],
+            muted_color=self.colors["muted"],
+            font_family=self._font_family,
+            emoji_font=self._emoji_font,
         )
-        self.log_text.grid(row=0, column=0, sticky="nsew")
-        self.log_text.tag_configure(
-            "placeholder",
-            foreground=self.colors["muted"],
-            justify="center",
-            spacing3=8,
-        )
-
-        scrollbar = ttk.Scrollbar(
-            text_card.inner,
-            orient="vertical",
-            style="Vertical.TScrollbar",
-            command=self.log_text.yview,
-        )
-        scrollbar.grid(row=0, column=1, sticky="ns", pady=16)
-        self.log_text.configure(yscrollcommand=scrollbar.set)
+        self.log_panel.grid(row=0, column=0, sticky="nsew")
 
         ttk.Separator(card, orient="horizontal").grid(row=3, column=0, sticky="ew", pady=(16, 12))
 
@@ -950,22 +1118,11 @@ class RentApp(tk.Tk):
             self.after(150, self._poll_log_queue)
 
     def _append_log(self, message: str) -> None:
-        """Añade ``message`` al cuadro de texto bloqueado de la interfaz."""
+        """Añade ``message`` al panel de registro manteniendo el estado vacío."""
 
-        content = message.rstrip()
-        if not content and not self._log_has_content:
+        if self.log_panel is None:
             return
-
-        self.log_text.configure(state="normal")
-        if not self._log_has_content:
-            self.log_text.delete("1.0", "end")
-            self.log_text.tag_remove("placeholder", "1.0", "end")
-            self._log_has_content = True
-
-        entry = content if content else ""
-        self.log_text.insert("end", entry + "\n")
-        self.log_text.configure(state="disabled")
-        self.log_text.see("end")
+        self.log_panel.append(message)
 
     def _clear_log(self) -> None:
         """Elimina por completo el contenido del registro de actividades."""
@@ -976,13 +1133,9 @@ class RentApp(tk.Tk):
     def _render_empty_log(self) -> None:
         """Muestra un mensaje neutro cuando no hay actividades registradas."""
 
-        self.log_text.configure(state="normal")
-        self.log_text.delete("1.0", "end")
-        placeholder = "📭 El registro de actividades aparecerá aquí"
-        self.log_text.insert("1.0", placeholder, ("placeholder",))
-        self.log_text.insert("end", "\n")
-        self.log_text.configure(state="disabled")
-        self._log_has_content = False
+        if self.log_panel is None:
+            return
+        self.log_panel.clear()
 
     def _copy_to_clipboard(self, value: str) -> None:
         """Copia ``value`` al portapapeles del sistema y notifica al usuario."""
@@ -1085,7 +1238,7 @@ class RentApp(tk.Tk):
             return
 
         self.status_var.set(f"⏳ {status_message}")
-        if self._log_has_content:
+        if self.log_panel and self.log_panel.has_content:
             self._log_queue.put("")
         self._log(status_message)
         self._set_actions_state("disabled")
