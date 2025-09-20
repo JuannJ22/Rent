@@ -73,6 +73,110 @@ def ensure_trailing_backslash(path: str) -> str:
     return path if path.endswith(("\\", "/")) else path + "\\"
 
 
+def _widget_background(widget: tk.Widget, fallback: str) -> str:
+    """Obtiene el color de fondo de ``widget`` con un respaldo seguro."""
+
+    try:
+        value = widget.cget("background")
+    except tk.TclError:
+        return fallback
+    if not value or value == "SystemButtonFace":
+        return fallback
+    return value
+
+
+class RoundedCard(tk.Frame):
+    """Contenedor con esquinas redondeadas dibujadas sobre un lienzo."""
+
+    def __init__(
+        self,
+        parent: tk.Widget,
+        *,
+        background: str,
+        border: str,
+        radius: int = 16,
+        padding: int = 20,
+    ) -> None:
+        container_bg = _widget_background(parent, background)
+        super().__init__(parent, bg=container_bg, bd=0, highlightthickness=0)
+
+        self._background_color = background
+        self._border_color = border
+        self._radius = radius
+        self._padding = padding
+
+        self._canvas = tk.Canvas(
+            self,
+            bg=container_bg,
+            bd=0,
+            highlightthickness=0,
+        )
+        self._canvas.pack(fill="both", expand=True)
+
+        self.inner = tk.Frame(self._canvas, bg=background, bd=0, highlightthickness=0)
+        self._window = self._canvas.create_window(padding, padding, anchor="nw", window=self.inner)
+        self._canvas.bind("<Configure>", self._on_configure)
+
+    def _on_configure(self, event: tk.Event) -> None:
+        """Redimensiona el lienzo y redibuja el fondo redondeado."""
+
+        width = max(int(event.width), 2)
+        height = max(int(event.height), 2)
+        pad = self._padding
+        inner_width = max(width - 2 * pad, 1)
+        inner_height = max(height - 2 * pad, 1)
+
+        self._canvas.coords(self._window, pad, pad)
+        self._canvas.itemconfigure(self._window, width=inner_width, height=inner_height)
+
+        radius = min(self._radius, inner_width // 2, inner_height // 2, width // 2, height // 2)
+        self._draw_background(width, height, radius)
+
+    def _draw_background(self, width: int, height: int, radius: int) -> None:
+        """Dibuja un polígono suavizado simulando esquinas curvas."""
+
+        if radius <= 0:
+            radius = 1
+
+        points = [
+            radius,
+            0,
+            width - radius,
+            0,
+            width,
+            0,
+            width,
+            radius,
+            width,
+            height - radius,
+            width,
+            height,
+            width - radius,
+            height,
+            radius,
+            height,
+            0,
+            height,
+            0,
+            height - radius,
+            0,
+            radius,
+            0,
+            0,
+        ]
+
+        self._canvas.delete("card")
+        self._canvas.create_polygon(
+            points,
+            smooth=True,
+            splinesteps=24,
+            fill=self._background_color,
+            outline=self._border_color,
+            width=1,
+            tags="card",
+        )
+        self._canvas.tag_lower("card", self._window)
+
 class RentApp(tk.Tk):
     """Ventana principal del panel de control."""
 
@@ -97,6 +201,14 @@ class RentApp(tk.Tk):
             "status_bg": "#eef2ff",
             "log_bg": "#f1f5f9",
             "log_fg": "#1e293b",
+            "icon_auto_bg": "#e0e7ff",
+            "icon_auto_fg": "#4338ca",
+            "icon_manual_bg": "#fef3c7",
+            "icon_manual_fg": "#92400e",
+            "icon_products_bg": "#dcfce7",
+            "icon_products_fg": "#166534",
+            "icon_log_bg": "#e0f2fe",
+            "icon_log_fg": "#075985",
         }
         self.configure(bg=self.colors["background"])
 
@@ -293,6 +405,75 @@ class RentApp(tk.Tk):
         )
         style.map("Vertical.TScrollbar", background=[("active", self.colors["accent"])])
 
+    def _create_icon_badge(
+        self,
+        parent: tk.Widget,
+        *,
+        icon: str,
+        badge_bg: str,
+        icon_fg: str,
+        background: Optional[str] = None,
+    ) -> tk.Canvas:
+        """Genera un ícono circular con fondo suave para títulos de secciones."""
+
+        canvas_bg = background or self.colors["surface"]
+        canvas = tk.Canvas(
+            parent,
+            width=48,
+            height=48,
+            bd=0,
+            highlightthickness=0,
+            bg=canvas_bg,
+        )
+        canvas.create_oval(0, 0, 48, 48, fill=badge_bg, outline="")
+        canvas.create_text(
+            24,
+            24,
+            text=icon,
+            fill=icon_fg,
+            font=(self._font_family, 20),
+        )
+        return canvas
+
+    def _create_card_header(
+        self,
+        parent: tk.Widget,
+        *,
+        icon: str,
+        badge_bg: str,
+        icon_fg: str,
+        title: str,
+        subtitle: Optional[str] = None,
+        wraplength: int = 360,
+        background: Optional[str] = None,
+    ) -> tk.Frame:
+        """Crea una cabecera con icono y descripción para una tarjeta."""
+
+        bg_color = background or self.colors["surface"]
+        header = tk.Frame(parent, bg=bg_color, bd=0, highlightthickness=0)
+        header.columnconfigure(1, weight=1)
+
+        icon_canvas = self._create_icon_badge(
+            header,
+            icon=icon,
+            badge_bg=badge_bg,
+            icon_fg=icon_fg,
+            background=bg_color,
+        )
+        span = 2 if subtitle else 1
+        icon_canvas.grid(row=0, column=0, rowspan=span, sticky="nw")
+
+        ttk.Label(header, text=title, style="SectionHeading.TLabel").grid(row=0, column=1, sticky="w")
+        if subtitle:
+            ttk.Label(
+                header,
+                text=subtitle,
+                style="BodyMuted.TLabel",
+                wraplength=wraplength,
+            ).grid(row=1, column=1, sticky="w", pady=(6, 0))
+
+        return header
+
     def _build_layout(self) -> None:
         """Arma la estructura base de pestañas, registro y barra de estado."""
 
@@ -328,47 +509,63 @@ class RentApp(tk.Tk):
 
         report_tab = ttk.Frame(notebook, padding=20, style="Tab.TFrame")
         report_tab.columnconfigure(0, weight=1)
-        notebook.add(report_tab, text="Informe de rentabilidad")
+        notebook.add(report_tab, text="📄 Informe de Rentabilidad")
         self._build_report_tab(report_tab)
 
         products_tab = ttk.Frame(notebook, padding=20, style="Tab.TFrame")
         products_tab.columnconfigure(0, weight=1)
-        notebook.add(products_tab, text="Listado de productos")
+        notebook.add(products_tab, text="🗂️ Listado de Productos")
         self._build_products_tab(products_tab)
 
         ttk.Separator(card, orient="horizontal").grid(row=1, column=0, sticky="ew", pady=(16, 12))
 
-        log_section = ttk.Frame(card, style="CardInner.TFrame")
-        log_section.grid(row=2, column=0, sticky="nsew")
-        log_section.columnconfigure(0, weight=1)
-        log_section.rowconfigure(1, weight=1)
+        log_card = RoundedCard(
+            card,
+            background=self.colors["surface"],
+            border=self.colors["border"],
+            radius=20,
+            padding=24,
+        )
+        log_card.grid(row=2, column=0, sticky="nsew")
+        log_card.inner.columnconfigure(0, weight=1)
+        log_card.inner.rowconfigure(1, weight=1)
 
-        header = ttk.Frame(log_section, style="CardInner.TFrame")
+        header = tk.Frame(log_card.inner, bg=self.colors["surface"], bd=0, highlightthickness=0)
         header.grid(row=0, column=0, sticky="ew", pady=(0, 12))
-        header.columnconfigure(0, weight=1)
+        header.columnconfigure(1, weight=1)
+
+        icon_canvas = self._create_icon_badge(
+            header,
+            icon="📋",
+            badge_bg=self.colors["icon_log_bg"],
+            icon_fg=self.colors["icon_log_fg"],
+            background=self.colors["surface"],
+        )
+        icon_canvas.grid(row=0, column=0, sticky="nw")
+
         ttk.Label(header, text="Registro de actividades", style="SectionHeading.TLabel").grid(
             row=0,
-            column=0,
+            column=1,
             sticky="w",
+            padx=(12, 0),
         )
         clear_button = ttk.Button(header, text="Limpiar", command=self._clear_log, style="Link.TButton")
-        clear_button.grid(row=0, column=1, sticky="e")
+        clear_button.grid(row=0, column=2, sticky="e")
         clear_button.configure(cursor="hand2")
 
-        text_container = tk.Frame(
-            log_section,
+        text_card = RoundedCard(
+            log_card.inner,
             background=self.colors["log_bg"],
-            highlightbackground=self.colors["border"],
-            highlightcolor=self.colors["border"],
-            highlightthickness=1,
-            bd=0,
+            border=self.colors["border"],
+            radius=14,
+            padding=4,
         )
-        text_container.grid(row=1, column=0, sticky="nsew")
-        text_container.columnconfigure(0, weight=1)
-        text_container.rowconfigure(0, weight=1)
+        text_card.grid(row=1, column=0, sticky="nsew")
+        text_card.inner.columnconfigure(0, weight=1)
+        text_card.inner.rowconfigure(0, weight=1)
 
         self.log_text = tk.Text(
-            text_container,
+            text_card.inner,
             height=12,
             state="disabled",
             wrap="word",
@@ -378,8 +575,8 @@ class RentApp(tk.Tk):
             borderwidth=0,
             relief="flat",
             font=("Consolas", 10),
-            padx=12,
-            pady=12,
+            padx=16,
+            pady=16,
         )
         self.log_text.grid(row=0, column=0, sticky="nsew")
         self.log_text.tag_configure(
@@ -390,12 +587,12 @@ class RentApp(tk.Tk):
         )
 
         scrollbar = ttk.Scrollbar(
-            text_container,
+            text_card.inner,
             orient="vertical",
             style="Vertical.TScrollbar",
             command=self.log_text.yview,
         )
-        scrollbar.grid(row=0, column=1, sticky="ns")
+        scrollbar.grid(row=0, column=1, sticky="ns", pady=16)
         self.log_text.configure(yscrollcommand=scrollbar.set)
 
         ttk.Separator(card, orient="horizontal").grid(row=3, column=0, sticky="ew", pady=(16, 12))
@@ -515,89 +712,120 @@ class RentApp(tk.Tk):
         info_frame.grid(row=0, column=0, sticky="ew", pady=(0, 16))
         info_frame.columnconfigure(0, weight=1)
 
-        ttk.Label(info_frame, text="Plantilla base", style="SectionHeading.TLabel").grid(
+        ttk.Label(info_frame, text="📁 Plantilla base", style="SectionHeading.TLabel").grid(
             row=0,
             column=0,
             sticky="w",
         )
-        code_box = tk.Frame(
+        template_card = RoundedCard(
             info_frame,
-            bg=self.colors["surface_alt"],
-            highlightbackground=self.colors["border"],
-            highlightcolor=self.colors["border"],
-            highlightthickness=1,
-            bd=0,
+            background=self.colors["surface_alt"],
+            border=self.colors["border"],
+            radius=12,
+            padding=12,
         )
-        code_box.grid(row=1, column=0, sticky="ew", pady=(8, 0))
-        code_box.columnconfigure(0, weight=1)
+        template_card.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        template_card.inner.columnconfigure(0, weight=1)
         ttk.Label(
-            code_box,
+            template_card.inner,
             text=str(self.context.template_path()),
             style="Code.TLabel",
-        ).grid(row=0, column=0, sticky="w", padx=12, pady=8)
+        ).grid(row=0, column=0, sticky="w")
 
-        auto_frame = ttk.LabelFrame(parent, text="🕒  Informe automático", style="Card.TLabelframe")
-        auto_frame.grid(row=1, column=0, sticky="ew", pady=(16, 0))
-        auto_frame.columnconfigure(0, weight=1)
+        parent.rowconfigure(1, weight=1)
 
-        desc = ttk.Label(
-            auto_frame,
-            text=(
+        cards_frame = ttk.Frame(parent, style="Tab.TFrame")
+        cards_frame.grid(row=1, column=0, sticky="nsew", pady=(12, 0))
+        cards_frame.columnconfigure(0, weight=1, uniform="report")
+        cards_frame.columnconfigure(1, weight=1, uniform="report")
+        cards_frame.rowconfigure(0, weight=1)
+
+        auto_card = RoundedCard(
+            cards_frame,
+            background=self.colors["surface"],
+            border=self.colors["border"],
+            radius=18,
+            padding=24,
+        )
+        auto_card.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        auto_inner = auto_card.inner
+        auto_inner.columnconfigure(0, weight=1)
+
+        auto_header = self._create_card_header(
+            auto_inner,
+            icon="🕒",
+            badge_bg=self.colors["icon_auto_bg"],
+            icon_fg=self.colors["icon_auto_fg"],
+            title="Informe automático",
+            subtitle=(
                 "Genera automáticamente el informe del día anterior utilizando los archivos "
                 "más recientes y actualizando todas las hojas de la plantilla."
             ),
-            style="BodyMuted.TLabel",
-            wraplength=660,
+            wraplength=320,
         )
-        desc.grid(row=0, column=0, sticky="w")
+        auto_header.grid(row=0, column=0, sticky="ew")
 
         auto_button = ttk.Button(
-            auto_frame,
+            auto_inner,
             text="Generar informe automático",
             style="Accent.TButton",
             command=self._on_generate_auto,
         )
-        auto_button.grid(row=1, column=0, sticky="ew", pady=(18, 0))
+        auto_button.grid(row=1, column=0, sticky="ew", pady=(20, 0))
         self._register_action(auto_button)
 
-        manual_frame = ttk.LabelFrame(parent, text="📅  Informe manual", style="Card.TLabelframe")
-        manual_frame.grid(row=2, column=0, sticky="ew", pady=(20, 0))
-        manual_frame.columnconfigure(1, weight=1)
+        manual_card = RoundedCard(
+            cards_frame,
+            background=self.colors["surface"],
+            border=self.colors["border"],
+            radius=18,
+            padding=24,
+        )
+        manual_card.grid(row=0, column=1, sticky="nsew", padx=(12, 0))
+        manual_inner = manual_card.inner
+        manual_inner.columnconfigure(0, weight=1)
 
-        manual_desc = ttk.Label(
-            manual_frame,
-            text=(
+        manual_header = self._create_card_header(
+            manual_inner,
+            icon="📅",
+            badge_bg=self.colors["icon_manual_bg"],
+            icon_fg=self.colors["icon_manual_fg"],
+            title="Informe manual",
+            subtitle=(
                 "Genera un informe para la fecha indicada utilizando los archivos cuyo nombre "
                 "coincida con ese día."
             ),
-            style="BodyMuted.TLabel",
-            wraplength=660,
+            wraplength=320,
         )
-        manual_desc.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
+        manual_header.grid(row=0, column=0, sticky="ew")
 
-        ttk.Label(manual_frame, text="Fecha (YYYY-MM-DD):", style="FormLabel.TLabel").grid(
-            row=1,
+        form_row = ttk.Frame(manual_inner, style="CardInner.TFrame")
+        form_row.grid(row=1, column=0, sticky="ew", pady=(16, 0))
+        form_row.columnconfigure(1, weight=1)
+
+        ttk.Label(form_row, text="Fecha (YYYY-MM-DD):", style="FormLabel.TLabel").grid(
+            row=0,
             column=0,
             sticky="w",
         )
-        entry = ttk.Entry(manual_frame, textvariable=self.manual_date_var, width=20, style="Filled.TEntry")
-        entry.grid(row=1, column=1, sticky="w", padx=(10, 0))
+        entry = ttk.Entry(form_row, textvariable=self.manual_date_var, width=20, style="Filled.TEntry")
+        entry.grid(row=0, column=1, sticky="w", padx=(10, 0))
 
         today_button = ttk.Button(
-            manual_frame,
+            form_row,
             text="Hoy",
             command=lambda: self.manual_date_var.set(date.today().strftime("%Y-%m-%d")),
             style="Secondary.TButton",
         )
-        today_button.grid(row=1, column=2, padx=(12, 0))
+        today_button.grid(row=0, column=2, padx=(12, 0))
 
         manual_button = ttk.Button(
-            manual_frame,
-            text="Generar informe",
+            manual_inner,
+            text="Generar informe manual",
             style="Accent.TButton",
             command=self._on_generate_manual,
         )
-        manual_button.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(20, 0))
+        manual_button.grid(row=2, column=0, sticky="ew", pady=(20, 0))
         self._register_action(manual_button)
 
     def _build_products_tab(self, parent: ttk.Frame) -> None:
@@ -614,40 +842,53 @@ class RentApp(tk.Tk):
         )
         info.grid(row=0, column=0, sticky="w", pady=(0, 8))
 
-        form = ttk.LabelFrame(parent, text="📦  Generación de listado", style="Card.TLabelframe")
-        form.grid(row=1, column=0, sticky="ew", pady=(20, 0))
-        form.columnconfigure(1, weight=1)
+        form_card = RoundedCard(
+            parent,
+            background=self.colors["surface"],
+            border=self.colors["border"],
+            radius=18,
+            padding=24,
+        )
+        form_card.grid(row=1, column=0, sticky="ew", pady=(20, 0))
+        form_card.inner.columnconfigure(0, weight=1)
 
-        description = ttk.Label(
-            form,
-            text=(
+        header = self._create_card_header(
+            form_card.inner,
+            icon="📦",
+            badge_bg=self.colors["icon_products_bg"],
+            icon_fg=self.colors["icon_products_fg"],
+            title="Generación de listado",
+            subtitle=(
                 "La aplicación obtendrá la información desde SIIGO, filtrará las columnas "
                 "necesarias y guardará el archivo listo para su revisión."
             ),
-            style="BodyMuted.TLabel",
-            wraplength=640,
+            wraplength=600,
         )
-        description.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 12))
+        header.grid(row=0, column=0, sticky="ew")
 
-        ttk.Label(form, text="Fecha (YYYY-MM-DD):", style="FormLabel.TLabel").grid(row=1, column=0, sticky="w")
-        entry = ttk.Entry(form, textvariable=self.products_date_var, width=20, style="Filled.TEntry")
-        entry.grid(row=1, column=1, sticky="w", padx=(10, 0))
+        form_row = ttk.Frame(form_card.inner, style="CardInner.TFrame")
+        form_row.grid(row=1, column=0, sticky="ew", pady=(16, 0))
+        form_row.columnconfigure(1, weight=1)
+
+        ttk.Label(form_row, text="Fecha (YYYY-MM-DD):", style="FormLabel.TLabel").grid(row=0, column=0, sticky="w")
+        entry = ttk.Entry(form_row, textvariable=self.products_date_var, width=20, style="Filled.TEntry")
+        entry.grid(row=0, column=1, sticky="w", padx=(10, 0))
 
         set_today = ttk.Button(
-            form,
+            form_row,
             text="Hoy",
             command=lambda: self.products_date_var.set(date.today().strftime("%Y-%m-%d")),
             style="Secondary.TButton",
         )
-        set_today.grid(row=1, column=2, padx=(12, 0))
+        set_today.grid(row=0, column=2, padx=(12, 0))
 
         button = ttk.Button(
-            form,
+            form_card.inner,
             text="Generar listado de productos",
             style="Accent.TButton",
             command=self._on_generate_products,
         )
-        button.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(20, 0))
+        button.grid(row=2, column=0, sticky="ew", pady=(20, 0))
         self._register_action(button)
 
     # -------------------------------------------------------------- Helpers --
