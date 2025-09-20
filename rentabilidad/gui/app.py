@@ -1,3 +1,5 @@
+"""Aplicación gráfica para controlar procesos de rentabilidad."""
+
 from __future__ import annotations
 
 import os
@@ -33,6 +35,8 @@ LOADER_SCRIPT = REPO_ROOT / "hojas" / "hoja01_loader.py"
 
 @dataclass
 class TaskResult:
+    """Valor devuelto por cada tarea en segundo plano."""
+
     message: str
     output: Optional[Path] = None
 
@@ -41,9 +45,13 @@ class LogStream:
     """Adaptador simple que redirige ``print`` hacia el registro de la GUI."""
 
     def __init__(self, callback: Callable[[str], None]):
+        """Inicializa el stream indicando la función que recibirá cada línea."""
+
         self._callback = callback
 
     def write(self, data: str) -> None:  # pragma: no cover - integración I/O
+        """Envía ``data`` al registro dividiéndolo por líneas útiles."""
+
         if not data:
             return
         text = data.strip()
@@ -53,10 +61,14 @@ class LogStream:
             self._callback(line)
 
     def flush(self) -> None:  # pragma: no cover - requerido por interface
+        """Se expone para cumplir la interfaz de archivo, no realiza acciones."""
+
         return
 
 
 def ensure_trailing_backslash(path: str) -> str:
+    """Garantiza que ``path`` termine con ``\\`` o ``/``."""
+
     return path if path.endswith(("\\", "/")) else path + "\\"
 
 
@@ -64,6 +76,8 @@ class RentApp(tk.Tk):
     """Ventana principal del panel de control."""
 
     def __init__(self) -> None:
+        """Configura la ventana principal y prepara las dependencias comunes."""
+
         super().__init__()
         load_env()
         self.title("Rentabilidad - Panel de control")
@@ -100,6 +114,8 @@ class RentApp(tk.Tk):
 
     # ------------------------------------------------------------------ UI --
     def _build_styles(self) -> None:
+        """Define la paleta de estilos reutilizada por todos los controles."""
+
         style = ttk.Style(self)
         try:
             style.theme_use("clam")
@@ -240,6 +256,8 @@ class RentApp(tk.Tk):
         style.map("Vertical.TScrollbar", background=[("active", self.colors["accent"])])
 
     def _build_layout(self) -> None:
+        """Arma la estructura base de pestañas, registro y barra de estado."""
+
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
 
@@ -322,6 +340,8 @@ class RentApp(tk.Tk):
         status_bar.grid(row=4, column=0, sticky="ew", pady=(20, 0))
 
     def _build_report_tab(self, parent: ttk.Frame) -> None:
+        """Construye los controles relacionados con los informes de rentabilidad."""
+
         info_frame = ttk.Frame(parent, style="Tab.TFrame")
         info_frame.grid(row=0, column=0, sticky="ew", pady=(0, 16))
         info_frame.columnconfigure(0, weight=1)
@@ -400,6 +420,8 @@ class RentApp(tk.Tk):
         self._register_action(manual_button)
 
     def _build_products_tab(self, parent: ttk.Frame) -> None:
+        """Configura la pestaña para generar listados de productos SIIGO."""
+
         info = ttk.Label(
             parent,
             text=(
@@ -438,13 +460,19 @@ class RentApp(tk.Tk):
 
     # -------------------------------------------------------------- Helpers --
     def _register_action(self, button: ttk.Button) -> None:
+        """Mantiene una referencia a ``button`` para gestionar su estado conjunto."""
+
         self._action_buttons.append(button)
 
     def _set_actions_state(self, state: str) -> None:
+        """Activa o desactiva todos los botones de acción."""
+
         for btn in self._action_buttons:
             btn.state([state]) if state == "disabled" else btn.state(["!disabled"])
 
     def _poll_log_queue(self) -> None:
+        """Transfiere los mensajes pendientes de la cola al registro visual."""
+
         try:
             while True:
                 message = self._log_queue.get_nowait()
@@ -455,6 +483,8 @@ class RentApp(tk.Tk):
             self.after(150, self._poll_log_queue)
 
     def _append_log(self, message: str) -> None:
+        """Añade ``message`` al cuadro de texto bloqueado de la interfaz."""
+
         self.log_text.configure(state="normal")
         self.log_text.insert("end", message)
         self.log_text.insert("end", "\n")
@@ -462,16 +492,22 @@ class RentApp(tk.Tk):
         self.log_text.see("end")
 
     def _clear_log(self) -> None:
+        """Elimina por completo el contenido del registro de actividades."""
+
         self.log_text.configure(state="normal")
         self.log_text.delete("1.0", "end")
         self.log_text.configure(state="disabled")
 
     def _log(self, message: str) -> None:
+        """Encola ``message`` con marca temporal para mostrarlo en pantalla."""
+
         timestamp = datetime.now().strftime("%H:%M:%S")
         self._log_queue.put(f"[{timestamp}] {message}")
 
     # -------------------------------------------------------------- Actions --
     def _on_generate_auto(self) -> None:
+        """Genera el informe del día anterior reutilizando los EXCZ más recientes."""
+
         target_date = date.today() - timedelta(days=1)
         self._start_task(
             f"Generando informe automático del {target_date:%Y-%m-%d}",
@@ -479,6 +515,8 @@ class RentApp(tk.Tk):
         )
 
     def _on_generate_manual(self) -> None:
+        """Solicita al usuario una fecha específica y lanza la actualización."""
+
         raw = self.manual_date_var.get().strip()
         if not raw:
             messagebox.showerror("Fecha requerida", "Ingresa una fecha en formato YYYY-MM-DD.")
@@ -495,6 +533,8 @@ class RentApp(tk.Tk):
         )
 
     def _on_generate_products(self) -> None:
+        """Inicia la generación del listado de productos para la fecha elegida."""
+
         raw = self.products_date_var.get().strip()
         if raw:
             try:
@@ -512,6 +552,8 @@ class RentApp(tk.Tk):
 
     # ------------------------------------------------------------ Task flow --
     def _start_task(self, status_message: str, task: Callable[[], TaskResult]) -> None:
+        """Ejecuta ``task`` en un hilo aparte y actualiza los indicadores UI."""
+
         if self._current_task and self._current_task.is_alive():
             messagebox.showinfo("Tarea en curso", "Espera a que finalice la operación actual.")
             return
@@ -535,6 +577,8 @@ class RentApp(tk.Tk):
         thread.start()
 
     def _finish_task(self, success: bool, message: str, output: Optional[Path]) -> None:
+        """Restaura el estado de la interfaz y comunica el resultado al usuario."""
+
         self._current_task = None
         self._set_actions_state("normal")
         if success:
@@ -548,6 +592,8 @@ class RentApp(tk.Tk):
 
     # ----------------------------------------------------------- Operations --
     def _task_generate_report(self, target_date: date, *, use_latest: bool) -> TaskResult:
+        """Clona la plantilla y ejecuta el loader para ``target_date``."""
+
         template = self.context.template_path()
         if not template.exists():
             raise FileNotFoundError(f"No existe la plantilla base: {template}")
@@ -568,6 +614,8 @@ class RentApp(tk.Tk):
         )
 
     def _run_loader(self, excel_path: Path, target_date: date, *, use_latest: bool) -> int:
+        """Lanza ``hoja01_loader.py`` y reenvía sus mensajes al registro local."""
+
         if not LOADER_SCRIPT.exists():
             raise FileNotFoundError(f"No se encuentra el script: {LOADER_SCRIPT}")
 
@@ -598,6 +646,8 @@ class RentApp(tk.Tk):
         return process.wait()
 
     def _collect_product_settings(self) -> tuple[PathContext, ProductGenerationConfig]:
+        """Obtiene contexto y configuración para ``ProductListingService``."""
+
         context = PathContextFactory(os.environ).create()
         defaults = {
             "SIIGO_DIR": os.environ.get("SIIGO_DIR", r"C:\\Siigo"),
@@ -653,6 +703,8 @@ class RentApp(tk.Tk):
         return context, config
 
     def _task_generate_products(self, target_date: date) -> TaskResult:
+        """Genera el Excel de productos y devuelve su ubicación final."""
+
         context, config = self._collect_product_settings()
         service = ProductListingService(context, config)
 
@@ -667,6 +719,8 @@ class RentApp(tk.Tk):
 
 
 def main() -> None:
+    """Inicia la aplicación gráfica y entra en el bucle principal de Tk."""
+
     app = RentApp()
     app.mainloop()
 

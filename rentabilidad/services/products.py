@@ -1,4 +1,13 @@
-"""Servicios para la generación y depuración del listado de productos."""
+"""Servicios relacionados con la generación del listado de productos.
+
+El módulo orquesta la ejecución de ``ExcelSIIGO`` y la posterior depuración del
+Excel resultante. Las piezas se encuentran desacopladas siguiendo los
+principios SOLID: ``ExcelSiigoFacade`` encapsula la interacción externa (Single
+Responsibility y Facade Pattern), ``WorkbookCleaner`` aplica la lógica de
+post-procesamiento (*Strategy* reemplazable mediante extensión) y
+``ProductListingService`` coordina ambas piezas actuando como *Service Layer*
+abierto a nuevas variaciones.
+"""
 
 from __future__ import annotations
 
@@ -47,6 +56,24 @@ class ExcelSiigoFacade:
         self._config = config
 
     def run(self, output_path: Path, year: str) -> None:
+        """Ejecuta ``ExcelSIIGO`` generando el archivo temporal ``output_path``.
+
+        Parameters
+        ----------
+        output_path:
+            Ruta completa donde se escribirá el reporte exportado por
+            ``ExcelSIIGO``.
+        year:
+            Año fiscal que se pasa como segundo parámetro al ejecutable.
+
+        Raises
+        ------
+        RuntimeError
+            Cuando ``ExcelSIIGO`` termina con un código distinto de cero. El
+            mensaje incluye la salida estándar y de error para facilitar la
+            depuración.
+        """
+
         command = [
             "ExcelSIIGO",
             self._config.base_path,
@@ -91,6 +118,13 @@ class WorkbookCleaner:
         self._keep_columns.add(self._activo_idx)
 
     def clean(self, file_path: Path) -> None:
+        """Filtra filas y columnas dejando únicamente productos activos.
+
+        El método carga el libro indicado, conserva solo las columnas
+        declaradas en ``keep_columns`` (más la columna ``activo``) y elimina las
+        filas cuyo indicador de producto activo no sea ``"S"``.
+        """
+
         wb = load_workbook(filename=file_path)
         ws = wb.active
 
@@ -112,6 +146,8 @@ class WorkbookCleaner:
 
     @staticmethod
     def _normalize(value) -> str:
+        """Normaliza el contenido de la celda a mayúsculas sin espacios."""
+
         if value is None:
             return ""
         if isinstance(value, str):
@@ -158,6 +194,21 @@ class ProductListingService:
         )
 
     def generate(self, target_date: date) -> Path:
+        """Genera el listado para ``target_date`` delegando en los componentes.
+
+        Parameters
+        ----------
+        target_date:
+            Fecha objetivo utilizada para construir el nombre final del
+            archivo. También se utiliza para determinar el parámetro ``year``
+            de ``ExcelSIIGO``.
+
+        Returns
+        -------
+        Path
+            Ruta del archivo Excel procesado y listo para distribución.
+        """
+
         output_path = self._context.productos_path(target_date)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 

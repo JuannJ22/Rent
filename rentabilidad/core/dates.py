@@ -18,6 +18,8 @@ class TodayStrategy:
     """Estrategia que devuelve la fecha actual del sistema."""
 
     def default(self) -> date:
+        """Obtiene la fecha de hoy utilizando ``datetime.date.today``."""
+
         return date.today()
 
 
@@ -25,6 +27,8 @@ class YesterdayStrategy:
     """Estrategia que devuelve la fecha del día anterior."""
 
     def default(self) -> date:
+        """Calcula la fecha inmediatamente anterior a la actual."""
+
         return date.today() - timedelta(days=1)
 
 
