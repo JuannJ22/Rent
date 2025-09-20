@@ -216,6 +216,7 @@ class RentApp(tk.Tk):
         self._current_task: threading.Thread | None = None
         self._action_buttons: list[ttk.Button] = []
         self.context: PathContext = PathContextFactory(os.environ).create()
+        self.template_path_var = tk.StringVar(value=str(self.context.template_path()))
 
         self.status_var = tk.StringVar(value="✅ Sistema listo")
         self.last_update_var = tk.StringVar(value="Última actualización: --:--:--")
@@ -727,33 +728,34 @@ class RentApp(tk.Tk):
         template_card.grid(row=1, column=0, sticky="ew", pady=(4, 0))
         template_card.inner.columnconfigure(0, weight=1)
         template_card.inner.columnconfigure(1, weight=0)
+        template_card.inner.columnconfigure(2, weight=0)
 
-        template_path = str(self.context.template_path())
-        ttk.Label(
+        self.template_path_var.set(str(self.context.template_path()))
+        template_entry = ttk.Entry(
             template_card.inner,
-            text=template_path,
-            style="Code.TLabel",
-        ).grid(row=0, column=0, sticky="w")
-
-        button_row = ttk.Frame(template_card.inner, style="CardInner.TFrame")
-        button_row.grid(row=0, column=1, sticky="e", padx=(12, 0))
+            textvariable=self.template_path_var,
+            style="Filled.TEntry",
+            state="readonly",
+            font=("Consolas", 10),
+        )
+        template_entry.grid(row=0, column=0, sticky="ew")
 
         copy_button = ttk.Button(
-            button_row,
+            template_card.inner,
             text="Copiar",
             style="Secondary.TButton",
-            command=lambda path=template_path: self._copy_to_clipboard(path),
+            command=lambda: self._copy_to_clipboard(self.template_path_var.get()),
         )
-        copy_button.grid(row=0, column=0, padx=(0, 8))
+        copy_button.grid(row=0, column=1, padx=(12, 8))
         copy_button.configure(cursor="hand2")
 
         open_button = ttk.Button(
-            button_row,
+            template_card.inner,
             text="Abrir carpeta",
             style="Secondary.TButton",
             command=self._open_template_folder,
         )
-        open_button.grid(row=0, column=1)
+        open_button.grid(row=0, column=2)
         open_button.configure(cursor="hand2")
 
         parent.rowconfigure(2, weight=1)
