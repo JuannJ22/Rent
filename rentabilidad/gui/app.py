@@ -514,7 +514,7 @@ class RentApp(tk.Tk):
 
         products_tab = ttk.Frame(notebook, padding=20, style="Tab.TFrame")
         products_tab.columnconfigure(0, weight=1)
-        notebook.add(products_tab, text="🗂️ Listado de Productos")
+        notebook.add(products_tab, text="📦 Listado de Productos")
         self._build_products_tab(products_tab)
 
         ttk.Separator(card, orient="horizontal").grid(row=1, column=0, sticky="ew", pady=(16, 12))
@@ -722,9 +722,9 @@ class RentApp(tk.Tk):
             background=self.colors["surface_alt"],
             border=self.colors["border"],
             radius=12,
-            padding=12,
+            padding=6,
         )
-        template_card.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        template_card.grid(row=1, column=0, sticky="ew", pady=(4, 0))
         template_card.inner.columnconfigure(0, weight=1)
         ttk.Label(
             template_card.inner,
@@ -854,7 +854,7 @@ class RentApp(tk.Tk):
 
         header = self._create_card_header(
             form_card.inner,
-            icon="📦",
+            icon="📋",
             badge_bg=self.colors["icon_products_bg"],
             icon_fg=self.colors["icon_products_fg"],
             title="Generación de listado",
