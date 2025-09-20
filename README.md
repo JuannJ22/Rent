@@ -18,20 +18,24 @@ de productos se guardan en la carpeta `Productos`.
 
 ## Flujo
 
-1. **Clonado de plantilla**: `excel_base/clone_from_template.py` copia
-   `C:\Rentabilidad\PLANTILLA.xlsx` a la carpeta del mes
-   correspondiente generando `<Mes> DD.xlsx`. La fecha objetivo
-   es, por defecto, el día inmediatamente anterior.
-2. **Carga de EXCZ**: `hojas/hoja01_loader.py` identifica el archivo
-   `EXCZ***YYYYMMDDHHMMSS` cuya fecha coincide con la solicitada (por
-   defecto el día anterior) en `D:\SIIWI01\LISTADOS`, lo importa a la
-   Hoja 1 aplicando fórmulas y actualiza las hojas `CCOSTO` y `COD` con
-   la misma fecha.
-3. **Scripts `.bat`**: automatizan el proceso:
-   - `solo_clonar.bat` crea el informe a partir de la plantilla.
-   - `solo_loader.bat` importa el EXCZ a un informe existente.
-   - `todo_en_un_click.bat` ejecuta ambos pasos de forma secuencial.
-   - `GenerarListadoProductos.bat` genera un catálogo de productos desde SIIGO y lo depura.
+### 1. Clonado de plantilla
+
+- Script principal: `excel_base/clone_from_template.py`.
+- Plantilla origen: `C:\Rentabilidad\PLANTILLA.xlsx`.
+- Resultado: genera `<Mes> DD.xlsx` en la carpeta del mes calculada para la fecha objetivo (por defecto el día anterior).
+
+### 2. Carga de EXCZ
+
+- Script principal: `hojas/hoja01_loader.py`.
+- Origen de datos: busca en `D:\SIIWI01\LISTADOS` el archivo `EXCZ***YYYYMMDDHHMMSS` cuya fecha coincida con la solicitada (por defecto el día anterior).
+- Acciones: importa el EXCZ en la Hoja 1, aplica las fórmulas necesarias y actualiza las hojas `CCOSTO` y `COD` con la misma fecha.
+
+### 3. Scripts `.bat`
+
+- `solo_clonar.bat`: crea el informe a partir de la plantilla.
+- `solo_loader.bat`: importa el EXCZ a un informe existente.
+- `todo_en_un_click.bat`: ejecuta ambos pasos de forma secuencial.
+- `GenerarListadoProductos.bat`: genera un catálogo de productos desde SIIGO y lo depura.
 
 ## Requisitos previos
 
@@ -53,23 +57,20 @@ de productos se guardan en la carpeta `Productos`.
 
 ## Ejecución
 
-- Para ejecutar todo el flujo en un paso:
+Ejecuta los scripts desde Windows según la tarea que necesites:
 
-  ```
-  todo_en_un_click.bat
-  ```
+```bat
+:: Ejecuta todo el flujo en un paso
+todo_en_un_click.bat
 
-- Para crear sólo el informe vacío:
+:: Crea sólo el informe vacío
+solo_clonar.bat
 
-  ```
-  solo_clonar.bat
-  ```
+:: Carga el EXCZ en un informe existente (usa la fecha del día anterior si no se especifica --fecha)
+solo_loader.bat ruta_a_informe.xlsx
+```
 
-- Para cargar el EXCZ a un informe existente (usa la fecha del día anterior si no se especifica `--fecha`):
-
-  ```
-  solo_loader.bat [ruta_a_informe.xlsx]
-  ```
+Reemplaza `ruta_a_informe.xlsx` por la ubicación del archivo a actualizar. El parámetro `--fecha YYYY-MM-DD` es opcional y, si se omite, se utiliza el día anterior.
 
 Cada script muestra mensajes en consola y pausa al final.
 
