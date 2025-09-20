@@ -732,10 +732,10 @@ class RentApp(tk.Tk):
             style="Code.TLabel",
         ).grid(row=0, column=0, sticky="w")
 
-        parent.rowconfigure(1, weight=1)
+        parent.rowconfigure(2, weight=1)
 
         cards_frame = ttk.Frame(parent, style="Tab.TFrame")
-        cards_frame.grid(row=1, column=0, sticky="nsew", pady=(12, 0))
+        cards_frame.grid(row=2, column=0, sticky="nsew", pady=(12, 0))
         cards_frame.columnconfigure(0, weight=1, uniform="report")
         cards_frame.columnconfigure(1, weight=1, uniform="report")
         cards_frame.rowconfigure(0, weight=1)
