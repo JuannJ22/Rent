@@ -726,11 +726,35 @@ class RentApp(tk.Tk):
         )
         template_card.grid(row=1, column=0, sticky="ew", pady=(4, 0))
         template_card.inner.columnconfigure(0, weight=1)
+        template_card.inner.columnconfigure(1, weight=0)
+
+        template_path = str(self.context.template_path())
         ttk.Label(
             template_card.inner,
-            text=str(self.context.template_path()),
+            text=template_path,
             style="Code.TLabel",
         ).grid(row=0, column=0, sticky="w")
+
+        button_row = ttk.Frame(template_card.inner, style="CardInner.TFrame")
+        button_row.grid(row=0, column=1, sticky="e", padx=(12, 0))
+
+        copy_button = ttk.Button(
+            button_row,
+            text="Copiar",
+            style="Secondary.TButton",
+            command=lambda path=template_path: self._copy_to_clipboard(path),
+        )
+        copy_button.grid(row=0, column=0, padx=(0, 8))
+        copy_button.configure(cursor="hand2")
+
+        open_button = ttk.Button(
+            button_row,
+            text="Abrir carpeta",
+            style="Secondary.TButton",
+            command=self._open_template_folder,
+        )
+        open_button.grid(row=0, column=1)
+        open_button.configure(cursor="hand2")
 
         parent.rowconfigure(2, weight=1)
 
@@ -957,6 +981,46 @@ class RentApp(tk.Tk):
         self.log_text.insert("end", "\n")
         self.log_text.configure(state="disabled")
         self._log_has_content = False
+
+    def _copy_to_clipboard(self, value: str) -> None:
+        """Copia ``value`` al portapapeles del sistema y notifica al usuario."""
+
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(value)
+        except tk.TclError as error:  # pragma: no cover - depende del entorno
+            messagebox.showerror("No se pudo copiar", str(error))
+        else:
+            self.status_var.set("✅ Ruta copiada al portapapeles")
+
+    def _open_template_folder(self) -> None:
+        """Abre la carpeta que contiene la plantilla base en el explorador."""
+
+        path = self.context.template_path()
+        directory = path.parent
+        if not directory.exists():
+            messagebox.showerror(
+                "Carpeta no encontrada",
+                f"No existe la carpeta de la plantilla: {directory}",
+            )
+            return
+
+        try:
+            if sys.platform.startswith("win"):
+                os.startfile(directory)  # type: ignore[attr-defined]
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(directory)])
+            else:
+                subprocess.Popen(["xdg-open", str(directory)])
+        except FileNotFoundError:
+            messagebox.showerror(
+                "Comando no disponible",
+                "No se encontró una forma compatible de abrir la carpeta automáticamente.",
+            )
+        except Exception as error:  # noqa: BLE001 - mostrar cualquier fallo
+            messagebox.showerror("No se pudo abrir la carpeta", str(error))
+        else:
+            self.status_var.set("✅ Carpeta de la plantilla abierta")
 
     def _log(self, message: str) -> None:
         """Encola ``message`` con marca temporal para mostrarlo en pantalla."""
