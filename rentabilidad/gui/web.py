@@ -33,8 +33,7 @@ ui.add_head_html(
 """
 )
 
-state = SimpleNamespace(last_update=None)
-card_classes = "rounded-2xl shadow-sm border border-gray-200 bg-white"
+state = SimpleNamespace(empty=None, log=None, last_update=None)
 
 
 def copiar_ruta() -> None:
@@ -102,22 +101,58 @@ REPORT_CARDS = [
 def setup_ui() -> None:
     """Construye la interfaz web siguiendo el estilo solicitado."""
 
+    def limpiar_log() -> None:
+        if state.log:
+            state.log.clear()
+            state.log.add_class("hidden")
+        if state.empty:
+            state.empty.remove_class("hidden")
+
     with ui.column().classes("max-w-5xl mx-auto py-10 gap-6"):
-        with ui.row().classes("items-center gap-2 w-full"):
-            ui.label("Plantilla base").classes("font-medium")
-            with ui.row().classes("gap-2 ml-auto"):
+
+        with ui.column().classes("gap-2 w-full"):
+            with ui.row().classes("items-center gap-2"):
+                ui.icon("folder_open").classes("text-gray-600")
+                ui.label("Plantilla base").classes("font-medium")
+
+            with ui.row().classes("items-center gap-2 w-full"):
+                ui.input(value=RUTA_PLANTILLA, readonly=True) \
+                    .classes("flex-1 bg-gray-50 rounded-xl p-2 h-10 min-h-0 text-sm")
                 ui.button("Copiar", on_click=copiar_ruta)
                 ui.button("Abrir carpeta", on_click=abrir_carpeta)
 
         with ui.row().classes("gap-4 flex-wrap w-full"):
             for card in REPORT_CARDS:
-                with ui.card().classes(f"{card_classes} flex-1 min-w-[260px]"):
+                with ui.card().classes(
+                    "rounded-2xl shadow-sm border border-gray-200 bg-white flex-1 min-w-[260px]"
+                ):
                     with ui.row().classes("items-center gap-2 px-4 pt-4"):
                         ui.icon(card["icon"]).classes("text-violet-500")
                         ui.label(card["title"]).classes("font-medium")
                     ui.label(card["description"]).classes("px-4 pb-2 text-sm text-gray-500")
                     ui.button(card["action_text"], on_click=card["handler"]) \
                         .classes("mx-4 mb-4 w-full").props("color=primary")
+
+        # --- Registro de Actividades ---
+        with ui.card().classes(
+            "rounded-2xl shadow-sm border border-gray-200 bg-white mt-6"
+        ):
+            with ui.row().classes("items-center gap-2 px-4 pt-4"):
+                ui.icon("activity").classes("text-violet-500")
+                ui.label("Registro de Actividades").classes("font-medium")
+
+                ui.button("Limpiar", icon="delete", on_click=limpiar_log) \
+                    .props("flat").classes("ml-auto")
+
+            with ui.element("div").classes("px-4 pb-4"):
+                state.empty = ui.column().classes(
+                    "items-center justify-center h-56 w-full text-gray-400 bg-gray-50 rounded-xl"
+                )
+                with state.empty:
+                    ui.icon("inbox").classes("text-4xl")
+                    ui.label("El registro de actividades aparecerá aquí").classes("text-sm")
+
+                state.log = ui.column().classes("hidden w-full gap-1 mt-3")
 
         # Footer
         with ui.row().classes("items-center justify-between text-xs text-gray-500 mt-2"):
@@ -130,9 +165,15 @@ def setup_ui() -> None:
 
 
 def agregar_log(msg: str) -> None:
-    """Muestra ``msg`` como una notificación en pantalla."""
+    """Muestra ``msg`` en la tarjeta de registro de actividades."""
 
-    ui.notify(msg, position="bottom_right")
+    if not state.log or not state.empty:
+        return
+
+    state.empty.add_class("hidden")
+    state.log.remove_class("hidden")
+    with state.log:
+        ui.label(msg).classes("text-sm text-gray-700")
 
 
 def touch_last_update() -> None:
