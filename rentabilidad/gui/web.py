@@ -190,11 +190,10 @@ def main() -> None:  # pragma: no cover - punto de entrada manual
     """Ejecuta la aplicación NiceGUI."""
 
     setup_ui()
-    ui.run()
+    ui.run(reload=False)
 
 
 __all__ = ["RUTA_PLANTILLA", "setup_ui", "agregar_log", "touch_last_update", "main"]
 
-
-if __name__ == "__main__":  # pragma: no cover
+if __name__ in {"__main__", "__mp_main__"}:  # pragma: no cover
     main()
