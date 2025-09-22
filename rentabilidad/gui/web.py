@@ -187,10 +187,16 @@ def touch_last_update() -> None:
 
 
 def main() -> None:  # pragma: no cover - punto de entrada manual
-    """Ejecuta la aplicación NiceGUI."""
+    """Ejecuta la aplicación NiceGUI dentro de una ventana nativa."""
 
     setup_ui()
-    ui.run(reload=False)
+    ui.run(
+        reload=False,
+        native=True,
+        show=False,
+        title="Rentabilidad",
+        window_size=(1280, 720),
+    )
 
 
 __all__ = ["RUTA_PLANTILLA", "setup_ui", "agregar_log", "touch_last_update", "main"]
