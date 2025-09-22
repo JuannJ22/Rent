@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import unicodedata
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -178,176 +179,197 @@ class RoundedCard(tk.Frame):
         self._canvas.tag_lower("card", self._window)
 
 
-class LogPanel(tk.Frame):
-    """Panel desplazable que muestra mensajes con un estado vacío elegante."""
+class TerminalPanel(tk.Frame):
+    """Panel de aspecto terminal con resaltado de estados y scroll integrado."""
 
     def __init__(
         self,
         parent: tk.Widget,
         *,
         background: str,
-        empty_background: str,
         text_color: str,
         muted_color: str,
+        accent_color: str,
+        success_color: str,
+        warning_color: str,
+        error_color: str,
+        cursor_color: str,
         font_family: str,
-        emoji_font: str,
+        monospace_family: str,
     ) -> None:
         super().__init__(parent, bg=background, bd=0, highlightthickness=0)
 
         self._background = background
         self._text_color = text_color
         self._muted_color = muted_color
+        self._accent_color = accent_color
+        self._success_color = success_color
+        self._warning_color = warning_color
+        self._error_color = error_color
+        self._cursor_color = cursor_color
         self._font_family = font_family
-        self._emoji_font = emoji_font
+        self._monospace_family = monospace_family
 
-        self._entries: list[tk.Widget] = []
         self._has_content = False
 
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
 
-        self._empty_state = tk.Frame(
+        self._text = tk.Text(
             self,
-            bg=empty_background,
-            bd=0,
-            highlightthickness=0,
-        )
-        self._empty_state.grid(row=0, column=0, sticky="nsew")
-        self._empty_state.columnconfigure(0, weight=1)
-
-        icon = tk.Label(
-            self._empty_state,
-            text="📥",
-            bg=empty_background,
-            fg=self._muted_color,
-            font=(self._emoji_font, 36),
-        )
-        icon.grid(row=0, column=0, pady=(28, 6))
-
-        message = tk.Label(
-            self._empty_state,
-            text="El registro de actividades aparecerá aquí",
-            bg=empty_background,
-            fg=self._muted_color,
-            font=(self._font_family, 11),
-            wraplength=360,
-            justify="center",
-        )
-        message.grid(row=1, column=0, padx=16)
-
-        self._list_container = tk.Frame(
-            self,
+            wrap="word",
             bg=background,
+            fg=text_color,
+            insertbackground=cursor_color,
+            selectbackground=accent_color,
+            selectforeground="#f8fafc",
+            font=(monospace_family, 11),
+            padx=16,
+            pady=12,
             bd=0,
             highlightthickness=0,
+            relief="flat",
         )
-        self._list_container.columnconfigure(0, weight=1)
-        self._list_container.rowconfigure(0, weight=1)
-        self._list_container.grid(row=0, column=0, sticky="nsew")
-        self._list_container.grid_remove()
-
-        self._canvas = tk.Canvas(
-            self._list_container,
-            bg=background,
-            bd=0,
-            highlightthickness=0,
-        )
-        self._canvas.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
+        self._text.grid(row=0, column=0, sticky="nsew")
+        self._text.configure(spacing1=4, spacing3=4, cursor="arrow")
+        self._text.bind("<Key>", self._block_key)
+        self._text.bind("<Control-a>", self._select_all)
+        self._text.bind("<Button-1>", lambda event: self._text.focus_set())
+        self._text.bind("<<Paste>>", lambda _event: "break")
+        self._text.bind("<<Cut>>", lambda _event: "break")
+        self._text.bind("<<Clear>>", lambda _event: "break")
 
         self._scrollbar = ttk.Scrollbar(
-            self._list_container,
+            self,
             orient="vertical",
             style="Vertical.TScrollbar",
-            command=self._canvas.yview,
+            command=self._text.yview,
         )
-        self._scrollbar.grid(row=0, column=1, sticky="ns", pady=10)
-        self._canvas.configure(yscrollcommand=self._scrollbar.set)
+        self._scrollbar.grid(row=0, column=1, sticky="ns")
+        self._text.configure(yscrollcommand=self._scrollbar.set)
 
-        self._inner = tk.Frame(
-            self._canvas,
+        self._placeholder = tk.Label(
+            self,
+            text="El registro de actividades aparecerá aquí",
             bg=background,
-            bd=0,
-            highlightthickness=0,
+            fg=muted_color,
+            font=(font_family, 11),
+            justify="center",
+            wraplength=320,
         )
-        self._window = self._canvas.create_window((0, 0), window=self._inner, anchor="nw")
+        self._placeholder.place(relx=0.5, rely=0.5, anchor="center")
+        self._placeholder.lift()
 
-        self._inner.bind("<Configure>", self._on_inner_configure)
-        self._canvas.bind("<Configure>", self._on_canvas_configure)
+        self._text.tag_configure(
+            "timestamp",
+            foreground=accent_color,
+            font=(monospace_family, 11, "bold"),
+        )
+        self._text.tag_configure("info", foreground=text_color)
+        self._text.tag_configure("success", foreground=success_color)
+        self._text.tag_configure("warning", foreground=warning_color)
+        self._text.tag_configure("error", foreground=error_color)
+        self._text.tag_configure("muted", foreground=muted_color)
 
-        self.clear()
+        self.bind("<Configure>", self._on_configure)
 
     # ----------------------------------------------------------- Internals --
-    def _on_inner_configure(self, _event: tk.Event) -> None:
-        self._canvas.configure(scrollregion=self._canvas.bbox("all"))
+    def _on_configure(self, event: tk.Event) -> None:
+        wrap = max(int(event.width) - 80, 200)
+        self._placeholder.configure(wraplength=wrap)
 
-    def _on_canvas_configure(self, event: tk.Event) -> None:
-        width = max(int(event.width), 0)
-        self._canvas.itemconfigure(self._window, width=width)
-        wraplength = max(width - 40, 120)
-        for widget in self._entries:
-            if isinstance(widget, tk.Label):
-                widget.configure(wraplength=wraplength)
+    def _block_key(self, event: tk.Event) -> str | None:
+        modifiers = event.state & (0x0004 | 0x0008 | 0x0100)
+        if modifiers and event.keysym.lower() in {"c", "a"}:
+            return None
+        return "break"
 
-    def _show_empty(self) -> None:
-        self._list_container.grid_remove()
-        self._empty_state.grid()
+    def _select_all(self, _event: tk.Event) -> str:
+        self._text.tag_add("sel", "1.0", "end-1c")
+        return "break"
+
+    def _hide_placeholder(self) -> None:
+        if self._placeholder.winfo_manager():
+            self._placeholder.place_forget()
+
+    def _show_placeholder(self) -> None:
+        self._placeholder.place(relx=0.5, rely=0.5, anchor="center")
+        self._placeholder.lift()
         self._has_content = False
 
-    def _ensure_list_visible(self) -> None:
-        if not self._list_container.winfo_ismapped():
-            self._empty_state.grid_remove()
-            self._list_container.grid()
+    def _write_newline(self) -> None:
+        self._hide_placeholder()
+        self._text.insert("end", "\n")
+        self._text.see("end")
 
-    def _scroll_to_end(self) -> None:
-        self.update_idletasks()
-        self._canvas.update_idletasks()
-        self._canvas.yview_moveto(1.0)
-
-    def _add_separator(self) -> None:
-        spacer = tk.Frame(
-            self._inner,
-            height=10,
-            bg=self._background,
-            bd=0,
-            highlightthickness=0,
-        )
-        spacer.pack(fill="x")
-        self._entries.append(spacer)
-        self._scroll_to_end()
-
-    def _add_message(self, content: str) -> None:
-        self._ensure_list_visible()
-        label = tk.Label(
-            self._inner,
-            text=content,
-            anchor="w",
-            justify="left",
-            bg=self._background,
-            fg=self._text_color,
-            font=(self._font_family, 10),
-            wraplength=520,
-        )
-        pady = (8, 0) if self._entries else (0, 0)
-        label.pack(fill="x", padx=16, pady=pady)
-        self._entries.append(label)
+    def _write_segments(self, segments: list[tuple[str, tuple[str, ...]]]) -> None:
+        self._hide_placeholder()
+        for text, tags in segments:
+            self._text.insert("end", text, tags)
+        self._text.insert("end", "\n")
+        self._text.see("end")
         self._has_content = True
-        self._scroll_to_end()
+
+    def _append_line(self, line: str) -> None:
+        if not line:
+            if self._has_content:
+                self._write_newline()
+            return
+
+        segments = self._format_segments(line)
+        self._write_segments(segments)
+
+    def _format_segments(self, line: str) -> list[tuple[str, tuple[str, ...]]]:
+        segments: list[tuple[str, tuple[str, ...]]] = []
+        remaining = line
+
+        if line.startswith("[") and "]" in line[:24]:
+            closing = line.find("]")
+            if 0 < closing < len(line):
+                timestamp = line[: closing + 1]
+                remaining = line[closing + 1 :].lstrip()
+                segments.append((timestamp + " ", ("timestamp",)))
+
+        severity = self._detect_severity(remaining or line)
+        if remaining:
+            segments.append((remaining, (severity,)))
+        elif not segments:
+            segments.append((line, (severity,)))
+        return segments
+
+    def _detect_severity(self, message: str) -> str:
+        normalized = self._normalize_text(message)
+        if any(keyword in normalized for keyword in {"error", "traceback", "exception", "fallo", "failed", "critico", "critical"}):
+            return "error"
+        if any(keyword in normalized for keyword in {"warn", "advertencia", "precaucion", "cuidado", "alerta"}):
+            return "warning"
+        if any(keyword in normalized for keyword in {"exito", "exitoso", "completado", "generado", "finalizado", "listo", "correctamente", "satisfactorio", "hecho", "ok"}):
+            return "success"
+        return "info"
+
+    @staticmethod
+    def _normalize_text(value: str) -> str:
+        decomposed = unicodedata.normalize("NFKD", value)
+        return "".join(char for char in decomposed if not unicodedata.combining(char)).casefold()
 
     # --------------------------------------------------------------- Public --
     def clear(self) -> None:
-        for widget in self._entries:
-            widget.destroy()
-        self._entries.clear()
-        self._canvas.yview_moveto(0.0)
-        self._show_empty()
+        self._text.delete("1.0", "end")
+        self._text.yview_moveto(0.0)
+        self._show_placeholder()
 
     def append(self, message: str) -> None:
-        content = message.rstrip()
-        if not content:
-            if self._has_content:
-                self._add_separator()
+        if message == "":
+            self._append_line("")
             return
-        self._add_message(content)
+
+        lines = message.splitlines()
+        if not lines:
+            self._append_line(message.rstrip())
+            return
+
+        for raw in lines:
+            self._append_line(raw.rstrip())
 
     @property
     def has_content(self) -> bool:
@@ -366,25 +388,32 @@ class RentApp(tk.Tk):
         self.minsize(860, 640)
 
         self.colors = {
-            "background": "#f8fafc",
+            "background": "#f1f5f9",
             "surface": "#ffffff",
-            "surface_alt": "#eef2ff",
-            "accent": "#6366f1",
-            "accent_hover": "#4f46e5",
+            "surface_alt": "#f8fafc",
+            "accent": "#2563eb",
+            "accent_hover": "#1d4ed8",
+            "accent_soft": "#60a5fa",
             "border": "#e2e8f0",
             "text": "#0f172a",
             "muted": "#64748b",
             "status_bg": "#eef2ff",
-            "log_bg": "#f1f5f9",
-            "log_fg": "#1e293b",
-            "icon_auto_bg": "#e0e7ff",
-            "icon_auto_fg": "#4338ca",
-            "icon_manual_bg": "#fef3c7",
-            "icon_manual_fg": "#92400e",
+            "terminal_bg": "#0f172a",
+            "terminal_border": "#1f2937",
+            "terminal_fg": "#e2e8f0",
+            "terminal_muted": "#475569",
+            "terminal_cursor": "#38bdf8",
+            "success": "#22c55e",
+            "warning": "#f97316",
+            "error": "#ef4444",
+            "icon_auto_bg": "#dbeafe",
+            "icon_auto_fg": "#1d4ed8",
+            "icon_manual_bg": "#fef9c3",
+            "icon_manual_fg": "#b45309",
             "icon_products_bg": "#dcfce7",
-            "icon_products_fg": "#166534",
-            "icon_log_bg": "#e0f2fe",
-            "icon_log_fg": "#075985",
+            "icon_products_fg": "#15803d",
+            "icon_log_bg": "#bfdbfe",
+            "icon_log_fg": "#1d4ed8",
         }
         self.configure(bg=self.colors["background"])
 
@@ -394,7 +423,8 @@ class RentApp(tk.Tk):
         self.context: PathContext = PathContextFactory(os.environ).create()
         self.template_path_var = tk.StringVar(value=str(self.context.template_path()))
 
-        self.status_var = tk.StringVar(value="✅ Sistema listo")
+        self.status_icon_var = tk.StringVar(value="✅")
+        self.status_var = tk.StringVar(value="Sistema listo")
         self.last_update_var = tk.StringVar(value="Última actualización: --:--:--")
         self.manual_date_var = tk.StringVar(value=date.today().strftime("%Y-%m-%d"))
         self.products_date_var = tk.StringVar(value=date.today().strftime("%Y-%m-%d"))
@@ -404,8 +434,14 @@ class RentApp(tk.Tk):
         self._header_subtitle_id: int | None = None
         self._header_gradient_image: tk.PhotoImage | None = None
         self._header_gradient_id: int | None = None
+        self._header_action_badges: list[int] = []
+        self._header_action_icons: list[int] = []
+        self._header_action_size = 36
 
-        self.log_panel: LogPanel | None = None
+        self._status_icon_label: tk.Label | None = None
+        self._status_message_label: ttk.Label | None = None
+
+        self.log_panel: TerminalPanel | None = None
 
         self._build_styles()
         self._build_layout()
@@ -430,6 +466,22 @@ class RentApp(tk.Tk):
         else:
             font_family = "Helvetica"
         self._font_family = font_family
+
+        monospace_candidates = [
+            "Cascadia Mono",
+            "Fira Code",
+            "JetBrains Mono",
+            "Source Code Pro",
+            "Consolas",
+            "Menlo",
+            "DejaVu Sans Mono",
+            "Courier New",
+        ]
+        monospace = next(
+            (candidate for candidate in monospace_candidates if candidate.casefold() in available_fonts),
+            "Consolas" if sys.platform.startswith("win") else "Menlo",
+        )
+        self._mono_family = monospace
 
         emoji_candidates = [
             "Segoe UI Emoji",
@@ -477,17 +529,17 @@ class RentApp(tk.Tk):
             "Code.TLabel",
             background=self.colors["surface_alt"],
             foreground=self.colors["muted"],
-            font=("Consolas", 10),
+            font=(self._mono_family, 10),
         )
         style.configure(
             "StatusMessage.TLabel",
-            background=self.colors["surface"],
+            background=self.colors["status_bg"],
             foreground=self.colors["text"],
             font=(font_family, 11, "bold"),
         )
         style.configure(
             "StatusTime.TLabel",
-            background=self.colors["surface"],
+            background=self.colors["status_bg"],
             foreground=self.colors["muted"],
             font=(font_family, 10),
         )
@@ -742,46 +794,68 @@ class RentApp(tk.Tk):
         clear_button.grid(row=0, column=2, sticky="e")
         clear_button.configure(cursor="hand2")
 
-        text_card = RoundedCard(
+        terminal_card = RoundedCard(
             log_card.inner,
-            background=self.colors["log_bg"],
-            border=self.colors["border"],
-            radius=14,
-            padding=4,
+            background=self.colors["terminal_bg"],
+            border=self.colors["terminal_border"],
+            radius=18,
+            padding=8,
         )
-        text_card.grid(row=1, column=0, sticky="nsew")
-        text_card.inner.columnconfigure(0, weight=1)
-        text_card.inner.rowconfigure(0, weight=1)
+        terminal_card.grid(row=1, column=0, sticky="nsew")
+        terminal_card.inner.columnconfigure(0, weight=1)
+        terminal_card.inner.rowconfigure(0, weight=1)
 
-        self.log_panel = LogPanel(
-            text_card.inner,
-            background=self.colors["log_bg"],
-            empty_background=self.colors["log_bg"],
-            text_color=self.colors["log_fg"],
-            muted_color=self.colors["muted"],
+        self.log_panel = TerminalPanel(
+            terminal_card.inner,
+            background=self.colors["terminal_bg"],
+            text_color=self.colors["terminal_fg"],
+            muted_color=self.colors["terminal_muted"],
+            accent_color=self.colors["accent_soft"],
+            success_color=self.colors["success"],
+            warning_color=self.colors["warning"],
+            error_color=self.colors["error"],
+            cursor_color=self.colors["terminal_cursor"],
             font_family=self._font_family,
-            emoji_font=self._emoji_font,
+            monospace_family=self._mono_family,
         )
         self.log_panel.grid(row=0, column=0, sticky="nsew")
 
-        ttk.Separator(card, orient="horizontal").grid(row=3, column=0, sticky="ew", pady=(16, 12))
+        ttk.Separator(card, orient="horizontal").grid(row=3, column=0, sticky="ew", pady=(18, 14))
 
-        status_frame = ttk.Frame(card, style="CardInner.TFrame")
-        status_frame.grid(row=4, column=0, sticky="ew")
-        status_frame.columnconfigure(0, weight=1)
+        status_card = RoundedCard(
+            card,
+            background=self.colors["status_bg"],
+            border=self.colors["border"],
+            radius=14,
+            padding=16,
+        )
+        status_card.grid(row=4, column=0, sticky="ew")
+        status_card.inner.columnconfigure(1, weight=1)
 
-        ttk.Label(status_frame, textvariable=self.status_var, style="StatusMessage.TLabel").grid(
-            row=0,
-            column=0,
-            sticky="w",
+        self._status_icon_label = tk.Label(
+            status_card.inner,
+            textvariable=self.status_icon_var,
+            font=(self._emoji_font, 18),
+            bg=self.colors["status_bg"],
+            fg=self.colors["success"],
         )
-        ttk.Label(status_frame, textvariable=self.last_update_var, style="StatusTime.TLabel").grid(
-            row=0,
-            column=1,
-            sticky="e",
+        self._status_icon_label.grid(row=0, column=0, sticky="w")
+
+        self._status_message_label = ttk.Label(
+            status_card.inner,
+            textvariable=self.status_var,
+            style="StatusMessage.TLabel",
         )
+        self._status_message_label.grid(row=0, column=1, sticky="w", padx=(10, 0))
+
+        ttk.Label(
+            status_card.inner,
+            textvariable=self.last_update_var,
+            style="StatusTime.TLabel",
+        ).grid(row=0, column=2, sticky="e")
 
         self._render_empty_log()
+        self._set_status("Sistema listo", icon="✅", tone="success")
 
     def _build_header(self, parent: ttk.Frame) -> None:
         """Crea la cabecera con el degradado principal."""
@@ -818,6 +892,37 @@ class RentApp(tk.Tk):
             fill="#e0e7ff",
         )
 
+        self._header_action_badges.clear()
+        self._header_action_icons.clear()
+        action_specs = [
+            ("⚙️", "#1d4ed8"),
+            ("🔔", "#1e40af"),
+        ]
+        for emoji, fill in action_specs:
+            size = self._header_action_size
+            badge_id = canvas.create_oval(
+                0,
+                0,
+                size,
+                size,
+                fill=fill,
+                outline="",
+                tags=("header_action",),
+            )
+            icon_id = canvas.create_text(
+                0,
+                0,
+                text=emoji,
+                font=(self._emoji_font, 16),
+                fill="#f8fafc",
+                tags=("header_action",),
+            )
+            self._header_action_badges.append(badge_id)
+            self._header_action_icons.append(icon_id)
+
+        canvas.tag_bind("header_action", "<Enter>", lambda _event: canvas.configure(cursor="hand2"))
+        canvas.tag_bind("header_action", "<Leave>", lambda _event: canvas.configure(cursor="arrow"))
+
 
     def _on_header_configure(self, event: tk.Event) -> None:
         """Redibuja el degradado y reposiciona los elementos al cambiar de tamaño."""
@@ -833,6 +938,21 @@ class RentApp(tk.Tk):
             self._header_canvas.coords(self._header_title_id, 32, height / 2 - 18)
         if self._header_subtitle_id is not None:
             self._header_canvas.coords(self._header_subtitle_id, 32, height / 2 + 16)
+
+        if self._header_action_badges and self._header_action_icons:
+            size = self._header_action_size
+            spacing = 12
+            x_right = width - 32
+            y_center = height / 2
+            for index, (badge_id, icon_id) in enumerate(
+                zip(self._header_action_badges, self._header_action_icons)
+            ):
+                x1 = x_right - index * (size + spacing)
+                x0 = x1 - size
+                y0 = y_center - size / 2
+                y1 = y_center + size / 2
+                self._header_canvas.coords(badge_id, x0, y0, x1, y1)
+                self._header_canvas.coords(icon_id, x0 + size / 2, y_center)
 
 
     def _draw_header_gradient(self, width: int, height: int) -> None:
@@ -1128,7 +1248,7 @@ class RentApp(tk.Tk):
         """Elimina por completo el contenido del registro de actividades."""
 
         self._render_empty_log()
-        self.status_var.set("✅ Sistema listo")
+        self._set_status("Sistema listo", icon="✅", tone="success")
 
     def _render_empty_log(self) -> None:
         """Muestra un mensaje neutro cuando no hay actividades registradas."""
@@ -1136,6 +1256,24 @@ class RentApp(tk.Tk):
         if self.log_panel is None:
             return
         self.log_panel.clear()
+
+    def _set_status(self, message: str, *, icon: str, tone: str) -> None:
+        """Actualiza el indicador inferior aplicando el color según ``tone``."""
+
+        color_map = {
+            "success": self.colors["success"],
+            "warning": self.colors["warning"],
+            "error": self.colors["error"],
+            "info": self.colors["accent"],
+        }
+        color = color_map.get(tone, self.colors["muted"])
+
+        self.status_icon_var.set(icon)
+        self.status_var.set(message)
+        if self._status_icon_label is not None:
+            self._status_icon_label.configure(fg=color)
+        if self._status_message_label is not None:
+            self._status_message_label.configure(foreground=color)
 
     def _copy_to_clipboard(self, value: str) -> None:
         """Copia ``value`` al portapapeles del sistema y notifica al usuario."""
@@ -1146,7 +1284,7 @@ class RentApp(tk.Tk):
         except tk.TclError as error:  # pragma: no cover - depende del entorno
             messagebox.showerror("No se pudo copiar", str(error))
         else:
-            self.status_var.set("✅ Ruta copiada al portapapeles")
+            self._set_status("Ruta copiada al portapapeles", icon="✅", tone="success")
 
     def _open_template_folder(self) -> None:
         """Abre la carpeta que contiene la plantilla base en el explorador."""
@@ -1175,7 +1313,7 @@ class RentApp(tk.Tk):
         except Exception as error:  # noqa: BLE001 - mostrar cualquier fallo
             messagebox.showerror("No se pudo abrir la carpeta", str(error))
         else:
-            self.status_var.set("✅ Carpeta de la plantilla abierta")
+            self._set_status("Carpeta de la plantilla abierta", icon="✅", tone="success")
 
     def _log(self, message: str) -> None:
         """Encola ``message`` con marca temporal para mostrarlo en pantalla."""
@@ -1237,7 +1375,7 @@ class RentApp(tk.Tk):
             messagebox.showinfo("Tarea en curso", "Espera a que finalice la operación actual.")
             return
 
-        self.status_var.set(f"⏳ {status_message}")
+        self._set_status(status_message, icon="⏳", tone="info")
         if self.log_panel and self.log_panel.has_content:
             self._log_queue.put("")
         self._log(status_message)
@@ -1262,12 +1400,12 @@ class RentApp(tk.Tk):
         self._current_task = None
         self._set_actions_state("normal")
         if success:
-            self.status_var.set(f"✅ {message}")
+            self._set_status(message, icon="✅", tone="success")
             if output:
                 self._log(f"Archivo generado: {output}")
             messagebox.showinfo("Proceso completado", message)
         else:
-            self.status_var.set(f"⚠️ {message}")
+            self._set_status(message, icon="⚠️", tone="error")
             messagebox.showerror("Ocurrió un problema", message)
 
     # ----------------------------------------------------------- Operations --
