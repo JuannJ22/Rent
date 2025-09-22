@@ -1,5 +1,3 @@
-"""Interfaz web para ejecutar los procesos de rentabilidad."""
+"""Interfaces gráficas del proyecto Rentabilidad."""
 
-from .app import main
-
-__all__ = ["main"]
+__all__ = []
