@@ -60,7 +60,8 @@ with ui.column().classes("max-w-5xl mx-auto py-6 gap-6"):
 
         with ui.row().classes('items-center gap-2 w-full'):
             ruta_input = (
-                ui.input(value=str(settings.ruta_plantilla), readonly=True)
+                ui.input(value=str(settings.ruta_plantilla))
+                .props('readonly')
                 .classes('flex-1 bg-gray-50 rounded-xl p-2 h-10 min-h-0 text-sm')
             )
             ui.button(
