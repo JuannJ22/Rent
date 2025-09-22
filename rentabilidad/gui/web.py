@@ -116,7 +116,8 @@ def setup_ui() -> None:
                 ui.label("Plantilla base").classes("font-medium")
 
             with ui.row().classes("items-center gap-2 w-full"):
-                ui.input(value=RUTA_PLANTILLA, readonly=True) \
+                ui.input(value=RUTA_PLANTILLA) \
+                    .props("readonly") \
                     .classes("flex-1 bg-gray-50 rounded-xl p-2 h-10 min-h-0 text-sm")
                 ui.button("Copiar", on_click=copiar_ruta)
                 ui.button("Abrir carpeta", on_click=abrir_carpeta)
