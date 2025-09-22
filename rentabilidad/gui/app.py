@@ -142,8 +142,7 @@ with ui.column().classes("max-w-5xl mx-auto py-6 gap-6"):
 
 
 def main() -> None:  # pragma: no cover - entrada manual
-    ui.run()
+    ui.run(reload=False)
 
-
-if __name__ == "__main__":  # pragma: no cover
+if __name__ in {"__main__", "__mp_main__"}:  # pragma: no cover
     main()
