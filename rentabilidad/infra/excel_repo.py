@@ -250,9 +250,11 @@ class ExcelRepo:
 
     def _buscar_archivo(self, fecha: Optional[datetime]) -> Optional[Path]:
         finder = ExczFileFinder(self.base_dir)
-        if fecha is None:
-            return finder.find_latest(self.prefix)
-        return finder.find_for_date(self.prefix, fecha.date())
+        if fecha:
+            encontrado = finder.find_for_date(self.prefix, fecha.date())
+            if encontrado:
+                return encontrado
+        return finder.find_latest(self.prefix)
 
     def cargar_por_fecha(self, fecha: Optional[str]) -> List[Dict]:
         objetivo = self._resolver_fecha(fecha)

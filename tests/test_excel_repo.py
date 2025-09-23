@@ -1,7 +1,9 @@
+import os
+import time
 from pathlib import Path
 
 import pytest
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
 from rentabilidad.infra.excel_repo import ExcelRepo
 
@@ -86,9 +88,23 @@ def test_excel_repo_detecta_encabezados_y_normaliza(tmp_path) -> None:
     assert fila["utilidad_pct"] == pytest.approx(0.18)
 
 
-def test_excel_repo_fecha_manual_inexistente_devuelve_lista_vacia(tmp_path) -> None:
-    existente = tmp_path / "EXCZ98020240101083000.xlsx"
-    _crear_excz(existente)
+def test_excel_repo_fecha_manual_inexistente_usa_archivo_mas_reciente(tmp_path) -> None:
+    primero = tmp_path / "EXCZ98020240101083000.xlsx"
+    _crear_excz(primero)
+
+    mas_reciente = tmp_path / "EXCZ98020240103083000.xlsx"
+    _crear_excz(mas_reciente)
+
+    libro = load_workbook(mas_reciente)
+    hoja = libro.active
+    hoja.cell(5, 1, "123456 - PRINCIPAL - Cliente B")
+    hoja.cell(5, 2, "Producto Especial B")
+    libro.save(mas_reciente)
+    libro.close()
+
+    base_time = int(time.time())
+    os.utime(primero, (base_time - 300, base_time - 300))
+    os.utime(mas_reciente, (base_time + 300, base_time + 300))
 
     repo = ExcelRepo(base_dir=tmp_path, prefix="EXCZ980", hoja="Hoja1")
 
@@ -96,4 +112,7 @@ def test_excel_repo_fecha_manual_inexistente_devuelve_lista_vacia(tmp_path) -> N
     assert len(filas_existentes) == 1
 
     filas_inexistentes = repo.cargar_por_fecha("2024-01-02")
-    assert filas_inexistentes == []
+    assert len(filas_inexistentes) == 1
+    fila = filas_inexistentes[0]
+    assert fila["cliente"] == "Cliente B"
+    assert fila["descripcion"] == "Producto Especial B"
