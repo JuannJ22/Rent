@@ -84,3 +84,16 @@ def test_excel_repo_detecta_encabezados_y_normaliza(tmp_path) -> None:
     assert fila["costos"] == pytest.approx(600.0)
     assert fila["renta_pct"] == pytest.approx(0.25)
     assert fila["utilidad_pct"] == pytest.approx(0.18)
+
+
+def test_excel_repo_fecha_manual_inexistente_devuelve_lista_vacia(tmp_path) -> None:
+    existente = tmp_path / "EXCZ98020240101083000.xlsx"
+    _crear_excz(existente)
+
+    repo = ExcelRepo(base_dir=tmp_path, prefix="EXCZ980", hoja="Hoja1")
+
+    filas_existentes = repo.cargar_por_fecha("2024-01-01")
+    assert len(filas_existentes) == 1
+
+    filas_inexistentes = repo.cargar_por_fecha("2024-01-02")
+    assert filas_inexistentes == []
