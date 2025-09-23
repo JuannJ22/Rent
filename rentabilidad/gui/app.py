@@ -132,7 +132,8 @@ def _path_line(label: str, value: Path) -> None:
         ui.label(f"{label}:").classes("path-line-label")
         shortened = _shorten(value)
         component = ui.label(shortened).classes("path-line-value")
-        ui.tooltip(str(value), target=component)
+        with component:
+            ui.tooltip(str(value))
 
 
 def _register_bus_subscriptions() -> None:
@@ -387,7 +388,8 @@ def build_ui() -> None:
             ui.label(title).classes("quick-card-title")
             display = _shorten(value, 28)
             label = ui.label(display).classes("quick-card-value")
-            ui.tooltip(value, target=label)
+            with label:
+                ui.tooltip(value)
             ui.label(foot).classes("quick-card-foot")
 
     with ui.column().classes("min-h-screen pb-16 text-slate-700"):
