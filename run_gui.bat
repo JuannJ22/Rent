@@ -11,3 +11,12 @@ if not exist "%PY%" (
 )
 
 "%PY%" -m rentabilidad.gui.app
+set ERR=%ERRORLEVEL%
+
+if not "%ERR%"=="0" (
+  echo Ocurrio un error durante la ejecucion. Codigo: %ERR%
+  pause
+  exit /b %ERR%
+)
+
+pause
