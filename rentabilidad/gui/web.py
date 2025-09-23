@@ -104,9 +104,9 @@ def setup_ui() -> None:
     def limpiar_log() -> None:
         if state.log:
             state.log.clear()
-            state.log.add_class("hidden")
+            state.log.classes(add="hidden")
         if state.empty:
-            state.empty.remove_class("hidden")
+            state.empty.classes(remove="hidden")
 
     with ui.column().classes("max-w-5xl mx-auto py-10 gap-6"):
 
@@ -171,8 +171,8 @@ def agregar_log(msg: str) -> None:
     if not state.log or not state.empty:
         return
 
-    state.empty.add_class("hidden")
-    state.log.remove_class("hidden")
+    state.empty.classes(add="hidden")
+    state.log.classes(remove="hidden")
     with state.log:
         ui.label(msg).classes("text-sm text-gray-700")
 
