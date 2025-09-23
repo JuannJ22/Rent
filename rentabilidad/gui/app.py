@@ -64,8 +64,8 @@ def agregar_log(msg: str, kind: str = "info") -> None:
     if state.empty is None or state.log is None:
         return
 
-    state.empty.add_class("hidden")
-    state.log.remove_class("hidden")
+    state.empty.classes(add="hidden")
+    state.log.classes(remove="hidden")
 
     css_class = LOG_ENTRY_CLASSES.get(kind, "log-info")
     icon = LOG_ICONS.get(kind, "info")
@@ -88,9 +88,9 @@ def touch_last_update() -> None:
 def limpiar_log() -> None:
     if state.log is not None:
         state.log.clear()
-        state.log.add_class("hidden")
+        state.log.classes(add="hidden")
     if state.empty is not None:
-        state.empty.remove_class("hidden")
+        state.empty.classes(remove="hidden")
     if state.last_update is not None:
         state.last_update.text = "Última actualización: —"
     update_status("idle", "Sistema listo")
@@ -127,7 +127,7 @@ def abrir_carpeta() -> None:
 
 
 def _path_line(label: str, value: Path) -> None:
-    with ui.row().classes("path-line"):
+    with ui.row().classes("path-line w-full flex-wrap"):
         ui.icon("chevron_right").classes("path-line-icon")
         ui.label(f"{label}:").classes("path-line-label")
         shortened = _shorten(value)
@@ -384,7 +384,7 @@ def build_ui() -> None:
     )
 
     def hero_card(title: str, value: str, foot: str) -> None:
-        with ui.column().classes("quick-card"):
+        with ui.column().classes("quick-card w-full"):
             ui.label(title).classes("quick-card-title")
             display = _shorten(value, 28)
             label = ui.label(display).classes("quick-card-value")
@@ -392,16 +392,20 @@ def build_ui() -> None:
                 ui.tooltip(value)
             ui.label(foot).classes("quick-card-foot")
 
-    with ui.column().classes("min-h-screen pb-16 text-slate-700"):
-        with ui.element("section").classes("hero-gradient text-white pb-24"):
-            with ui.column().classes("max-w-6xl mx-auto px-6 py-14 gap-8"):
+    with ui.column().classes("min-h-screen w-full pb-16 text-slate-700 items-stretch"):
+        with ui.element("section").classes("hero-gradient text-white pb-24 w-full"):
+            with ui.column().classes(
+                "max-w-6xl w-full mx-auto px-6 py-14 gap-8"
+            ):
                 ui.label("Centro de control de rentabilidad").classes("hero-title")
                 ui.label(
                     "Administra la generación de informes, el cargue de EXCZ "
                     "y los listados de productos desde un solo lugar."
                 ).classes("hero-subtitle")
 
-                with ui.row().classes("gap-4 flex-wrap"):
+                with ui.grid().classes(
+                    "w-full gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3"
+                ):
                     hero_card(
                         "Plantilla base",
                         settings.ruta_plantilla.name,
@@ -418,10 +422,14 @@ def build_ui() -> None:
                         _shorten(settings.context.informes_dir, 36),
                     )
 
-        with ui.column().classes("max-w-6xl mx-auto px-6 -mt-16 gap-6"):
+        with ui.column().classes(
+            "max-w-6xl w-full mx-auto px-6 -mt-16 gap-6"
+        ):
             with ui.card().classes("panel-card w-full"):
                 with ui.column().classes("content"):
-                    with ui.row().classes("items-center gap-4 flex-wrap"):
+                    with ui.row().classes(
+                        "items-center gap-4 flex-wrap w-full justify-between"
+                    ):
                         with ui.element("div").classes("icon-bubble icon-blue"):
                             ui.icon("folder_open").classes("text-white text-lg")
                         with ui.column().classes("gap-1"):
@@ -429,7 +437,7 @@ def build_ui() -> None:
                             ui.label(
                                 "Esta es la plantilla utilizada para cada informe generado."
                             ).classes("action-note")
-                    with ui.row().classes("items-center gap-3 flex-wrap"):
+                    with ui.row().classes("items-center gap-3 flex-wrap w-full"):
                         ui.input(value=str(settings.ruta_plantilla)) \
                             .props("readonly") \
                             .classes(
@@ -440,18 +448,22 @@ def build_ui() -> None:
                             "Copiar ruta",
                             icon="content_copy",
                             on_click=copiar_ruta,
-                        ).classes("action-secondary")
+                        ).classes("action-secondary w-full sm:w-auto")
                         ui.button(
                             "Abrir carpeta",
                             icon="folder_open",
                             on_click=abrir_carpeta,
-                        ).classes("action-secondary")
+                        ).classes("action-secondary w-full sm:w-auto")
 
-            with ui.row().classes("gap-6 flex-col lg:flex-row"):
-                with ui.column().classes("flex-1 gap-6"):
+            with ui.row().classes(
+                "gap-6 w-full flex-col lg:flex-row items-stretch"
+            ):
+                with ui.column().classes("flex-1 w-full gap-6"):
                     with ui.card().classes("panel-card"):
                         with ui.column().classes("content"):
-                            with ui.row().classes("items-center gap-3"):
+                            with ui.row().classes(
+                                "items-center gap-3 w-full flex-wrap"
+                            ):
                                 with ui.element("div").classes("icon-bubble icon-amber"):
                                     ui.icon("bolt").classes("text-white text-xl")
                                 with ui.column().classes("gap-1"):
@@ -477,14 +489,16 @@ def build_ui() -> None:
                                 "Generar informe automático",
                                 icon="play_arrow",
                                 on_click=ejecutar_auto,
-                            ).classes("action-primary")
+                            ).classes("action-primary w-full sm:w-auto")
                             ui.label(
                                 "Se buscará el archivo con prefijo configurado en la carpeta de EXCZ."
                             ).classes("action-note")
 
                     with ui.card().classes("panel-card"):
                         with ui.column().classes("content"):
-                            with ui.row().classes("items-center gap-3"):
+                            with ui.row().classes(
+                                "items-center gap-3 w-full flex-wrap"
+                            ):
                                 with ui.element("div").classes("icon-bubble icon-purple"):
                                     ui.icon("calendar_month").classes("text-white text-xl")
                                 with ui.column().classes("gap-1"):
@@ -525,15 +539,17 @@ def build_ui() -> None:
                                 "Generar informe manual",
                                 icon="event",
                                 on_click=ejecutar_manual,
-                            ).classes("action-primary")
+                            ).classes("action-primary w-full sm:w-auto")
                             ui.label(
                                 "Si dejas la fecha vacía se utilizará el día anterior de forma automática."
                             ).classes("action-note")
 
-                with ui.column().classes("flex-1 gap-6"):
+                with ui.column().classes("flex-1 w-full gap-6"):
                     with ui.card().classes("panel-card"):
                         with ui.column().classes("content"):
-                            with ui.row().classes("items-center gap-3"):
+                            with ui.row().classes(
+                                "items-center gap-3 w-full flex-wrap"
+                            ):
                                 with ui.element("div").classes("icon-bubble icon-emerald"):
                                     ui.icon("inventory_2").classes("text-white text-xl")
                                 with ui.column().classes("gap-1"):
@@ -555,7 +571,7 @@ def build_ui() -> None:
                                 "Generar listado de productos",
                                 icon="download",
                                 on_click=ejecutar_listado,
-                            ).classes("action-primary")
+                            ).classes("action-primary w-full sm:w-auto")
                             ui.label(
                                 "Se conservarán las columnas configuradas y solo se incluirán productos activos."
                             ).classes("action-note")
@@ -563,7 +579,9 @@ def build_ui() -> None:
 
                     with ui.card().classes("panel-card"):
                         with ui.column().classes("content"):
-                            with ui.row().classes("items-center gap-3"):
+                            with ui.row().classes(
+                                "items-center gap-3 w-full flex-wrap"
+                            ):
                                 with ui.element("div").classes("icon-bubble icon-blue"):
                                     ui.icon("map").classes("text-white text-xl")
                                 with ui.column().classes("gap-1"):
@@ -580,7 +598,9 @@ def build_ui() -> None:
 
             with ui.card().classes("panel-card w-full"):
                 with ui.column().classes("content"):
-                    with ui.row().classes("items-center gap-3"):
+                    with ui.row().classes(
+                        "items-center gap-3 w-full flex-wrap"
+                    ):
                         with ui.element("div").classes("icon-bubble icon-blue"):
                             ui.icon("activity").classes("text-white text-xl")
                         with ui.column().classes("gap-1"):
@@ -592,9 +612,11 @@ def build_ui() -> None:
                             "Limpiar historial",
                             icon="delete",
                             on_click=limpiar_log,
-                        ).props("flat color=grey").classes("ml-auto")
+                        ).props("flat color=grey").classes(
+                            "ml-auto mt-3 sm:mt-0"
+                        )
 
-                    with ui.element("div").classes("log-wrapper"):
+                    with ui.element("div").classes("log-wrapper w-full"):
                         state.empty = ui.column().classes("log-empty")
                         with state.empty:
                             ui.icon("inbox").classes("text-4xl text-slate-300")
@@ -604,7 +626,7 @@ def build_ui() -> None:
                         state.log = ui.column().classes("hidden w-full gap-3")
 
                     with ui.row().classes(
-                        "items-center justify-between text-xs text-slate-500"
+                        "items-center justify-between text-xs text-slate-500 w-full flex-wrap gap-3"
                     ):
                         state.status = ui.html(_status_markup("idle", "Sistema listo"))
                         state.last_update = ui.label("Última actualización: —")
