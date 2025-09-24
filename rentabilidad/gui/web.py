@@ -10,7 +10,7 @@ from pathlib import Path
 from datetime import datetime
 from types import SimpleNamespace
 
-from nicegui import ui
+from nicegui import app, ui
 
 from rentabilidad.app.dto import GenerarInformeRequest
 from rentabilidad.app.use_cases.generar_informe_automatico import run as uc_auto
@@ -56,6 +56,39 @@ LOG_STYLES = {
 }
 
 _bus_registered = False
+_api_registered = False
+
+
+def _build_open_action(ruta: Path) -> dict[str, str]:
+    ruta_serializada = json.dumps(str(ruta))
+    return {
+        "label": "Abrir informe",
+        "color": "white",
+        ":handler": (
+            "async () => {"
+            "  await fetch('/api/abrir-informe?ruta=' + encodeURIComponent("
+            + ruta_serializada
+            + "));"
+            "}"
+        ),
+    }
+
+
+def _register_api_routes() -> None:
+    global _api_registered
+    if _api_registered:
+        return
+
+    @app.get("/api/abrir-informe")
+    async def abrir_informe_api(ruta: str) -> dict[str, str]:
+        path = Path(ruta)
+        ok = _abrir_archivo(path)
+        return {
+            "status": "ok" if ok else "error",
+            "detail": "" if ok else f"No se pudo abrir el archivo: {path}",
+        }
+
+    _api_registered = True
 
 
 def _shorten(text: str, length: int = 60) -> str:
@@ -150,17 +183,20 @@ def abrir_carpeta() -> None:
         touch_last_update()
 
 
-def _abrir_archivo(path: Path) -> None:
+def _abrir_archivo(path: Path) -> bool:
     if not path.exists():
         mensaje = f"El archivo no existe: {path}"
         agregar_log(mensaje, "error")
         ui.notify(mensaje, type="negative", position="top")
         touch_last_update()
-        return
+        return False
 
     if _abrir_en_sistema(path, "el archivo"):
         agregar_log(f"Archivo abierto: {path}", "success")
         touch_last_update()
+        return True
+
+    return False
 
 
 def _extraer_ruta_informe(msg: str) -> Path | None:
@@ -191,12 +227,7 @@ def _register_bus_handlers() -> None:
         acciones = []
         ruta_informe = _extraer_ruta_informe(msg)
         if ruta_informe:
-            acciones.append(
-                {
-                    "label": "Abrir informe",
-                    "handler": lambda ruta=ruta_informe: _abrir_archivo(ruta),
-                }
-            )
+            acciones.append(_build_open_action(ruta_informe))
         ui.notify(msg, type="positive", position="top", actions=acciones or None)
         touch_last_update()
 
@@ -353,6 +384,7 @@ def setup_ui() -> None:
                 state.status = ui.label("Sistema listo")
             state.last_update = ui.label("Última actualización: —")
 
+    _register_api_routes()
     _register_bus_handlers()
     actualizar_estado("idle", "Sistema listo")
 
