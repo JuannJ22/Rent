@@ -246,13 +246,7 @@ def _register_bus_subscriptions() -> None:
             "multi_line": True,
         }
         if destino is not None:
-            notify_kwargs["actions"] = [
-                {
-                    "label": "Abrir",
-                    "color": "white",
-                    "handler": lambda ruta=destino: abrir_resultado(ruta),
-                }
-            ]
+            notify_text += " Usa el botón \"Abrir\" para abrir el archivo."
         ui.notify(notify_text, **notify_kwargs)
 
     def _on_error(msg: str) -> None:
