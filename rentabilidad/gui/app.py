@@ -142,13 +142,23 @@ def abrir_carpeta() -> None:
 
 
 def _abrir_destino(destino: Path, descripcion: str) -> bool:
+    ruta = str(destino)
+
     try:
         if sys.platform.startswith("win"):
-            os.startfile(destino)  # type: ignore[attr-defined]
+            try:
+                os.startfile(ruta)  # type: ignore[attr-defined]
+            except OSError:
+                subprocess.Popen(
+                    ["cmd", "/c", "start", "", ruta],
+                    shell=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
         elif sys.platform == "darwin":
-            subprocess.run(["open", str(destino)], check=False)
+            subprocess.run(["open", ruta], check=False)
         else:
-            subprocess.run(["xdg-open", str(destino)], check=False)
+            subprocess.run(["xdg-open", ruta], check=False)
         return True
     except Exception as exc:  # pragma: no cover - defensivo
         mensaje = f"No se pudo abrir {descripcion}: {exc}"
