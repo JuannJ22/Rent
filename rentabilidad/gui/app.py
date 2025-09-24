@@ -26,8 +26,12 @@ state = SimpleNamespace(
     status_path=None,
 )
 
+STATIC_DIR = Path(__file__).with_name("static")
+LOGO_FILE = STATIC_DIR / "logo.svg"
+
 _subscriptions_registered = False
 _api_registered = False
+_static_registered = False
 
 LOG_ICONS = {
     "info": "info",
@@ -65,6 +69,15 @@ def _toggle_status_action(path: Path | None) -> None:
         state.status_button.classes(add="hidden")
     else:
         state.status_button.classes(remove="hidden")
+
+
+def _register_static_files() -> None:
+    global _static_registered
+    if _static_registered or not STATIC_DIR.exists():
+        return
+
+    app.add_static_files("/static", str(STATIC_DIR))
+    _static_registered = True
 
 
 def update_status(
@@ -269,9 +282,13 @@ def _register_bus_subscriptions() -> None:
                     "color": "white",
                     ":handler": (
                         "async () => {"
-                        "  await fetch('/api/abrir-recurso?ruta=' + encodeURIComponent("
+                        "  await fetch('/api/abrir-recurso', {"
+                        "    method: 'POST',"
+                        "    headers: { 'Content-Type': 'application/json' },"
+                        "    body: JSON.stringify({ ruta: "
                         + ruta_serializada
-                        + "));"
+                        + " }),"
+                        "  });"
                         "}"
                     ),
                 }
@@ -295,9 +312,16 @@ def _register_api_routes() -> None:
     if _api_registered:
         return
 
-    @app.get("/api/abrir-recurso")
-    async def abrir_recurso_api(ruta: str) -> dict[str, str]:
-        destino = Path(ruta)
+    @app.post("/api/abrir-recurso")
+    async def abrir_recurso_api(payload: dict[str, str]) -> dict[str, str]:
+        ruta_texto = payload.get("ruta") if isinstance(payload, dict) else None
+        if not ruta_texto:
+            mensaje = "No se indicó la ruta del recurso a abrir"
+            agregar_log(mensaje, "error")
+            ui.notify(mensaje, type="negative", position="top")
+            return {"status": "error", "detail": mensaje}
+
+        destino = Path(ruta_texto)
         if not destino.exists():
             mensaje = f"No se encontró el recurso generado: {destino}"
             agregar_log(mensaje, "error")
@@ -317,6 +341,9 @@ def _register_api_routes() -> None:
 
 
 def build_ui() -> None:
+    _register_static_files()
+    logo_url = f"/static/{LOGO_FILE.name}" if LOGO_FILE.exists() else None
+
     ui.add_head_html(
         """
 <style>
@@ -333,6 +360,11 @@ def build_ui() -> None:
     border-bottom-left-radius: 48px;
     border-bottom-right-radius: 48px;
     box-shadow: 0 28px 70px rgba(15, 23, 42, 0.25);
+  }
+  .hero-logo {
+    height: 3.25rem;
+    width: auto;
+    filter: drop-shadow(0 10px 24px rgba(15, 23, 42, 0.35));
   }
   .hero-title {
     font-size: 2.75rem;
@@ -569,11 +601,19 @@ def build_ui() -> None:
             with ui.column().classes(
                 "max-w-6xl w-full mx-auto px-6 py-14 gap-8"
             ):
-                ui.label("Centro de control de rentabilidad").classes("hero-title")
-                ui.label(
-                    "Administra la generación de informes, el cargue de EXCZ "
-                    "y los listados de productos desde un solo lugar."
-                ).classes("hero-subtitle")
+                with ui.row().classes(
+                    "items-center gap-5 flex-wrap w-full"
+                ):
+                    if logo_url:
+                        ui.image(logo_url).classes("hero-logo")
+                    with ui.column().classes("gap-2"):
+                        ui.label(
+                            "Centro de control de rentabilidad"
+                        ).classes("hero-title")
+                        ui.label(
+                            "Administra la generación de informes, el cargue de EXCZ "
+                            "y los listados de productos desde un solo lugar."
+                        ).classes("hero-subtitle")
 
                 with ui.grid().classes(
                     "w-full gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3"
@@ -650,12 +690,21 @@ def build_ui() -> None:
                                     "Iniciando generación automática del informe.",
                                     "info",
                                 )
-                                uc_auto(
+                                resultado = uc_auto(
                                     GenerarInformeRequest(
                                         ruta_plantilla=str(settings.ruta_plantilla)
                                     ),
                                     bus,
                                 )
+                                if (
+                                    resultado.ok
+                                    and resultado.ruta_salida
+                                ):
+                                    update_status(
+                                        "success",
+                                        "Proceso completado",
+                                        open_path=resultado.ruta_salida,
+                                    )
 
                             ui.button(
                                 "Generar informe automático",
@@ -699,13 +748,22 @@ def build_ui() -> None:
                                     f"Iniciando generación manual del informe ({fecha or 'día anterior'}).",
                                     "info",
                                 )
-                                uc_manual(
+                                resultado = uc_manual(
                                     GenerarInformeRequest(
                                         ruta_plantilla=str(settings.ruta_plantilla),
                                         fecha=fecha,
                                     ),
                                     bus,
                                 )
+                                if (
+                                    resultado.ok
+                                    and resultado.ruta_salida
+                                ):
+                                    update_status(
+                                        "success",
+                                        "Proceso completado",
+                                        open_path=resultado.ruta_salida,
+                                    )
 
                             ui.button(
                                 "Generar informe manual",
@@ -737,7 +795,13 @@ def build_ui() -> None:
                                 agregar_log(
                                     "Iniciando generación del listado de productos.", "info"
                                 )
-                                uc_listado(bus)
+                                ruta = uc_listado(bus)
+                                if ruta:
+                                    update_status(
+                                        "success",
+                                        "Proceso completado",
+                                        open_path=ruta,
+                                    )
 
                             ui.button(
                                 "Generar listado de productos",
