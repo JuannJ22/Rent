@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
-from nicegui import ui
+from nicegui import app, ui
 
 from rentabilidad.app.dto import GenerarInformeRequest
 from rentabilidad.app.use_cases.generar_informe_automatico import run as uc_auto
@@ -27,6 +27,7 @@ state = SimpleNamespace(
 )
 
 _subscriptions_registered = False
+_api_registered = False
 
 LOG_ICONS = {
     "info": "info",
@@ -156,15 +157,18 @@ def _abrir_destino(destino: Path, descripcion: str) -> bool:
         return False
 
 
-def abrir_resultado(destino: Path) -> None:
+def abrir_resultado(destino: Path) -> bool:
     if not destino.exists():
         mensaje = f"No se encontró el recurso generado: {destino}"
         agregar_log(mensaje, "error")
         ui.notify(mensaje, type="negative", position="top")
-        return
+        return False
 
     if _abrir_destino(destino, "el recurso generado"):
         agregar_log(f"Recurso abierto: {destino}", "success")
+        return True
+
+    return False
 
 
 def abrir_resultado_actual() -> None:
@@ -248,14 +252,18 @@ def _register_bus_subscriptions() -> None:
         if destino is not None:
             notify_text += " Usa el botón \"Abrir\" para abrir el archivo."
 
-            def _abrir_desde_notificacion() -> None:
-                abrir_resultado(destino)
-
+            ruta_serializada = json.dumps(str(destino))
             notify_kwargs["actions"] = [
                 {
                     "label": "Abrir",
                     "color": "white",
-                    "handler": _abrir_desde_notificacion,
+                    ":handler": (
+                        "async () => {"
+                        "  await fetch('/api/abrir-recurso?ruta=' + encodeURIComponent("
+                        + ruta_serializada
+                        + "));"
+                        "}"
+                    ),
                 }
             ]
         ui.notify(notify_text, **notify_kwargs)
@@ -270,6 +278,32 @@ def _register_bus_subscriptions() -> None:
     bus.subscribe("error", _on_error)
 
     _subscriptions_registered = True
+
+
+def _register_api_routes() -> None:
+    global _api_registered
+    if _api_registered:
+        return
+
+    @app.get("/api/abrir-recurso")
+    async def abrir_recurso_api(ruta: str) -> dict[str, str]:
+        destino = Path(ruta)
+        if not destino.exists():
+            mensaje = f"No se encontró el recurso generado: {destino}"
+            agregar_log(mensaje, "error")
+            ui.notify(mensaje, type="negative", position="top")
+            return {"status": "error", "detail": mensaje}
+
+        if abrir_resultado(destino):
+            touch_last_update()
+            return {"status": "ok", "detail": ""}
+
+        mensaje = f"No se pudo abrir el recurso generado: {destino}"
+        agregar_log(mensaje, "error")
+        ui.notify(mensaje, type="negative", position="top")
+        return {"status": "error", "detail": mensaje}
+
+    _api_registered = True
 
 
 def build_ui() -> None:
@@ -772,6 +806,7 @@ def build_ui() -> None:
                         state.last_update = ui.label("Última actualización: —")
 
     _register_bus_subscriptions()
+    _register_api_routes()
 
 
 def main() -> None:  # pragma: no cover - entrada manual
