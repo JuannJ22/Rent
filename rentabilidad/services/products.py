@@ -24,6 +24,17 @@ from openpyxl.utils import column_index_from_string
 from rentabilidad.core.paths import PathContext
 
 
+def _quote_windows(arg: str) -> str:
+    """Devuelve ``arg`` listo para mostrarse como parte de un comando de Windows."""
+
+    if not arg:
+        return '""'
+    if any(ch in arg for ch in ' \t"'):
+        escaped = arg.replace('"', r'\"')
+        return f'"{escaped}"'
+    return arg
+
+
 @dataclass
 class SiigoCredentials:
     """Agrupa los parámetros de autenticación para ExcelSIIGO."""
@@ -89,6 +100,10 @@ class ExcelSiigoFacade:
             str(output_path),
         ]
 
+        printable_command = " ".join(_quote_windows(arg) for arg in command)
+        print(f"CMD> {printable_command}")
+        print(f"CWD> {self._config.siigo_dir}")
+
         result = subprocess.run(
             command,
             cwd=str(self._config.siigo_dir),
@@ -133,16 +148,26 @@ class WorkbookCleaner:
                 "La hoja activa no tiene la columna requerida para estado del producto."
             )
 
+        removed_rows = 0
         for row in range(ws.max_row, 1, -1):
             value = ws.cell(row=row, column=self._activo_idx).value
             if self._normalize(value) != "S":
                 ws.delete_rows(row, 1)
+                removed_rows += 1
 
+        removed_columns = 0
         for col in range(ws.max_column, 0, -1):
             if col not in self._keep_columns:
                 ws.delete_cols(col, 1)
+                removed_columns += 1
 
         wb.save(file_path)
+        print(
+            "INFO: Limpieza completada -"
+            f" filas eliminadas: {removed_rows}, columnas eliminadas: {removed_columns}."
+        )
+        columnas_conservadas = ", ".join(str(idx) for idx in sorted(self._keep_columns))
+        print(f"INFO: Columnas conservadas: {columnas_conservadas}")
 
     @staticmethod
     def _normalize(value) -> str:
