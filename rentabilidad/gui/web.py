@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 from datetime import datetime
 from types import SimpleNamespace
 
@@ -117,6 +118,23 @@ def copiar_ruta() -> None:
     touch_last_update()
 
 
+def _abrir_en_sistema(destino: Path, descripcion: str) -> bool:
+    try:
+        if sys.platform.startswith("win"):
+            os.startfile(destino)  # type: ignore[attr-defined]
+        elif sys.platform == "darwin":
+            subprocess.run(["open", str(destino)], check=False)
+        else:
+            subprocess.run(["xdg-open", str(destino)], check=False)
+        return True
+    except Exception as exc:  # pragma: no cover - defensivo
+        mensaje = f"No se pudo abrir {descripcion}: {exc}"
+        agregar_log(mensaje, "error")
+        ui.notify(mensaje, type="negative", position="top")
+        touch_last_update()
+        return False
+
+
 def abrir_carpeta() -> None:
     carpeta = settings.ruta_plantilla.parent
     if not carpeta.exists():
@@ -127,21 +145,35 @@ def abrir_carpeta() -> None:
         touch_last_update()
         return
 
-    try:
-        if sys.platform.startswith("win"):
-            os.startfile(carpeta)  # type: ignore[attr-defined]
-        elif sys.platform == "darwin":
-            subprocess.run(["open", str(carpeta)], check=False)
-        else:
-            subprocess.run(["xdg-open", str(carpeta)], check=False)
+    if _abrir_en_sistema(carpeta, "la carpeta"):
         agregar_log(f"Carpeta abierta: {carpeta}")
         touch_last_update()
-    except Exception as exc:  # pragma: no cover - defensivo
-        mensaje = f"No se pudo abrir la carpeta: {exc}"
+
+
+def _abrir_archivo(path: Path) -> None:
+    if not path.exists():
+        mensaje = f"El archivo no existe: {path}"
         agregar_log(mensaje, "error")
-        actualizar_estado("error", "No fue posible abrir la carpeta")
         ui.notify(mensaje, type="negative", position="top")
         touch_last_update()
+        return
+
+    if _abrir_en_sistema(path, "el archivo"):
+        agregar_log(f"Archivo abierto: {path}", "success")
+        touch_last_update()
+
+
+def _extraer_ruta_informe(msg: str) -> Path | None:
+    prefijo = "Informe generado:"
+    if not msg.startswith(prefijo):
+        return None
+
+    posible = msg[len(prefijo) :].strip()
+    if not posible:
+        return None
+
+    ruta = Path(posible)
+    return ruta if ruta.exists() else None
 
 
 def _register_bus_handlers() -> None:
@@ -156,7 +188,16 @@ def _register_bus_handlers() -> None:
     def _on_done(msg: str) -> None:
         agregar_log(msg, "success")
         actualizar_estado("success", "Proceso completado")
-        ui.notify(msg, type="positive", position="top")
+        acciones = []
+        ruta_informe = _extraer_ruta_informe(msg)
+        if ruta_informe:
+            acciones.append(
+                {
+                    "label": "Abrir informe",
+                    "handler": lambda ruta=ruta_informe: _abrir_archivo(ruta),
+                }
+            )
+        ui.notify(msg, type="positive", position="top", actions=acciones or None)
         touch_last_update()
 
     def _on_error(msg: str) -> None:
