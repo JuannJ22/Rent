@@ -74,6 +74,21 @@ Reemplaza `ruta_a_informe.xlsx` por la ubicación del archivo a actualizar. El p
 
 Cada script muestra mensajes en consola y pausa al final.
 
+## Interfaz gráfica (NiceGUI)
+
+El proyecto incluye un panel web en `rentabilidad/gui/web.py`. Para
+ejecutarlo utiliza `python -m rentabilidad.gui.web`. El servidor expone un
+encabezado con el logotipo de la empresa y el título del panel.
+
+### Dónde colocar el logotipo
+
+- La aplicación busca un archivo llamado `logo.svg` dentro de la carpeta
+  `rentabilidad/gui/static/` del repositorio.
+- Puedes reemplazar el archivo de ejemplo (`rentabilidad/gui/static/logo.svg`)
+  por el logotipo real de la empresa conservando el mismo nombre.
+- Tras guardar los cambios, reinicia el servidor de NiceGUI para ver el nuevo
+  logotipo en la esquina superior izquierda.
+
 ## Servicio: listado de productos desde SIIGO
 
 `servicios/generar_listado_productos.py` ejecuta el comando `ExcelSIIGO`

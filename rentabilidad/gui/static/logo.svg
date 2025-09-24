@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 48">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6d28d9" />
+      <stop offset="100%" stop-color="#312e81" />
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="156" height="44" rx="12" fill="url(#g)" />
+  <path d="M32 16h12l-8 24h-12z" fill="#ede9fe" opacity="0.9" />
+  <circle cx="72" cy="24" r="16" fill="#ede9fe" opacity="0.9" />
+  <path d="M72 14l8 10-8 10-8-10z" fill="#6d28d9" opacity="0.95" />
+  <text x="96" y="30" font-family="'Segoe UI', Tahoma, sans-serif" font-weight="700" font-size="16" fill="#ede9fe">RENT</text>
+</svg>
