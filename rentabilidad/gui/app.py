@@ -181,14 +181,33 @@ def _extract_result_path(msg: str) -> Path | None:
             if posible:
                 return Path(posible)
 
-    if ": " not in msg:
-        return None
+    marcadores = (
+        " sobre:",
+        " Informe:",
+        " informe:",
+        "INFORME:",
+    )
+    segmentos = [msg]
+    if "|" in msg:
+        segmentos = [parte.strip() for parte in msg.split("|")]
 
-    posible = msg.split(": ", 1)[1].strip().strip("'\"")
-    if not posible or not any(sep in posible for sep in ("/", "\\")):
-        return None
+    for segmento in segmentos:
+        for marcador in marcadores:
+            if marcador in segmento:
+                posible = segmento.split(marcador, 1)[1].strip().strip("'\"")
+                if posible:
+                    posible = posible.split("|", 1)[0].strip()
+                if posible and any(sep in posible for sep in ("/", "\\")):
+                    return Path(posible)
 
-    return Path(posible)
+    if ":" in msg:
+        partes = msg.split(":")
+        for idx in range(len(partes) - 1, 0, -1):
+            posible = ":".join(partes[idx:]).strip().strip("'\"")
+            if posible and any(sep in posible for sep in ("/", "\\")):
+                return Path(posible.split("|", 1)[0].strip())
+
+    return None
 
 
 def _path_line(label: str, value: Path) -> None:
@@ -214,6 +233,13 @@ def _register_bus_subscriptions() -> None:
         touch_last_update()
         destino = _extract_result_path(msg)
         update_status("success", "Proceso completado", open_path=destino)
+
+        if destino is not None:
+            resumen = _shorten(destino.name)
+            notify_text = f"Se generó el archivo {resumen}."
+        else:
+            notify_text = "Proceso completado correctamente."
+
         notify_kwargs = {
             "type": "positive",
             "position": "top",
@@ -227,7 +253,7 @@ def _register_bus_subscriptions() -> None:
                     "handler": lambda ruta=destino: abrir_resultado(ruta),
                 }
             ]
-        ui.notify(msg, **notify_kwargs)
+        ui.notify(notify_text, **notify_kwargs)
 
     def _on_error(msg: str) -> None:
         agregar_log(msg, "error")
