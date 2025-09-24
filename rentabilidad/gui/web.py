@@ -29,6 +29,8 @@ state = SimpleNamespace(
 )
 
 RUTA_PLANTILLA = str(settings.ruta_plantilla)
+STATIC_DIR = Path(__file__).with_name("static")
+LOGO_FILE = STATIC_DIR / "logo.svg"
 
 STATUS_UI = {
     "idle": {"icon": "check_circle", "classes": ("text-emerald-500",)},
@@ -57,6 +59,16 @@ LOG_STYLES = {
 
 _bus_registered = False
 _api_registered = False
+_static_registered = False
+
+
+def _register_static_files() -> None:
+    global _static_registered
+    if _static_registered or not STATIC_DIR.exists():
+        return
+
+    app.add_static_files("/static", str(STATIC_DIR))
+    _static_registered = True
 
 
 def _build_open_action(ruta: Path) -> dict[str, str]:
@@ -246,6 +258,9 @@ def _register_bus_handlers() -> None:
 def setup_ui() -> None:
     """Construye la interfaz web siguiendo el estilo solicitado."""
 
+    _register_static_files()
+    logo_url = f"/static/{LOGO_FILE.name}" if LOGO_FILE.exists() else None
+
     def ejecutar_auto() -> None:
         actualizar_estado("running", "Generando informe automático…")
         agregar_log("Iniciando generación automática del informe.")
@@ -273,6 +288,11 @@ def setup_ui() -> None:
         uc_listado(bus)
 
     with ui.column().classes("max-w-5xl mx-auto py-10 gap-6"):
+        with ui.row().classes("items-center gap-4 w-full"):
+            if logo_url:
+                ui.image(logo_url).classes("h-12 w-auto object-contain")
+            ui.label("Rentabilidad").classes("text-2xl font-semibold text-gray-800")
+
         with ui.column().classes("gap-2 w-full"):
             with ui.row().classes("items-center gap-2"):
                 ui.icon("folder_open").classes("text-gray-600")
