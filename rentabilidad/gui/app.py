@@ -247,6 +247,17 @@ def _register_bus_subscriptions() -> None:
         }
         if destino is not None:
             notify_text += " Usa el botón \"Abrir\" para abrir el archivo."
+
+            def _abrir_desde_notificacion() -> None:
+                abrir_resultado(destino)
+
+            notify_kwargs["actions"] = [
+                {
+                    "label": "Abrir",
+                    "color": "white",
+                    "handler": _abrir_desde_notificacion,
+                }
+            ]
         ui.notify(notify_text, **notify_kwargs)
 
     def _on_error(msg: str) -> None:
