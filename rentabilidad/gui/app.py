@@ -17,7 +17,14 @@ from rentabilidad.app.use_cases.listar_productos import run as uc_listado
 from rentabilidad.config import bus, settings
 from rentabilidad.infra.fs import ayer_str
 
-state = SimpleNamespace(empty=None, log=None, last_update=None, status=None)
+state = SimpleNamespace(
+    empty=None,
+    log=None,
+    last_update=None,
+    status=None,
+    status_button=None,
+    status_path=None,
+)
 
 _subscriptions_registered = False
 
@@ -49,10 +56,26 @@ def _status_markup(kind: str, text: str) -> str:
     )
 
 
-def update_status(kind: str, text: str) -> None:
+def _toggle_status_action(path: Path | None) -> None:
+    state.status_path = path
+    if state.status_button is None:
+        return
+    if path is None:
+        state.status_button.classes(add="hidden")
+    else:
+        state.status_button.classes(remove="hidden")
+
+
+def update_status(
+    kind: str, text: str, open_path: str | Path | None = None
+) -> None:
     if state.status is None:
         return
     state.status.content = _status_markup(kind, text)
+    target: Path | None = None
+    if kind == "success" and open_path:
+        target = Path(open_path)
+    _toggle_status_action(target)
 
 
 def _shorten(text: str, length: int = 42) -> str:
@@ -111,19 +134,61 @@ def abrir_carpeta() -> None:
         ui.notify(mensaje, type="negative", position="top")
         return
 
+    if _abrir_destino(carpeta, "la carpeta"):
+        agregar_log(f"Carpeta abierta: {carpeta}")
+    else:
+        update_status("error", "No fue posible abrir la carpeta")
+
+
+def _abrir_destino(destino: Path, descripcion: str) -> bool:
     try:
         if sys.platform.startswith("win"):
-            os.startfile(carpeta)  # type: ignore[attr-defined]
+            os.startfile(destino)  # type: ignore[attr-defined]
         elif sys.platform == "darwin":
-            subprocess.run(["open", str(carpeta)], check=False)
+            subprocess.run(["open", str(destino)], check=False)
         else:
-            subprocess.run(["xdg-open", str(carpeta)], check=False)
-        agregar_log(f"Carpeta abierta: {carpeta}")
+            subprocess.run(["xdg-open", str(destino)], check=False)
+        return True
     except Exception as exc:  # pragma: no cover - defensivo
-        mensaje = f"No se pudo abrir la carpeta: {exc}"
+        mensaje = f"No se pudo abrir {descripcion}: {exc}"
         agregar_log(mensaje, "error")
-        update_status("error", "No fue posible abrir la carpeta")
         ui.notify(mensaje, type="negative", position="top")
+        return False
+
+
+def abrir_resultado(destino: Path) -> None:
+    if not destino.exists():
+        mensaje = f"No se encontró el recurso generado: {destino}"
+        agregar_log(mensaje, "error")
+        ui.notify(mensaje, type="negative", position="top")
+        return
+
+    if _abrir_destino(destino, "el recurso generado"):
+        agregar_log(f"Recurso abierto: {destino}", "success")
+
+
+def abrir_resultado_actual() -> None:
+    if state.status_path is None:
+        return
+    abrir_resultado(state.status_path)
+
+
+def _extract_result_path(msg: str) -> Path | None:
+    prefijos = ("Informe generado:", "Listado generado:")
+    for prefijo in prefijos:
+        if msg.startswith(prefijo):
+            posible = msg[len(prefijo) :].strip().strip("'\"")
+            if posible:
+                return Path(posible)
+
+    if ": " not in msg:
+        return None
+
+    posible = msg.split(": ", 1)[1].strip().strip("'\"")
+    if not posible or not any(sep in posible for sep in ("/", "\\")):
+        return None
+
+    return Path(posible)
 
 
 def _path_line(label: str, value: Path) -> None:
@@ -147,8 +212,22 @@ def _register_bus_subscriptions() -> None:
     def _on_done(msg: str) -> None:
         agregar_log(msg, "success")
         touch_last_update()
-        update_status("success", "Proceso completado")
-        ui.notify(msg, type="positive", position="top")
+        destino = _extract_result_path(msg)
+        update_status("success", "Proceso completado", open_path=destino)
+        notify_kwargs = {
+            "type": "positive",
+            "position": "top",
+            "multi_line": True,
+        }
+        if destino is not None:
+            notify_kwargs["actions"] = [
+                {
+                    "label": "Abrir",
+                    "color": "white",
+                    "handler": lambda ruta=destino: abrir_resultado(ruta),
+                }
+            ]
+        ui.notify(msg, **notify_kwargs)
 
     def _on_error(msg: str) -> None:
         agregar_log(msg, "error")
@@ -378,6 +457,24 @@ def build_ui() -> None:
   .status-chip.status-error {
     background: rgba(254, 226, 226, 0.8);
     color: #b91c1c;
+  }
+  .status-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  .status-action {
+    background: rgba(4, 120, 87, 0.12) !important;
+    color: #047857 !important;
+    border-radius: 9999px !important;
+    font-weight: 600 !important;
+    font-size: 0.75rem !important;
+    height: 2.25rem;
+    padding: 0 1.1rem;
+  }
+  .status-action:hover {
+    background: rgba(4, 120, 87, 0.2) !important;
   }
 </style>
 """
@@ -628,7 +725,19 @@ def build_ui() -> None:
                     with ui.row().classes(
                         "items-center justify-between text-xs text-slate-500 w-full flex-wrap gap-3"
                     ):
-                        state.status = ui.html(_status_markup("idle", "Sistema listo"))
+                        with ui.row().classes("status-actions"):
+                            state.status = ui.html(
+                                _status_markup("idle", "Sistema listo")
+                            )
+                            state.status_button = (
+                                ui.button(
+                                    "Abrir",
+                                    icon="open_in_new",
+                                    on_click=abrir_resultado_actual,
+                                )
+                                .props("flat")
+                                .classes("status-action hidden")
+                            )
                         state.last_update = ui.label("Última actualización: —")
 
     _register_bus_subscriptions()
