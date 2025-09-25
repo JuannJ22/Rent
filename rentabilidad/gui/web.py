@@ -78,9 +78,10 @@ def _build_open_action(ruta: Path) -> dict[str, str]:
         "color": "white",
         ":handler": (
             "async () => {"
-            "  await fetch('/api/abrir-informe?ruta=' + encodeURIComponent("
+            "  const ruta = "
             + ruta_serializada
-            + "));"
+            + ";"
+            "  await fetch('/api/abrir-informe?ruta=' + encodeURIComponent(ruta));"
             "}"
         ),
     }
