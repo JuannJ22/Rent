@@ -26,7 +26,8 @@ state = SimpleNamespace(
     status_path=None,
 )
 
-STATIC_DIR = Path(__file__).with_name("static")
+BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
+STATIC_DIR = BASE_DIR / "static"
 LOGO_FILE = STATIC_DIR / "logo.svg"
 
 _subscriptions_registered = False
@@ -275,24 +276,11 @@ def _register_bus_subscriptions() -> None:
         if destino is not None:
             notify_text += " Usa el botón \"Abrir\" para abrir el archivo."
 
-            ruta_serializada = json.dumps(str(destino))
-            notify_kwargs["actions"] = [
-                {
-                    "label": "Abrir",
-                    "color": "white",
-                    ":handler": (
-                        "async () => {"
-                        "  await fetch('/api/abrir-recurso', {"
-                        "    method: 'POST',"
-                        "    headers: { 'Content-Type': 'application/json' },"
-                        "    body: JSON.stringify({ ruta: "
-                        + ruta_serializada
-                        + " }),"
-                        "  });"
-                        "}"
-                    ),
-                }
-            ]
+            notify_kwargs["actions"] = [{
+    "label": "Abrir",
+    "color": "white",
+    "handler": (lambda d=destino: abrir_resultado(d)),
+}]
         ui.notify(notify_text, **notify_kwargs)
 
     def _on_error(msg: str) -> None:
