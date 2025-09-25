@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import subprocess
@@ -79,6 +80,19 @@ def _register_static_files() -> None:
 
     app.add_static_files("/static", str(STATIC_DIR))
     _static_registered = True
+
+
+def _logo_source() -> str | None:
+    if LOGO_FILE.exists():
+        try:
+            encoded = base64.b64encode(LOGO_FILE.read_bytes()).decode("ascii")
+        except OSError:
+            pass
+        else:
+            return f"data:image/svg+xml;base64,{encoded}"
+    if STATIC_DIR.exists():
+        return f"/static/{LOGO_FILE.name}"
+    return None
 
 
 def update_status(
@@ -276,11 +290,6 @@ def _register_bus_subscriptions() -> None:
         if destino is not None:
             notify_text += " Usa el botón \"Abrir\" para abrir el archivo."
 
-            notify_kwargs["actions"] = [{
-    "label": "Abrir",
-    "color": "white",
-    "handler": (lambda d=destino: abrir_resultado(d)),
-}]
         ui.notify(notify_text, **notify_kwargs)
 
     def _on_error(msg: str) -> None:
@@ -330,7 +339,7 @@ def _register_api_routes() -> None:
 
 def build_ui() -> None:
     _register_static_files()
-    logo_url = f"/static/{LOGO_FILE.name}" if LOGO_FILE.exists() else None
+    logo_url = _logo_source()
 
     ui.add_head_html(
         """
