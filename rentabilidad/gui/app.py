@@ -68,9 +68,9 @@ def _toggle_status_action(path: Path | None) -> None:
     if state.status_button is None:
         return
     if path is None:
-        state.status_button.classes(add="hidden")
+        state.status_button.disable()
     else:
-        state.status_button.classes(remove="hidden")
+        state.status_button.enable()
 
 
 def _register_static_files() -> None:
@@ -93,6 +93,16 @@ def _logo_source() -> str | None:
     if STATIC_DIR.exists():
         return f"/static/{LOGO_FILE.name}"
     return None
+
+
+def _inline_logo_markup() -> str | None:
+    if not LOGO_FILE.exists():
+        return None
+    try:
+        svg = LOGO_FILE.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    return f'<div class="hero-logo-inline">{svg}</div>'
 
 
 def update_status(
@@ -340,6 +350,7 @@ def _register_api_routes() -> None:
 def build_ui() -> None:
     _register_static_files()
     logo_url = _logo_source()
+    logo_markup = _inline_logo_markup()
 
     ui.add_head_html(
         """
@@ -358,10 +369,41 @@ def build_ui() -> None:
     border-bottom-right-radius: 48px;
     box-shadow: 0 28px 70px rgba(15, 23, 42, 0.25);
   }
+  .hero-header {
+    align-items: center;
+    gap: 1.5rem;
+  }
+  .hero-header > *:first-child {
+    flex-shrink: 0;
+  }
   .hero-logo {
     height: 3.25rem;
     width: auto;
     filter: drop-shadow(0 10px 24px rgba(15, 23, 42, 0.35));
+  }
+  .hero-logo-inline {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .hero-logo-inline svg {
+    height: 3.25rem;
+    width: auto;
+    filter: drop-shadow(0 10px 24px rgba(15, 23, 42, 0.35));
+  }
+  .hero-logo-fallback {
+    width: 3.25rem;
+    height: 3.25rem;
+    border-radius: 1rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 23, 42, 0.12);
+    color: #0f172a;
+    box-shadow: 0 14px 28px rgba(15, 23, 42, 0.2);
+  }
+  .hero-logo-fallback-icon {
+    font-size: 1.75rem;
   }
   .hero-title {
     font-size: 2.75rem;
@@ -580,6 +622,11 @@ def build_ui() -> None:
   .status-action:hover {
     background: rgba(4, 120, 87, 0.2) !important;
   }
+  .status-action:disabled {
+    background: rgba(148, 163, 184, 0.14) !important;
+    color: #64748b !important;
+    cursor: not-allowed !important;
+  }
 </style>
 """
     )
@@ -599,10 +646,17 @@ def build_ui() -> None:
                 "max-w-6xl w-full mx-auto px-6 py-14 gap-8"
             ):
                 with ui.row().classes(
-                    "items-center gap-5 flex-wrap w-full"
+                    "items-center gap-5 flex-wrap w-full hero-header"
                 ):
-                    if logo_url:
+                    if logo_markup:
+                        ui.html(logo_markup).classes("hero-logo")
+                    elif logo_url:
                         ui.image(logo_url).classes("hero-logo")
+                    else:
+                        with ui.element("div").classes(
+                            "hero-logo hero-logo-fallback"
+                        ):
+                            ui.icon("apartment").classes("hero-logo-fallback-icon")
                     with ui.column().classes("gap-2"):
                         ui.label(
                             "Centro de control de rentabilidad"
@@ -872,8 +926,9 @@ def build_ui() -> None:
                                     on_click=abrir_resultado_actual,
                                 )
                                 .props("flat")
-                                .classes("status-action hidden")
+                                .classes("status-action")
                             )
+                            state.status_button.disable()
                         state.last_update = ui.label("Última actualización: —")
 
     _register_bus_subscriptions()
