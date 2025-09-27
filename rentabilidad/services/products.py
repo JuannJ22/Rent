@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date
@@ -253,6 +254,8 @@ class ProductListingService:
         self._cleaner = WorkbookCleaner(
             activo_column=config.activo_column, keep_columns=config.keep_columns
         )
+        self._wait_timeout = 30.0
+        self._wait_interval = 0.2
 
     def generate(self, target_date: date) -> Path:
         """Genera el listado para ``target_date`` delegando en los componentes.
@@ -276,7 +279,7 @@ class ProductListingService:
         print(f"INFO: Ejecutando ExcelSIIGO para generar {output_path}")
         with safe_backup(output_path):
             self._facade.run(output_path, target_date.strftime("%Y"))
-            if not output_path.exists():
+            if not self._wait_for_file(output_path):
                 raise FileNotFoundError(
                     "ExcelSIIGO finalizó sin generar el archivo esperado en "
                     f"{output_path}. Verifica la configuración del proceso o los permisos "
@@ -286,6 +289,17 @@ class ProductListingService:
             self._cleaner.clean(output_path)
         print(f"OK: Archivo final listo en {output_path}")
         return output_path
+
+    def _wait_for_file(self, path: Path) -> bool:
+        """Espera de forma activa hasta que ``path`` exista o se agote el tiempo."""
+
+        deadline = time.monotonic() + max(self._wait_timeout, 0)
+        interval = max(self._wait_interval, 0.01)
+        while time.monotonic() < deadline:
+            if path.exists():
+                return True
+            time.sleep(interval)
+        return path.exists()
 
 
 __all__ = [
