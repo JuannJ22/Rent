@@ -20,13 +20,25 @@ from rentabilidad.services.products import (
 KEEP_COLUMN_NUMBERS = (4, *range(7, 19))
 
 
+def _read_float_env(name: str, default: float) -> float:
+    """Obtiene ``name`` desde el entorno y lo convierte a ``float``."""
+
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
 def _ensure_trailing_backslash(path: str) -> str:
     """Devuelve ``path`` asegurando un separador final."""
 
     return path if path.endswith(("\\", "/")) else path + "\\"
 
 
-def build_parser(defaults: dict[str, str]) -> argparse.ArgumentParser:
+def build_parser(defaults: dict[str, str | float]) -> argparse.ArgumentParser:
     """Crea el ``ArgumentParser`` principal para la herramienta de consola."""
 
     parser = argparse.ArgumentParser(
@@ -76,10 +88,27 @@ def build_parser(defaults: dict[str, str]) -> argparse.ArgumentParser:
         default=defaults["SIIGO_ACTIVO_COL"],
         help="Columna (por letra) que indica si el producto está activo",
     )
+    parser.add_argument(
+        "--siigo-output",
+        default=defaults["SIIGO_OUTPUT_FILENAME"],
+        help="Nombre del archivo que ExcelSIIGO genera en la carpeta de productos",
+    )
+    parser.add_argument(
+        "--wait-timeout",
+        type=float,
+        default=defaults["SIIGO_WAIT_TIMEOUT"],
+        help="Tiempo máximo en segundos para esperar a que ExcelSIIGO cree el archivo",
+    )
+    parser.add_argument(
+        "--wait-interval",
+        type=float,
+        default=defaults["SIIGO_WAIT_INTERVAL"],
+        help="Intervalo en segundos entre verificaciones de existencia del archivo",
+    )
     return parser
 
 
-def _collect_defaults() -> dict[str, str]:
+def _collect_defaults() -> dict[str, str | float]:
     """Lee variables de entorno y prepara valores por defecto configurables."""
 
     context = PathContextFactory(os.environ).create()
@@ -96,6 +125,9 @@ def _collect_defaults() -> dict[str, str]:
         "SIIGO_RANGO_FIN": os.environ.get("SIIGO_RANGO_FIN", "0400027999999"),
         "SIIGO_ACTIVO_COL": os.environ.get("SIIGO_ACTIVO_COL", "AX"),
         "PRODUCTOS_DIR": os.environ.get("PRODUCTOS_DIR", str(context.productos_dir)),
+        "SIIGO_OUTPUT_FILENAME": os.environ.get("SIIGO_OUTPUT_FILENAME", "Productosmesdia.xlsx"),
+        "SIIGO_WAIT_TIMEOUT": _read_float_env("SIIGO_WAIT_TIMEOUT", 60.0),
+        "SIIGO_WAIT_INTERVAL": _read_float_env("SIIGO_WAIT_INTERVAL", 0.2),
     }
     return defaults
 
@@ -141,6 +173,9 @@ def main() -> None:
         credentials=credenciales,
         activo_column=args.activo_column,
         keep_columns=KEEP_COLUMN_NUMBERS + (column_index_from_string(args.activo_column),),
+        siigo_output_filename=args.siigo_output,
+        wait_timeout=args.wait_timeout,
+        wait_interval=args.wait_interval,
     )
 
     service = ProductListingService(context, config)

@@ -68,11 +68,11 @@ def _build_service(tmp_path: Path) -> ProductListingService:
         credentials=credentials,
         activo_column=1,
         keep_columns=(1,),
+        wait_timeout=1.0,
+        wait_interval=0.01,
     )
 
     service = ProductListingService(context, config)
-    service._wait_timeout = 1.0
-    service._wait_interval = 0.01
     return service
 
 

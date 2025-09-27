@@ -61,6 +61,8 @@ class ProductGenerationConfig:
     activo_column: int | str
     keep_columns: Sequence[int | str]
     siigo_output_filename: str = "Productosmesdia.xlsx"
+    wait_timeout: float = 30.0
+    wait_interval: float = 0.2
 
 
 class ExcelSiigoFacade:
@@ -256,8 +258,8 @@ class ProductListingService:
         self._cleaner = WorkbookCleaner(
             activo_column=config.activo_column, keep_columns=config.keep_columns
         )
-        self._wait_timeout = 30.0
-        self._wait_interval = 0.2
+        self._wait_timeout = config.wait_timeout
+        self._wait_interval = config.wait_interval
 
     def generate(self, target_date: date) -> Path:
         """Genera el listado para ``target_date`` delegando en los componentes.
