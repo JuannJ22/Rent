@@ -103,14 +103,11 @@ class ExcelSiigoFacade:
             str(output_path),
         ]
 
-        printable_command = " ".join(_quote_windows(arg) for arg in command)
-        print(f"CMD> {printable_command}")
-        print(f"CWD> {self._config.siigo_dir}")
-
         if os.name == "nt":
             cd_command = f"cd /d {self._config.siigo_dir}"
             joined_command = " ".join(_quote_windows(arg) for arg in command)
             cmdline = f"{cd_command} && {joined_command}"
+            printable_command = cmdline
             result = subprocess.run(
                 ["cmd.exe", "/d", "/c", cmdline],
                 check=False,
@@ -118,6 +115,7 @@ class ExcelSiigoFacade:
                 text=True,
             )
         else:
+            printable_command = " ".join(_quote_windows(arg) for arg in command)
             result = subprocess.run(
                 command,
                 cwd=str(self._config.siigo_dir),
@@ -125,6 +123,9 @@ class ExcelSiigoFacade:
                 capture_output=True,
                 text=True,
             )
+
+        print(f"CWD> {self._config.siigo_dir}")
+        print(f"CMD> {printable_command}")
 
         if result.stdout:
             print(result.stdout.strip())
