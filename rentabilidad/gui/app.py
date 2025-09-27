@@ -73,6 +73,25 @@ def _toggle_status_action(path: Path | None) -> None:
         state.status_button.enable()
 
 
+def _build_open_action(ruta: Path) -> dict[str, str]:
+    ruta_texto = json.dumps(str(ruta))
+    return {
+        "label": "Abrir",
+        "color": "white",
+        ":handler": (
+            "async () => {"
+            "  await fetch('/api/abrir-recurso', {"
+            "    method: 'POST',"
+            "    headers: {'Content-Type': 'application/json'},"
+            "    body: JSON.stringify({ ruta: "
+            + ruta_texto
+            + " }),"
+            "  });"
+            "}"
+        ),
+    }
+
+
 def _register_static_files() -> None:
     global _static_registered
     if _static_registered or not STATIC_DIR.exists():
@@ -293,6 +312,8 @@ def _register_bus_subscriptions() -> None:
         agregar_log(msg, "success")
         touch_last_update()
         destino = _extract_result_path(msg)
+        if destino is None and state.status_path is not None:
+            destino = state.status_path
         update_status("success", "Proceso completado", open_path=destino)
 
         if destino is not None:
@@ -308,6 +329,7 @@ def _register_bus_subscriptions() -> None:
         }
         if destino is not None:
             notify_text += " Usa el botón \"Abrir\" para abrir el archivo."
+            notify_kwargs["actions"] = [_build_open_action(destino)]
 
         ui.notify(notify_text, **notify_kwargs)
 
