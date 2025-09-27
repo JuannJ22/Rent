@@ -276,6 +276,12 @@ class ProductListingService:
         print(f"INFO: Ejecutando ExcelSIIGO para generar {output_path}")
         with safe_backup(output_path):
             self._facade.run(output_path, target_date.strftime("%Y"))
+            if not output_path.exists():
+                raise FileNotFoundError(
+                    "ExcelSIIGO finalizó sin generar el archivo esperado en "
+                    f"{output_path}. Verifica la configuración del proceso o los permisos "
+                    "de escritura antes de reintentar."
+                )
             print("INFO: Limpiando el archivo generado...")
             self._cleaner.clean(output_path)
         print(f"OK: Archivo final listo en {output_path}")
