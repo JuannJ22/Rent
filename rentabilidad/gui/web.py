@@ -26,6 +26,8 @@ state = SimpleNamespace(
     status=None,
     status_icon=None,
     status_icon_classes=tuple(),
+    status_action=None,
+    status_target=None,
 )
 
 RUTA_PLANTILLA = str(settings.ruta_plantilla)
@@ -71,20 +73,17 @@ def _register_static_files() -> None:
     _static_registered = True
 
 
-def _build_open_action(ruta: Path) -> dict[str, str]:
-    ruta_serializada = json.dumps(str(ruta))
-    return {
-        "label": "Abrir informe",
-        "color": "white",
-        ":handler": (
-            "async () => {"
-            "  const ruta = "
-            + ruta_serializada
-            + ";"
-            "  await fetch('/api/abrir-informe?ruta=' + encodeURIComponent(ruta));"
-            "}"
-        ),
-    }
+def _set_status_action(path: Path | None) -> None:
+    state.status_target = path
+    if not state.status_action:
+        return
+
+    if path:
+        state.status_action.enable()
+        state.status_action.classes(remove="hidden")
+    else:
+        state.status_action.disable()
+        state.status_action.classes(add="hidden")
 
 
 def _register_api_routes() -> None:
@@ -109,6 +108,14 @@ def _shorten(text: str, length: int = 60) -> str:
     return clean if len(clean) <= length else clean[: length - 1] + "…"
 
 
+def _abrir_estado_destino() -> None:
+    destino = state.status_target
+    if not destino:
+        return
+
+    _abrir_archivo(destino)
+
+
 def actualizar_estado(kind: str, mensaje: str) -> None:
     config = STATUS_UI.get(kind, STATUS_UI["idle"])
     if state.status_icon:
@@ -120,6 +127,8 @@ def actualizar_estado(kind: str, mensaje: str) -> None:
         state.status_icon_classes = config["classes"]
     if state.status:
         state.status.text = mensaje
+    if kind != "success":
+        _set_status_action(None)
 
 
 def agregar_log(msg: str, kind: str = "info") -> None:
@@ -160,7 +169,6 @@ def copiar_ruta() -> None:
     ruta = str(settings.ruta_plantilla)
     ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(ruta)})")
     agregar_log("Ruta de la plantilla copiada al portapapeles.")
-    ui.notify("Ruta copiada al portapapeles.", type="positive", position="top")
     touch_last_update()
 
 
@@ -176,7 +184,6 @@ def _abrir_en_sistema(destino: Path, descripcion: str) -> bool:
     except Exception as exc:  # pragma: no cover - defensivo
         mensaje = f"No se pudo abrir {descripcion}: {exc}"
         agregar_log(mensaje, "error")
-        ui.notify(mensaje, type="negative", position="top")
         touch_last_update()
         return False
 
@@ -187,7 +194,6 @@ def abrir_carpeta() -> None:
         mensaje = f"No se encontró la carpeta: {carpeta}"
         agregar_log(mensaje, "error")
         actualizar_estado("error", "Ruta de la plantilla no encontrada")
-        ui.notify(mensaje, type="negative", position="top")
         touch_last_update()
         return
 
@@ -200,7 +206,6 @@ def _abrir_archivo(path: Path) -> bool:
     if not path.exists():
         mensaje = f"El archivo no existe: {path}"
         agregar_log(mensaje, "error")
-        ui.notify(mensaje, type="negative", position="top")
         touch_last_update()
         return False
 
@@ -237,17 +242,14 @@ def _register_bus_handlers() -> None:
     def _on_done(msg: str) -> None:
         agregar_log(msg, "success")
         actualizar_estado("success", "Proceso completado")
-        acciones = []
         ruta_informe = _extraer_ruta_informe(msg)
-        if ruta_informe:
-            acciones.append(_build_open_action(ruta_informe))
-        ui.notify(msg, type="positive", position="top", actions=acciones or None)
+        _set_status_action(ruta_informe)
         touch_last_update()
 
     def _on_error(msg: str) -> None:
         agregar_log(msg, "error")
         actualizar_estado("error", "Revisa los registros")
-        ui.notify(msg, type="negative", position="top")
+        _set_status_action(None)
         touch_last_update()
 
     bus.subscribe("log", _on_log)
@@ -403,6 +405,11 @@ def setup_ui() -> None:
             with ui.row().classes("items-center gap-1"):
                 state.status_icon = ui.icon("check_circle").classes("text-emerald-500")
                 state.status = ui.label("Sistema listo")
+            state.status_action = ui.button(
+                "Abrir informe", on_click=_abrir_estado_destino
+            ).props("flat color=primary")
+            state.status_action.classes("text-xs hidden")
+            state.status_action.disable()
             state.last_update = ui.label("Última actualización: —")
 
     _register_api_routes()
