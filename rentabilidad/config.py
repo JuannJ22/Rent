@@ -21,6 +21,16 @@ def _ensure_trailing_backslash(path: str) -> str:
     return path if path.endswith(("\\", "/")) else path + "\\"
 
 
+def _read_float_env(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
 class Settings:
     def __init__(self) -> None:
         load_env()
@@ -60,6 +70,9 @@ class Settings:
             credentials=credenciales,
             activo_column=activo_column,
             keep_columns=keep_columns,
+            siigo_output_filename=os.environ.get("SIIGO_OUTPUT_FILENAME", "Productosmesdia.xlsx"),
+            wait_timeout=_read_float_env("SIIGO_WAIT_TIMEOUT", 60.0),
+            wait_interval=_read_float_env("SIIGO_WAIT_INTERVAL", 0.2),
         )
 
     def build_product_service(self) -> ProductListingService:
