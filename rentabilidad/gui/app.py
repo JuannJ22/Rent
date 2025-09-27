@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import os
@@ -379,6 +380,7 @@ def _register_api_routes() -> None:
 
 
 def build_ui() -> None:
+    bus.bind_loop()
     _register_static_files()
     logo_url = _logo_source()
     logo_markup = _inline_logo_markup()
@@ -766,18 +768,24 @@ def build_ui() -> None:
                                         "Genera el informe del día anterior usando el EXCZ más reciente disponible."
                                     ).classes("action-note")
 
-                            def ejecutar_auto() -> None:
+                            async def ejecutar_auto() -> None:
                                 update_status("running", "Generando informe automático…")
                                 agregar_log(
                                     "Iniciando generación automática del informe.",
                                     "info",
                                 )
-                                resultado = uc_auto(
-                                    GenerarInformeRequest(
-                                        ruta_plantilla=str(settings.ruta_plantilla)
-                                    ),
-                                    bus,
-                                )
+                                try:
+                                    resultado = await asyncio.to_thread(
+                                        uc_auto,
+                                        GenerarInformeRequest(
+                                            ruta_plantilla=str(settings.ruta_plantilla)
+                                        ),
+                                        bus,
+                                    )
+                                except Exception as exc:  # pragma: no cover - defensivo
+                                    bus.publish("error", str(exc))
+                                    update_status("error", "Revisa los registros")
+                                    return
                                 if (
                                     resultado.ok
                                     and resultado.ruta_salida
@@ -819,7 +827,7 @@ def build_ui() -> None:
                                 .classes("w-full rounded-xl border border-slate-200 px-3 py-2")
                             )
 
-                            def ejecutar_manual() -> None:
+                            async def ejecutar_manual() -> None:
                                 fecha = (fecha_input.value or "").strip() or None
                                 if fecha:
                                     estado = f"Generando informe para {fecha}…"
@@ -830,13 +838,19 @@ def build_ui() -> None:
                                     f"Iniciando generación manual del informe ({fecha or 'día anterior'}).",
                                     "info",
                                 )
-                                resultado = uc_manual(
-                                    GenerarInformeRequest(
-                                        ruta_plantilla=str(settings.ruta_plantilla),
-                                        fecha=fecha,
-                                    ),
-                                    bus,
-                                )
+                                try:
+                                    resultado = await asyncio.to_thread(
+                                        uc_manual,
+                                        GenerarInformeRequest(
+                                            ruta_plantilla=str(settings.ruta_plantilla),
+                                            fecha=fecha,
+                                        ),
+                                        bus,
+                                    )
+                                except Exception as exc:  # pragma: no cover - defensivo
+                                    bus.publish("error", str(exc))
+                                    update_status("error", "Revisa los registros")
+                                    return
                                 if (
                                     resultado.ok
                                     and resultado.ruta_salida
@@ -870,14 +884,19 @@ def build_ui() -> None:
                                         "Descarga y depura el catálogo directamente desde SIIGO."
                                     ).classes("action-note")
 
-                            def ejecutar_listado() -> None:
+                            async def ejecutar_listado() -> None:
                                 update_status(
                                     "running", "Generando listado de productos…"
                                 )
                                 agregar_log(
                                     "Iniciando generación del listado de productos.", "info"
                                 )
-                                ruta = uc_listado(bus)
+                                try:
+                                    ruta = await asyncio.to_thread(uc_listado, bus)
+                                except Exception as exc:  # pragma: no cover - defensivo
+                                    bus.publish("error", str(exc))
+                                    update_status("error", "Revisa los registros")
+                                    return
                                 if ruta:
                                     update_status(
                                         "success",
