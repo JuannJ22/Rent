@@ -126,26 +126,16 @@ def update_status(
     _toggle_status_action(target)
 
 
+def _handle_notify_open_action(destino: Path) -> None:
+    if abrir_resultado(destino):
+        touch_last_update()
+
+
 def _build_notify_open_action(destino: Path) -> dict[str, object]:
-    ruta_serializada = json.dumps(str(destino))
     return {
         "label": "Abrir",
         "color": "white",
-        ":handler": (
-            "async () => {"
-            "  try {"
-            "    await fetch('/api/abrir-recurso', {"
-            "      method: 'POST',"
-            "      headers: {'Content-Type': 'application/json'},"
-            "      body: JSON.stringify({ruta: "
-            + ruta_serializada
-            + "}),"
-            "    });"
-            "  } catch (error) {"
-            "    console.error('No se pudo abrir el recurso generado.', error);"
-            "  }"
-            "}"
-        ),
+        "handler": lambda destino=destino: _handle_notify_open_action(destino),
     }
 
 
