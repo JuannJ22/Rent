@@ -127,14 +127,25 @@ def update_status(
 
 
 def _build_notify_open_action(destino: Path) -> dict[str, object]:
-    def _handler() -> None:
-        if abrir_resultado(destino):
-            touch_last_update()
-
+    ruta_serializada = json.dumps(str(destino))
     return {
         "label": "Abrir",
         "color": "white",
-        "handler": _handler,
+        ":handler": (
+            "async () => {"
+            "  try {"
+            "    await fetch('/api/abrir-recurso', {"
+            "      method: 'POST',"
+            "      headers: {'Content-Type': 'application/json'},"
+            "      body: JSON.stringify({ruta: "
+            + ruta_serializada
+            + "}),"
+            "    });"
+            "  } catch (error) {"
+            "    console.error('No se pudo abrir el recurso generado.', error);"
+            "  }"
+            "}"
+        ),
     }
 
 
