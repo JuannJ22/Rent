@@ -60,6 +60,7 @@ class ProductGenerationConfig:
     credentials: SiigoCredentials
     activo_column: int | str
     keep_columns: Sequence[int | str]
+    siigo_output_filename: str = "Productosmesdia.xlsx"
 
 
 class ExcelSiigoFacade:
@@ -276,17 +277,23 @@ class ProductListingService:
         output_path = self._context.productos_path(target_date)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        print(f"INFO: Ejecutando ExcelSIIGO para generar {output_path}")
+        siigo_output = self._context.productos_dir / self._config.siigo_output_filename
+
+        print(f"INFO: Ejecutando ExcelSIIGO para generar {siigo_output}")
         with safe_backup(output_path):
-            self._facade.run(output_path, target_date.strftime("%Y"))
-            if not self._wait_for_file(output_path):
-                raise FileNotFoundError(
-                    "ExcelSIIGO finalizó sin generar el archivo esperado en "
-                    f"{output_path}. Verifica la configuración del proceso o los permisos "
-                    "de escritura antes de reintentar."
-                )
-            print("INFO: Limpiando el archivo generado...")
-            self._cleaner.clean(output_path)
+            with safe_backup(siigo_output):
+                self._facade.run(siigo_output, target_date.strftime("%Y"))
+                if not self._wait_for_file(siigo_output):
+                    raise FileNotFoundError(
+                        "ExcelSIIGO finalizó sin generar el archivo esperado en "
+                        f"{siigo_output}. Verifica la configuración del proceso o los permisos "
+                        "de escritura antes de reintentar."
+                    )
+                if siigo_output != output_path:
+                    print(f"INFO: Moviendo resultado a {output_path}")
+                    siigo_output.replace(output_path)
+                print("INFO: Limpiando el archivo generado...")
+                self._cleaner.clean(output_path)
         print(f"OK: Archivo final listo en {output_path}")
         return output_path
 
