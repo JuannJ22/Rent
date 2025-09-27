@@ -126,22 +126,15 @@ def update_status(
     _toggle_status_action(target)
 
 
-def _build_notify_open_action(destino: Path) -> dict[str, str]:
-    ruta = json.dumps(str(destino))
+def _build_notify_open_action(destino: Path) -> dict[str, object]:
+    def _handler() -> None:
+        if abrir_resultado(destino):
+            touch_last_update()
+
     return {
         "label": "Abrir",
         "color": "white",
-        ":handler": (
-            "async () => {"
-            "  await fetch('/api/abrir-recurso', {"
-            "    method: 'POST',"
-            "    headers: { 'Content-Type': 'application/json' },"
-            "    body: JSON.stringify({ ruta: "
-            + ruta
-            + " }),"
-            "  });"
-            "}"
-        ),
+        "handler": _handler,
     }
 
 
