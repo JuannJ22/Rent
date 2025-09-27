@@ -74,25 +74,6 @@ def _toggle_status_action(path: Path | None) -> None:
         state.status_button.enable()
 
 
-def _build_open_action(ruta: Path) -> dict[str, str]:
-    ruta_texto = json.dumps(str(ruta))
-    return {
-        "label": "Abrir",
-        "color": "white",
-        ":handler": (
-            "async () => {"
-            "  await fetch('/api/abrir-recurso', {"
-            "    method: 'POST',"
-            "    headers: {'Content-Type': 'application/json'},"
-            "    body: JSON.stringify({ ruta: "
-            + ruta_texto
-            + " }),"
-            "  });"
-            "}"
-        ),
-    }
-
-
 def _register_static_files() -> None:
     global _static_registered
     if _static_registered or not STATIC_DIR.exists():
@@ -199,7 +180,6 @@ def abrir_carpeta() -> None:
         mensaje = f"No se encontró la carpeta: {carpeta}"
         agregar_log(mensaje, "error")
         update_status("error", "Ruta de la plantilla no encontrada")
-        ui.notify(mensaje, type="negative", position="top")
         return
 
     if _abrir_destino(carpeta, "la carpeta"):
@@ -230,7 +210,6 @@ def _abrir_destino(destino: Path, descripcion: str) -> bool:
     except Exception as exc:  # pragma: no cover - defensivo
         mensaje = f"No se pudo abrir {descripcion}: {exc}"
         agregar_log(mensaje, "error")
-        ui.notify(mensaje, type="negative", position="top")
         return False
 
 
@@ -238,7 +217,6 @@ def abrir_resultado(destino: Path) -> bool:
     if not destino.exists():
         mensaje = f"No se encontró el recurso generado: {destino}"
         agregar_log(mensaje, "error")
-        ui.notify(mensaje, type="negative", position="top")
         return False
 
     if _abrir_destino(destino, "el recurso generado"):
@@ -317,27 +295,10 @@ def _register_bus_subscriptions() -> None:
             destino = state.status_path
         update_status("success", "Proceso completado", open_path=destino)
 
-        if destino is not None:
-            resumen = _shorten(destino.name)
-            notify_text = f"Se generó el archivo {resumen}."
-        else:
-            notify_text = "Proceso completado correctamente."
-
-        notify_kwargs = {
-            "type": "positive",
-            "position": "top",
-            "multi_line": True,
-        }
-        if destino is not None:
-            notify_text += " Usa el botón \"Abrir\" para abrir el archivo."
-            notify_kwargs["actions"] = [_build_open_action(destino)]
-
-        ui.notify(notify_text, **notify_kwargs)
-
     def _on_error(msg: str) -> None:
         agregar_log(msg, "error")
         update_status("error", "Revisa los registros")
-        ui.notify(msg, type="negative", position="top")
+        touch_last_update()
 
     bus.subscribe("log", _on_log)
     bus.subscribe("done", _on_done)
@@ -357,14 +318,12 @@ def _register_api_routes() -> None:
         if not ruta_texto:
             mensaje = "No se indicó la ruta del recurso a abrir"
             agregar_log(mensaje, "error")
-            ui.notify(mensaje, type="negative", position="top")
             return {"status": "error", "detail": mensaje}
 
         destino = Path(ruta_texto)
         if not destino.exists():
             mensaje = f"No se encontró el recurso generado: {destino}"
             agregar_log(mensaje, "error")
-            ui.notify(mensaje, type="negative", position="top")
             return {"status": "error", "detail": mensaje}
 
         if abrir_resultado(destino):
@@ -373,7 +332,6 @@ def _register_api_routes() -> None:
 
         mensaje = f"No se pudo abrir el recurso generado: {destino}"
         agregar_log(mensaje, "error")
-        ui.notify(mensaje, type="negative", position="top")
         return {"status": "error", "detail": mensaje}
 
     _api_registered = True
