@@ -102,6 +102,15 @@ def _inline_logo_markup() -> str | None:
         svg = LOGO_FILE.read_text(encoding="utf-8")
     except OSError:
         return None
+
+    svg = svg.lstrip()
+    if svg.startswith("<?xml"):
+        _, _, remainder = svg.partition("?>")
+        svg = remainder.lstrip() or svg
+
+    if "<svg" not in svg:
+        return None
+
     return f'<div class="hero-logo-inline">{svg}</div>'
 
 
@@ -115,6 +124,25 @@ def update_status(
     if kind == "success" and open_path:
         target = Path(open_path)
     _toggle_status_action(target)
+
+
+def _build_notify_open_action(destino: Path) -> dict[str, str]:
+    ruta = json.dumps(str(destino))
+    return {
+        "label": "Abrir",
+        "color": "white",
+        ":handler": (
+            "async () => {"
+            "  await fetch('/api/abrir-recurso', {"
+            "    method: 'POST',"
+            "    headers: { 'Content-Type': 'application/json' },"
+            "    body: JSON.stringify({ ruta: "
+            + ruta
+            + " }),"
+            "  });"
+            "}"
+        ),
+    }
 
 
 def _shorten(text: str, length: int = 42) -> str:
@@ -297,10 +325,12 @@ def _register_bus_subscriptions() -> None:
             "position": "top",
             "multi_line": True,
         }
+        notify_actions = None
         if destino is not None:
             notify_text += " Usa el botón \"Abrir\" para abrir el archivo."
+            notify_actions = [_build_notify_open_action(destino)]
 
-        ui.notify(notify_text, **notify_kwargs)
+        ui.notify(notify_text, actions=notify_actions, **notify_kwargs)
 
     def _on_error(msg: str) -> None:
         agregar_log(msg, "error")
