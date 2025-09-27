@@ -126,19 +126,6 @@ def update_status(
     _toggle_status_action(target)
 
 
-def _handle_notify_open_action(destino: Path) -> None:
-    if abrir_resultado(destino):
-        touch_last_update()
-
-
-def _build_notify_open_action(destino: Path) -> dict[str, object]:
-    return {
-        "label": "Abrir",
-        "color": "white",
-        "handler": lambda destino=destino: _handle_notify_open_action(destino),
-    }
-
-
 def _shorten(text: str, length: int = 42) -> str:
     clean = str(text)
     return clean if len(clean) <= length else clean[: length - 1] + "…"
@@ -319,12 +306,10 @@ def _register_bus_subscriptions() -> None:
             "position": "top",
             "multi_line": True,
         }
-        notify_actions = None
         if destino is not None:
             notify_text += " Usa el botón \"Abrir\" para abrir el archivo."
-            notify_actions = [_build_notify_open_action(destino)]
 
-        ui.notify(notify_text, actions=notify_actions, **notify_kwargs)
+        ui.notify(notify_text, **notify_kwargs)
 
     def _on_error(msg: str) -> None:
         agregar_log(msg, "error")
