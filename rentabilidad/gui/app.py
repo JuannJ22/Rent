@@ -59,6 +59,12 @@ LOG_ENTRY_CLASSES = {
     "error": "log-error",
 }
 
+LOG_NOTIFY_TYPES = {
+    "info": "info",
+    "success": "positive",
+    "error": "negative",
+}
+
 
 class StatusManager:
     def __init__(self, ui_state: UIState) -> None:
@@ -112,6 +118,19 @@ class LogManager:
         css_class = LOG_ENTRY_CLASSES.get(kind, "log-info")
         icon = LOG_ICONS.get(kind, "info")
         icon_class = LOG_ICON_CLASSES.get(kind, "text-slate-500")
+
+        notify_type = LOG_NOTIFY_TYPES.get(kind)
+        if notify_type is None:
+            notify_type = "info"
+
+        ui.notify(
+            message,
+            type=notify_type,
+            position="top-right",
+            close_button="×",
+            multi_line=True,
+            timeout=6000 if kind != "error" else 0,
+        )
 
         with self._state.log:
             with ui.row().classes(f"log-entry {css_class}"):
