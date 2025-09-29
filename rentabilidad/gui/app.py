@@ -29,6 +29,7 @@ class UIState:
     status: Any = None
     status_button: Any = None
     status_path: Path | None = None
+    status_kind: str = "idle"
 
 
 state = UIState()
@@ -94,6 +95,7 @@ class StatusManager:
 
     def update(self, kind: str, text: str, open_path: str | Path | None = None) -> None:
         status_component = self._state.status
+        self._state.status_kind = kind
         if status_component is None:
             return
 
@@ -308,7 +310,13 @@ def _inline_logo_markup() -> str | None:
 def update_status(
     kind: str, text: str, open_path: str | Path | None = None
 ) -> None:
+    previous_kind = state.status_kind
     status_manager.update(kind, text, open_path)
+    if kind in {"success", "error"} and previous_kind != kind:
+        if kind == "success":
+            agregar_log("El proceso finalizó correctamente.", "success")
+        else:
+            agregar_log("El proceso finalizó con errores.", "error")
 
 
 def agregar_log(msg: str, kind: str = "info") -> None:
