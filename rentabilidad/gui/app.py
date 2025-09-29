@@ -30,6 +30,13 @@ class UIState:
     status_button: Any = None
     status_path: Path | None = None
     status_kind: str = "idle"
+    summary_total: Any = None
+    summary_infos: Any = None
+    summary_success: Any = None
+    summary_errors: Any = None
+    summary_last_info: Any = None
+    summary_last_success: Any = None
+    summary_last_error: Any = None
 
 
 state = UIState()
@@ -109,6 +116,39 @@ class StatusManager:
 class LogManager:
     def __init__(self, ui_state: UIState) -> None:
         self._state = ui_state
+        self._info_count = 0
+        self._success_count = 0
+        self._error_count = 0
+
+    def _set_text(self, attr: str, value: str) -> None:
+        component = getattr(self._state, attr, None)
+        if component is not None:
+            component.text = value
+
+    def _set_message(self, attr: str, message: str | None) -> None:
+        component = getattr(self._state, attr, None)
+        if component is None:
+            return
+        if not message:
+            component.text = "—"
+            return
+        component.text = shorten(message, 80)
+
+    def _update_totals(self) -> None:
+        total = self._info_count + self._success_count + self._error_count
+        self._set_text("summary_total", str(total))
+
+    def reset_summary(self) -> None:
+        self._info_count = 0
+        self._success_count = 0
+        self._error_count = 0
+        self._set_text("summary_infos", "0")
+        self._set_text("summary_success", "0")
+        self._set_text("summary_errors", "0")
+        self._set_text("summary_total", "0")
+        self._set_message("summary_last_info", None)
+        self._set_message("summary_last_success", None)
+        self._set_message("summary_last_error", None)
 
     def add(self, message: str, kind: str = "info") -> None:
         if self._state.empty is None or self._state.log is None:
@@ -139,6 +179,21 @@ class LogManager:
                 ui.icon(icon).classes(f"log-entry-icon {icon_class}")
                 ui.label(message).classes("log-entry-text")
 
+        if kind == "success":
+            self._success_count += 1
+            self._set_text("summary_success", str(self._success_count))
+            self._set_message("summary_last_success", message)
+        elif kind == "error":
+            self._error_count += 1
+            self._set_text("summary_errors", str(self._error_count))
+            self._set_message("summary_last_error", message)
+        else:
+            self._info_count += 1
+            self._set_text("summary_infos", str(self._info_count))
+            self._set_message("summary_last_info", message)
+
+        self._update_totals()
+
     def touch_last_update(self) -> None:
         if self._state.last_update is None:
             return
@@ -154,6 +209,7 @@ class LogManager:
             self._state.empty.classes(remove="hidden")
         if self._state.last_update is not None:
             self._state.last_update.text = "Última actualización: —"
+        self.reset_summary()
 
 
 class ResourceManager:
@@ -650,6 +706,27 @@ def build_ui() -> None:
     border: 1px dashed rgba(148, 163, 184, 0.35);
     padding: 1.5rem;
   }
+  .log-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  @media (min-width: 1024px) {
+    .log-layout {
+      flex-direction: row;
+    }
+  }
+  .log-stream {
+    flex: 1 1 420px;
+    background: #ffffff;
+    border-radius: 1rem;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    min-height: 280px;
+  }
   .log-empty {
     align-items: center;
     justify-content: center;
@@ -658,6 +735,92 @@ def build_ui() -> None:
     gap: 0.5rem;
     color: #94a3b8;
     text-align: center;
+  }
+  .log-list {
+    flex: 1 1 auto;
+    max-height: 360px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .log-list::-webkit-scrollbar {
+    width: 6px;
+  }
+  .log-list::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.4);
+    border-radius: 9999px;
+  }
+  .log-summary {
+    flex: 1 1 260px;
+    background: #ffffff;
+    border-radius: 1rem;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+  .log-summary-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: #0f172a;
+  }
+  .log-summary-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.85rem;
+  }
+  .log-summary-metric {
+    border-radius: 0.85rem;
+    padding: 0.9rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    color: #0f172a;
+  }
+  .log-summary-metric.metric-total {
+    background: rgba(37, 99, 235, 0.14);
+  }
+  .log-summary-metric.metric-success {
+    background: rgba(16, 185, 129, 0.16);
+  }
+  .log-summary-metric.metric-error {
+    background: rgba(239, 68, 68, 0.18);
+  }
+  .log-summary-metric.metric-info {
+    background: rgba(14, 116, 144, 0.14);
+  }
+  .log-summary-label {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #475569;
+    font-weight: 600;
+  }
+  .log-summary-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+  }
+  .log-summary-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .log-summary-section-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #1e293b;
+  }
+  .log-summary-detail-card {
+    border-radius: 0.85rem;
+    border: 1px dashed rgba(148, 163, 184, 0.35);
+    padding: 0.9rem 1rem;
+    background: rgba(248, 250, 252, 0.8);
+  }
+  .log-summary-detail {
+    font-size: 0.85rem;
+    color: #334155;
   }
   .log-entry {
     width: 100%;
@@ -901,6 +1064,13 @@ def build_ui() -> None:
                                         open_path=resultado.ruta_salida,
                                     )
                                 else:
+                                    mensaje = resultado.mensaje or (
+                                        "No se pudo generar el informe automático."
+                                    )
+                                    agregar_log(
+                                        f"Error al generar el informe automático: {mensaje}",
+                                        "error",
+                                    )
                                     update_status("error", "Revisa los registros")
 
                             ui.button(
@@ -968,6 +1138,13 @@ def build_ui() -> None:
                                         open_path=resultado.ruta_salida,
                                     )
                                 else:
+                                    mensaje = resultado.mensaje or (
+                                        "No se pudo generar el informe manual."
+                                    )
+                                    agregar_log(
+                                        f"Error al generar el informe manual: {mensaje}",
+                                        "error",
+                                    )
                                     update_status("error", "Revisa los registros")
 
                             ui.button(
@@ -1013,6 +1190,11 @@ def build_ui() -> None:
                                         open_path=ruta,
                                     )
                                 else:
+                                    agregar_log(
+                                        "No se pudo generar el listado de productos."
+                                        " Verifica los registros anteriores para más detalles.",
+                                        "error",
+                                    )
                                     update_status("error", "Revisa los registros")
 
                             ui.button(
@@ -1065,13 +1247,95 @@ def build_ui() -> None:
                         )
 
                     with ui.element("div").classes("log-wrapper w-full"):
-                        state.empty = ui.column().classes("log-empty")
-                        with state.empty:
-                            ui.icon("inbox").classes("text-4xl text-slate-300")
-                            ui.label(
-                                "Aún no hay registros. Ejecuta una acción para comenzar."
-                            ).classes("text-sm text-slate-400")
-                        state.log = ui.column().classes("hidden w-full gap-3")
+                        with ui.element("div").classes("log-layout w-full"):
+                            with ui.column().classes("log-stream"):
+                                state.empty = ui.column().classes("log-empty")
+                                with state.empty:
+                                    ui.icon("inbox").classes(
+                                        "text-4xl text-slate-300"
+                                    )
+                                    ui.label(
+                                        "Aún no hay registros. Ejecuta una acción para comenzar."
+                                    ).classes("text-sm text-slate-400")
+                                state.log = ui.column().classes(
+                                    "hidden log-list"
+                                )
+                            with ui.column().classes("log-summary"):
+                                ui.label("Resumen de procesos").classes(
+                                    "log-summary-title"
+                                )
+                                with ui.element("div").classes(
+                                    "log-summary-metrics"
+                                ):
+                                    with ui.column().classes(
+                                        "log-summary-metric metric-total"
+                                    ):
+                                        ui.label("Eventos totales").classes(
+                                            "log-summary-label"
+                                        )
+                                        state.summary_total = ui.label("0").classes(
+                                            "log-summary-value"
+                                        )
+                                    with ui.column().classes(
+                                        "log-summary-metric metric-success"
+                                    ):
+                                        ui.label("Éxitos").classes(
+                                            "log-summary-label"
+                                        )
+                                        state.summary_success = ui.label("0").classes(
+                                            "log-summary-value"
+                                        )
+                                    with ui.column().classes(
+                                        "log-summary-metric metric-error"
+                                    ):
+                                        ui.label("Errores").classes(
+                                            "log-summary-label"
+                                        )
+                                        state.summary_errors = ui.label("0").classes(
+                                            "log-summary-value"
+                                        )
+                                    with ui.column().classes(
+                                        "log-summary-metric metric-info"
+                                    ):
+                                        ui.label("Mensajes info").classes(
+                                            "log-summary-label"
+                                        )
+                                        state.summary_infos = ui.label("0").classes(
+                                            "log-summary-value"
+                                        )
+                                with ui.column().classes(
+                                    "log-summary-section"
+                                ):
+                                    ui.label("Últimos mensajes").classes(
+                                        "log-summary-section-title"
+                                    )
+                                    with ui.column().classes(
+                                        "log-summary-detail-card"
+                                    ):
+                                        ui.label("Último éxito").classes(
+                                            "log-summary-label"
+                                        )
+                                        state.summary_last_success = ui.label("—").classes(
+                                            "log-summary-detail"
+                                        )
+                                    with ui.column().classes(
+                                        "log-summary-detail-card"
+                                    ):
+                                        ui.label("Último error").classes(
+                                            "log-summary-label"
+                                        )
+                                        state.summary_last_error = ui.label("—").classes(
+                                            "log-summary-detail"
+                                        )
+                                    with ui.column().classes(
+                                        "log-summary-detail-card"
+                                    ):
+                                        ui.label("Último aviso").classes(
+                                            "log-summary-label"
+                                        )
+                                        state.summary_last_info = ui.label("—").classes(
+                                            "log-summary-detail"
+                                        )
 
                     with ui.row().classes(
                         "items-center justify-between text-xs text-slate-500 w-full flex-wrap gap-3"
@@ -1092,6 +1356,7 @@ def build_ui() -> None:
                             state.status_button.disable()
                         state.last_update = ui.label("Última actualización: —")
 
+    log_manager.reset_summary()
     _register_bus_subscriptions()
     _register_api_routes()
 
