@@ -217,12 +217,11 @@ def _abrir_archivo(path: Path) -> bool:
     return False
 
 
-def _extraer_ruta_informe(msg: str) -> Path | None:
-    prefijo = "Informe generado:"
-    if not msg.startswith(prefijo):
+def _extraer_ruta_resultado(msg: str) -> Path | None:
+    if ":" not in msg:
         return None
 
-    posible = msg[len(prefijo) :].strip()
+    posible = msg.split(":", 1)[1].strip()
     if not posible:
         return None
 
@@ -240,14 +239,26 @@ def _register_bus_handlers() -> None:
         touch_last_update()
 
     def _on_done(msg: str) -> None:
-        agregar_log(msg, "success")
+        ruta_resultado = _extraer_ruta_resultado(msg)
+        if ruta_resultado:
+            detalle = f"Archivo generado: {ruta_resultado}"
+        else:
+            detalle = msg
+
+        mensaje = f"Proceso finalizó correctamente. {detalle}".strip()
+        agregar_log(mensaje, "success")
         actualizar_estado("success", "Proceso completado")
-        ruta_informe = _extraer_ruta_informe(msg)
-        _set_status_action(ruta_informe)
+        _set_status_action(ruta_resultado)
         touch_last_update()
 
     def _on_error(msg: str) -> None:
-        agregar_log(msg, "error")
+        detalle = msg.strip()
+        mensaje = (
+            f"El proceso no finalizó correctamente. Detalle: {detalle}"
+            if detalle
+            else "El proceso no finalizó correctamente."
+        )
+        agregar_log(mensaje, "error")
         actualizar_estado("error", "Revisa los registros")
         _set_status_action(None)
         touch_last_update()
