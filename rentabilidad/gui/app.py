@@ -900,6 +900,8 @@ def build_ui() -> None:
                                         "Proceso completado",
                                         open_path=resultado.ruta_salida,
                                     )
+                                else:
+                                    update_status("error", "Revisa los registros")
 
                             ui.button(
                                 "Generar informe automático",
@@ -965,6 +967,8 @@ def build_ui() -> None:
                                         "Proceso completado",
                                         open_path=resultado.ruta_salida,
                                     )
+                                else:
+                                    update_status("error", "Revisa los registros")
 
                             ui.button(
                                 "Generar informe manual",
@@ -1008,6 +1012,8 @@ def build_ui() -> None:
                                         "Proceso completado",
                                         open_path=ruta,
                                     )
+                                else:
+                                    update_status("error", "Revisa los registros")
 
                             ui.button(
                                 "Generar listado de productos",
