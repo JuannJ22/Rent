@@ -8,7 +8,9 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from types import SimpleNamespace
+from dataclasses import dataclass
+
+from typing import Any
 
 from nicegui import app, ui
 
@@ -19,14 +21,17 @@ from rentabilidad.app.use_cases.listar_productos import run as uc_listado
 from rentabilidad.config import bus, settings
 from rentabilidad.infra.fs import ayer_str
 
-state = SimpleNamespace(
-    empty=None,
-    log=None,
-    last_update=None,
-    status=None,
-    status_button=None,
-    status_path=None,
-)
+@dataclass(slots=True)
+class UIState:
+    empty: Any = None
+    log: Any = None
+    last_update: Any = None
+    status: Any = None
+    status_button: Any = None
+    status_path: Path | None = None
+
+
+state = UIState()
 
 BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
 STATIC_DIR = BASE_DIR / "static"
@@ -55,23 +60,190 @@ LOG_ENTRY_CLASSES = {
 }
 
 
-def _status_markup(kind: str, text: str) -> str:
-    return (
-        f'<div class="status-chip status-{kind}">'  # noqa: E501
-        "<span class=\"status-dot\"></span>"
-        f"<span>{text}</span>"
-        "</div>"
-    )
+class StatusManager:
+    def __init__(self, ui_state: UIState) -> None:
+        self._state = ui_state
+
+    @property
+    def current_path(self) -> Path | None:
+        return self._state.status_path
+
+    def render(self, kind: str, text: str) -> str:
+        return (
+            f'<div class="status-chip status-{kind}">'  # noqa: E501
+            "<span class=\"status-dot\"></span>"
+            f"<span>{text}</span>"
+            "</div>"
+        )
+
+    def _set_action_target(self, path: Path | None) -> None:
+        self._state.status_path = path
+        button = self._state.status_button
+        if button is None:
+            return
+        if path is None:
+            button.disable()
+        else:
+            button.enable()
+
+    def update(self, kind: str, text: str, open_path: str | Path | None = None) -> None:
+        status_component = self._state.status
+        if status_component is None:
+            return
+
+        status_component.content = self.render(kind, text)
+        target: Path | None = None
+        if kind == "success" and open_path:
+            target = Path(open_path)
+        self._set_action_target(target)
 
 
-def _toggle_status_action(path: Path | None) -> None:
-    state.status_path = path
-    if state.status_button is None:
-        return
-    if path is None:
-        state.status_button.disable()
-    else:
-        state.status_button.enable()
+class LogManager:
+    def __init__(self, ui_state: UIState) -> None:
+        self._state = ui_state
+
+    def add(self, message: str, kind: str = "info") -> None:
+        if self._state.empty is None or self._state.log is None:
+            return
+
+        self._state.empty.classes(add="hidden")
+        self._state.log.classes(remove="hidden")
+
+        css_class = LOG_ENTRY_CLASSES.get(kind, "log-info")
+        icon = LOG_ICONS.get(kind, "info")
+        icon_class = LOG_ICON_CLASSES.get(kind, "text-slate-500")
+
+        with self._state.log:
+            with ui.row().classes(f"log-entry {css_class}"):
+                ui.icon(icon).classes(f"log-entry-icon {icon_class}")
+                ui.label(message).classes("log-entry-text")
+
+    def touch_last_update(self) -> None:
+        if self._state.last_update is None:
+            return
+        self._state.last_update.text = (
+            f"Última actualización: {datetime.now().strftime('%H:%M:%S')}"
+        )
+
+    def clear(self) -> None:
+        if self._state.log is not None:
+            self._state.log.clear()
+            self._state.log.classes(add="hidden")
+        if self._state.empty is not None:
+            self._state.empty.classes(remove="hidden")
+        if self._state.last_update is not None:
+            self._state.last_update.text = "Última actualización: —"
+
+
+class ResourceManager:
+    def __init__(self, status: StatusManager, logs: LogManager) -> None:
+        self._status = status
+        self._logs = logs
+
+    def copy_template_path(self) -> None:
+        ruta = str(settings.ruta_plantilla)
+        ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(ruta)})")
+        self._logs.add("Ruta de la plantilla copiada al portapapeles.")
+
+    def open_template_folder(self) -> None:
+        carpeta = Path(settings.ruta_plantilla).parent
+        if not carpeta.exists():
+            mensaje = f"No se encontró la carpeta: {carpeta}"
+            self._logs.add(mensaje, "error")
+            self._status.update("error", "Ruta de la plantilla no encontrada")
+            return
+
+        if self._open_destination(carpeta, "la carpeta"):
+            self._logs.add(f"Carpeta abierta: {carpeta}")
+        else:
+            self._status.update("error", "No fue posible abrir la carpeta")
+
+    def _open_destination(self, destino: Path, descripcion: str) -> bool:
+        ruta = str(destino)
+        try:
+            if sys.platform.startswith("win"):
+                try:
+                    os.startfile(ruta)  # type: ignore[attr-defined]
+                except OSError:
+                    subprocess.Popen(
+                        ["cmd", "/c", "start", "", ruta],
+                        shell=True,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+            elif sys.platform == "darwin":
+                subprocess.run(["open", ruta], check=False)
+            else:
+                subprocess.run(["xdg-open", ruta], check=False)
+            return True
+        except Exception as exc:  # pragma: no cover - defensivo
+            mensaje = f"No se pudo abrir {descripcion}: {exc}"
+            self._logs.add(mensaje, "error")
+            return False
+
+    def open_result(self, destino: Path) -> bool:
+        if not destino.exists():
+            mensaje = f"No se encontró el recurso generado: {destino}"
+            self._logs.add(mensaje, "error")
+            return False
+
+        if self._open_destination(destino, "el recurso generado"):
+            self._logs.add(f"Recurso abierto: {destino}", "success")
+            return True
+        return False
+
+    def open_current_result(self) -> None:
+        destino = self._status.current_path
+        if destino is None:
+            return
+        self.open_result(destino)
+
+    @staticmethod
+    def extract_result_path(msg: str) -> Path | None:
+        prefijos = ("Informe generado:", "Listado generado:")
+        for prefijo in prefijos:
+            if msg.startswith(prefijo):
+                posible = msg[len(prefijo) :].strip().strip("'\"")
+                if posible:
+                    return Path(posible)
+
+        marcadores = (
+            " sobre:",
+            " Informe:",
+            " informe:",
+            "INFORME:",
+        )
+        segmentos = [msg]
+        if "|" in msg:
+            segmentos = [parte.strip() for parte in msg.split("|")]
+
+        for segmento in segmentos:
+            for marcador in marcadores:
+                if marcador in segmento:
+                    posible = segmento.split(marcador, 1)[1].strip().strip("'\"")
+                    if posible:
+                        posible = posible.split("|", 1)[0].strip()
+                    if posible and any(sep in posible for sep in ("/", "\\")):
+                        return Path(posible)
+
+        if ":" in msg:
+            partes = msg.split(":")
+            for idx in range(len(partes) - 1, 0, -1):
+                posible = ":".join(partes[idx:]).strip().strip("'\"")
+                if posible and any(sep in posible for sep in ("/", "\\")):
+                    return Path(posible.split("|", 1)[0].strip())
+
+        return None
+
+
+status_manager = StatusManager(state)
+log_manager = LogManager(state)
+resource_manager = ResourceManager(status_manager, log_manager)
+
+
+def shorten(text: str, length: int = 42) -> str:
+    clean = str(text)
+    return clean if len(clean) <= length else clean[: length - 1] + "…"
 
 
 def _register_static_files() -> None:
@@ -114,166 +286,50 @@ def _inline_logo_markup() -> str | None:
 
     return f'<div class="hero-logo-inline">{svg}</div>'
 
-
 def update_status(
     kind: str, text: str, open_path: str | Path | None = None
 ) -> None:
-    if state.status is None:
-        return
-    state.status.content = _status_markup(kind, text)
-    target: Path | None = None
-    if kind == "success" and open_path:
-        target = Path(open_path)
-    _toggle_status_action(target)
-
-
-def _shorten(text: str, length: int = 42) -> str:
-    clean = str(text)
-    return clean if len(clean) <= length else clean[: length - 1] + "…"
+    status_manager.update(kind, text, open_path)
 
 
 def agregar_log(msg: str, kind: str = "info") -> None:
-    if state.empty is None or state.log is None:
-        return
-
-    state.empty.classes(add="hidden")
-    state.log.classes(remove="hidden")
-
-    css_class = LOG_ENTRY_CLASSES.get(kind, "log-info")
-    icon = LOG_ICONS.get(kind, "info")
-    icon_class = LOG_ICON_CLASSES.get(kind, "text-slate-500")
-
-    with state.log:
-        with ui.row().classes(f"log-entry {css_class}"):
-            ui.icon(icon).classes(f"log-entry-icon {icon_class}")
-            ui.label(msg).classes("log-entry-text")
+    log_manager.add(msg, kind)
 
 
 def touch_last_update() -> None:
-    if state.last_update is None:
-        return
-    state.last_update.text = (
-        f"Última actualización: {datetime.now().strftime('%H:%M:%S')}"
-    )
+    log_manager.touch_last_update()
 
 
 def limpiar_log() -> None:
-    if state.log is not None:
-        state.log.clear()
-        state.log.classes(add="hidden")
-    if state.empty is not None:
-        state.empty.classes(remove="hidden")
-    if state.last_update is not None:
-        state.last_update.text = "Última actualización: —"
-    update_status("idle", "Sistema listo")
+    log_manager.clear()
+    status_manager.update("idle", "Sistema listo")
 
 
 def copiar_ruta() -> None:
-    ruta = str(settings.ruta_plantilla)
-    ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(ruta)})")
-    agregar_log("Ruta de la plantilla copiada al portapapeles.")
+    resource_manager.copy_template_path()
 
 
 def abrir_carpeta() -> None:
-    carpeta = Path(settings.ruta_plantilla).parent
-    if not carpeta.exists():
-        mensaje = f"No se encontró la carpeta: {carpeta}"
-        agregar_log(mensaje, "error")
-        update_status("error", "Ruta de la plantilla no encontrada")
-        return
-
-    if _abrir_destino(carpeta, "la carpeta"):
-        agregar_log(f"Carpeta abierta: {carpeta}")
-    else:
-        update_status("error", "No fue posible abrir la carpeta")
-
-
-def _abrir_destino(destino: Path, descripcion: str) -> bool:
-    ruta = str(destino)
-
-    try:
-        if sys.platform.startswith("win"):
-            try:
-                os.startfile(ruta)  # type: ignore[attr-defined]
-            except OSError:
-                subprocess.Popen(
-                    ["cmd", "/c", "start", "", ruta],
-                    shell=True,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-        elif sys.platform == "darwin":
-            subprocess.run(["open", ruta], check=False)
-        else:
-            subprocess.run(["xdg-open", ruta], check=False)
-        return True
-    except Exception as exc:  # pragma: no cover - defensivo
-        mensaje = f"No se pudo abrir {descripcion}: {exc}"
-        agregar_log(mensaje, "error")
-        return False
+    resource_manager.open_template_folder()
 
 
 def abrir_resultado(destino: Path) -> bool:
-    if not destino.exists():
-        mensaje = f"No se encontró el recurso generado: {destino}"
-        agregar_log(mensaje, "error")
-        return False
-
-    if _abrir_destino(destino, "el recurso generado"):
-        agregar_log(f"Recurso abierto: {destino}", "success")
-        return True
-
-    return False
+    return resource_manager.open_result(destino)
 
 
 def abrir_resultado_actual() -> None:
-    if state.status_path is None:
-        return
-    abrir_resultado(state.status_path)
+    resource_manager.open_current_result()
 
 
 def _extract_result_path(msg: str) -> Path | None:
-    prefijos = ("Informe generado:", "Listado generado:")
-    for prefijo in prefijos:
-        if msg.startswith(prefijo):
-            posible = msg[len(prefijo) :].strip().strip("'\"")
-            if posible:
-                return Path(posible)
-
-    marcadores = (
-        " sobre:",
-        " Informe:",
-        " informe:",
-        "INFORME:",
-    )
-    segmentos = [msg]
-    if "|" in msg:
-        segmentos = [parte.strip() for parte in msg.split("|")]
-
-    for segmento in segmentos:
-        for marcador in marcadores:
-            if marcador in segmento:
-                posible = segmento.split(marcador, 1)[1].strip().strip("'\"")
-                if posible:
-                    posible = posible.split("|", 1)[0].strip()
-                if posible and any(sep in posible for sep in ("/", "\\")):
-                    return Path(posible)
-
-    if ":" in msg:
-        partes = msg.split(":")
-        for idx in range(len(partes) - 1, 0, -1):
-            posible = ":".join(partes[idx:]).strip().strip("'\"")
-            if posible and any(sep in posible for sep in ("/", "\\")):
-                return Path(posible.split("|", 1)[0].strip())
-
-    return None
+    return ResourceManager.extract_result_path(msg)
 
 
 def _path_line(label: str, value: Path) -> None:
     with ui.row().classes("path-line w-full flex-wrap"):
         ui.icon("chevron_right").classes("path-line-icon")
         ui.label(f"{label}:").classes("path-line-label")
-        shortened = _shorten(value)
+        shortened = shorten(value)
         component = ui.label(shortened).classes("path-line-value")
         with component:
             ui.tooltip(str(value))
@@ -359,6 +415,50 @@ def build_ui() -> None:
     border-bottom-left-radius: 48px;
     border-bottom-right-radius: 48px;
     box-shadow: 0 28px 70px rgba(15, 23, 42, 0.25);
+  }
+  .connection-banner {
+    position: fixed;
+    top: 1.25rem;
+    left: 50%;
+    transform: translate(-50%, 0);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    background: rgba(239, 68, 68, 0.95);
+    color: #fff;
+    padding: 0.75rem 1.2rem;
+    border-radius: 999px;
+    box-shadow: 0 18px 40px rgba(248, 113, 113, 0.35);
+    z-index: 2000;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+  }
+  .connection-banner.hidden {
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-50%, -20px);
+  }
+  .connection-banner-dot {
+    width: 0.65rem;
+    height: 0.65rem;
+    border-radius: 999px;
+    background: #fff;
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.55);
+    animation: pulse-dot 1.8s infinite;
+  }
+  .connection-banner-text {
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  @keyframes pulse-dot {
+    0% {
+      box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.55);
+    }
+    70% {
+      box-shadow: 0 0 0 10px rgba(255, 255, 255, 0);
+    }
+    100% {
+      box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
+    }
   }
   .hero-header {
     align-items: center;
@@ -622,10 +722,30 @@ def build_ui() -> None:
 """
     )
 
+    ui.add_body_html(
+        """
+<div id=\"connection-banner\" class=\"connection-banner hidden\">
+  <span class=\"connection-banner-dot\"></span>
+  <span class=\"connection-banner-text\">Reconectando…</span>
+</div>
+<script>
+  (function() {
+    const banner = document.getElementById('connection-banner');
+    if (!banner) return;
+    const hide = () => banner.classList.add('hidden');
+    const show = () => banner.classList.remove('hidden');
+    window.addEventListener('nicegui:connected', hide);
+    window.addEventListener('nicegui:disconnected', show);
+    hide();
+  })();
+</script>
+        """
+    )
+
     def hero_card(title: str, value: str, foot: str) -> None:
         with ui.column().classes("quick-card w-full"):
             ui.label(title).classes("quick-card-title")
-            display = _shorten(value, 28)
+            display = shorten(value, 28)
             label = ui.label(display).classes("quick-card-value")
             with label:
                 ui.tooltip(value)
@@ -663,17 +783,17 @@ def build_ui() -> None:
                     hero_card(
                         "Plantilla base",
                         settings.ruta_plantilla.name,
-                        _shorten(settings.ruta_plantilla.parent, 36),
+                        shorten(settings.ruta_plantilla.parent, 36),
                     )
                     hero_card(
                         "Prefijo EXCZ",
                         settings.excz_prefix,
-                        _shorten(settings.excz_dir, 36),
+                        shorten(settings.excz_dir, 36),
                     )
                     hero_card(
                         "Informes",
                         settings.context.informes_dir.name,
-                        _shorten(settings.context.informes_dir, 36),
+                        shorten(settings.context.informes_dir, 36),
                     )
 
         with ui.column().classes(
@@ -682,7 +802,7 @@ def build_ui() -> None:
             with ui.card().classes("panel-card w-full"):
                 with ui.column().classes("content"):
                     with ui.row().classes(
-                        "items-center gap-4 flex-wrap w-full justify-between"
+                        "items-center gap-4 flex-wrap w-full"
                     ):
                         with ui.element("div").classes("icon-bubble icon-blue"):
                             ui.icon("folder_open").classes("text-white text-lg")
@@ -897,7 +1017,7 @@ def build_ui() -> None:
                         "items-center gap-3 w-full flex-wrap"
                     ):
                         with ui.element("div").classes("icon-bubble icon-blue"):
-                            ui.icon("activity").classes("text-white text-xl")
+                            ui.icon("history").classes("text-white text-xl")
                         with ui.column().classes("gap-1"):
                             ui.label("Registro de actividades").classes("section-title")
                             ui.label(
@@ -925,7 +1045,7 @@ def build_ui() -> None:
                     ):
                         with ui.row().classes("status-actions"):
                             state.status = ui.html(
-                                _status_markup("idle", "Sistema listo")
+                                status_manager.render("idle", "Sistema listo")
                             )
                             state.status_button = (
                                 ui.button(
