@@ -12,6 +12,7 @@ abierto a nuevas variaciones.
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 import time
 from contextlib import contextmanager
@@ -26,15 +27,12 @@ from openpyxl.utils import column_index_from_string
 from rentabilidad.core.paths import PathContext
 
 
-def _quote_windows(arg: str) -> str:
-    """Devuelve ``arg`` listo para mostrarse como parte de un comando de Windows."""
+def _format_command(parts: Sequence[str], platform: str) -> str:
+    """Devuelve ``parts`` formateado para mostrarse como comando."""
 
-    if not arg:
-        return '""'
-    if any(ch in arg for ch in ' \t"'):
-        escaped = arg.replace('"', r'\"')
-        return f'"{escaped}"'
-    return arg
+    if platform == "nt":
+        return subprocess.list2cmdline(list(parts))
+    return shlex.join(parts)
 
 
 @dataclass
@@ -105,9 +103,11 @@ class ExcelSiigoFacade:
             str(output_path),
         ]
 
-        if os.name == "nt":
-            cd_command = f"cd /d {_quote_windows(str(self._config.siigo_dir))}"
-            joined_command = " ".join(_quote_windows(arg) for arg in command)
+        platform = os.name
+
+        if platform == "nt":
+            cd_command = subprocess.list2cmdline(["cd", "/d", str(self._config.siigo_dir)])
+            joined_command = _format_command(command, platform)
             cmdline = f"{cd_command} && {joined_command}"
             printable_command = cmdline
             result = subprocess.run(
@@ -117,7 +117,7 @@ class ExcelSiigoFacade:
                 text=True,
             )
         else:
-            printable_command = " ".join(_quote_windows(arg) for arg in command)
+            printable_command = _format_command(command, platform)
             result = subprocess.run(
                 command,
                 cwd=str(self._config.siigo_dir),
