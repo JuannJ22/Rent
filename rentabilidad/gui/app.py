@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import html
 import json
 import os
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from typing import Any
 
@@ -19,7 +20,16 @@ from rentabilidad.app.use_cases.generar_informe_automatico import run as uc_auto
 from rentabilidad.app.use_cases.generar_informe_manual import run as uc_manual
 from rentabilidad.app.use_cases.listar_productos import run as uc_listado
 from rentabilidad.config import bus, settings
-from rentabilidad.infra.fs import ayer_str
+from rentabilidad.infra.fs import ayer_str, find_latest_informe, find_latest_producto
+
+@dataclass(slots=True)
+class LatestResourceComponents:
+    name: Any = None
+    meta: Any = None
+    path_display: Any = None
+    action: Any = None
+    path: Path | None = None
+
 
 @dataclass(slots=True)
 class UIState:
@@ -30,10 +40,8 @@ class UIState:
     status_button: Any = None
     status_path: Path | None = None
     status_kind: str = "idle"
-    summary_total: Any = None
-    summary_infos: Any = None
-    summary_success: Any = None
-    summary_errors: Any = None
+    latest_report: LatestResourceComponents = field(default_factory=LatestResourceComponents)
+    latest_products: LatestResourceComponents = field(default_factory=LatestResourceComponents)
 
 
 state = UIState()
@@ -113,27 +121,6 @@ class StatusManager:
 class LogManager:
     def __init__(self, ui_state: UIState) -> None:
         self._state = ui_state
-        self._info_count = 0
-        self._success_count = 0
-        self._error_count = 0
-
-    def _set_text(self, attr: str, value: str) -> None:
-        component = getattr(self._state, attr, None)
-        if component is not None:
-            component.text = value
-
-    def _update_totals(self) -> None:
-        total = self._info_count + self._success_count + self._error_count
-        self._set_text("summary_total", str(total))
-
-    def reset_summary(self) -> None:
-        self._info_count = 0
-        self._success_count = 0
-        self._error_count = 0
-        self._set_text("summary_infos", "0")
-        self._set_text("summary_success", "0")
-        self._set_text("summary_errors", "0")
-        self._set_text("summary_total", "0")
 
     def add(self, message: str, kind: str = "info") -> None:
         if self._state.empty is None or self._state.log is None:
@@ -164,18 +151,6 @@ class LogManager:
                 ui.icon(icon).classes(f"log-entry-icon {icon_class}")
                 ui.label(message).classes("log-entry-text")
 
-        if kind == "success":
-            self._success_count += 1
-            self._set_text("summary_success", str(self._success_count))
-        elif kind == "error":
-            self._error_count += 1
-            self._set_text("summary_errors", str(self._error_count))
-        else:
-            self._info_count += 1
-            self._set_text("summary_infos", str(self._info_count))
-
-        self._update_totals()
-
     def touch_last_update(self) -> None:
         if self._state.last_update is None:
             return
@@ -191,7 +166,6 @@ class LogManager:
             self._state.empty.classes(remove="hidden")
         if self._state.last_update is not None:
             self._state.last_update.text = "Última actualización: —"
-        self.reset_summary()
 
 
 class ResourceManager:
@@ -300,6 +274,105 @@ log_manager = LogManager(state)
 resource_manager = ResourceManager(status_manager, log_manager)
 
 
+class LatestResourceManager:
+    def __init__(self, ui_state: UIState) -> None:
+        self._state = ui_state
+        self._informes_dir = settings.context.informes_dir
+        self._productos_dir = settings.context.productos_dir
+
+    def refresh(self) -> None:
+        self._set_components(
+            self._state.latest_report, find_latest_informe(self._informes_dir)
+        )
+        self._set_components(
+            self._state.latest_products, find_latest_producto(self._productos_dir)
+        )
+
+    def update_from_path(self, path: Path | None) -> None:
+        if path is None:
+            return
+        target = self._resolve(path)
+        if target is None:
+            return
+        if self._is_under(target, self._informes_dir):
+            self._set_components(self._state.latest_report, target)
+        elif self._is_under(target, self._productos_dir):
+            self._set_components(self._state.latest_products, target)
+
+    def _resolve(self, path: Path) -> Path | None:
+        try:
+            return path.resolve()
+        except OSError:
+            if path.exists():
+                return path
+        except RuntimeError:
+            pass
+        return path if path.exists() else None
+
+    def _set_components(
+        self, components: LatestResourceComponents, path: Path | None
+    ) -> None:
+        actual = path if path and path.exists() else None
+        components.path = actual
+
+        if components.name is not None:
+            if actual:
+                components.name.text = actual.name
+            else:
+                components.name.text = "Sin registros disponibles."
+
+        if components.meta is not None:
+            if actual:
+                components.meta.text = (
+                    "Actualizado el "
+                    + datetime.fromtimestamp(actual.stat().st_mtime).strftime(
+                        "%d/%m/%Y %H:%M"
+                    )
+                )
+            else:
+                components.meta.text = "Genera este recurso para visualizarlo aquí."
+
+        if components.path_display is not None:
+            if actual:
+                shortened = shorten(actual)
+                escaped_short = html.escape(shortened)
+                escaped_full = html.escape(str(actual))
+                components.path_display.content = "".join(
+                    [
+                        '<span class="latest-resource-path-label">Ubicación:</span> ',
+                        f'<span class="latest-resource-path-value" title="{escaped_full}">',
+                        escaped_short,
+                        "</span>",
+                    ]
+                )
+            else:
+                components.path_display.content = (
+                    '<span class="latest-resource-path-label">Ubicación:</span> '
+                    '<span class="latest-resource-path-value">—</span>'
+                )
+
+        if components.action is not None:
+            if actual:
+                components.action.enable()
+            else:
+                components.action.disable()
+
+    @staticmethod
+    def _is_under(path: Path, base: Path) -> bool:
+        try:
+            path.resolve().relative_to(base.resolve())
+            return True
+        except (ValueError, OSError):
+            try:
+                path.relative_to(base)
+                return True
+            except ValueError:
+                return False
+
+
+latest_resources = LatestResourceManager(state)
+
+
 def shorten(text: str, length: int = 42) -> str:
     clean = str(text)
     return clean if len(clean) <= length else clean[: length - 1] + "…"
@@ -350,6 +423,9 @@ def update_status(
 ) -> None:
     previous_kind = state.status_kind
     status_manager.update(kind, text, open_path)
+    if kind == "success" and open_path:
+        destino = open_path if isinstance(open_path, Path) else Path(open_path)
+        latest_resources.update_from_path(destino)
     if kind in {"success", "error"} and previous_kind != kind:
         if kind == "success":
             agregar_log("El proceso finalizó correctamente.", "success")
@@ -390,6 +466,26 @@ def _extract_result_path(msg: str) -> Path | None:
     return ResourceManager.extract_result_path(msg)
 
 
+def abrir_ultimo_informe() -> None:
+    destino = state.latest_report.path
+    if destino is None:
+        log_manager.add(
+            "No hay un informe de rentabilidad disponible para abrir.", "error"
+        )
+        return
+    resource_manager.open_result(destino)
+
+
+def abrir_ultimo_listado() -> None:
+    destino = state.latest_products.path
+    if destino is None:
+        log_manager.add(
+            "No hay un listado de productos disponible para abrir.", "error"
+        )
+        return
+    resource_manager.open_result(destino)
+
+
 def _path_line(label: str, value: Path) -> None:
     with ui.row().classes("path-line w-full flex-wrap"):
         ui.icon("chevron_right").classes("path-line-icon")
@@ -398,6 +494,40 @@ def _path_line(label: str, value: Path) -> None:
         component = ui.label(shortened).classes("path-line-value")
         with component:
             ui.tooltip(str(value))
+
+
+def _latest_resource_entry(
+    title: str,
+    icon_name: str,
+    icon_class: str,
+    components: LatestResourceComponents,
+    on_open,
+) -> None:
+    with ui.element("div").classes("latest-resource-card"):
+        with ui.row().classes("latest-resource-header"):
+            ui.icon(icon_name).classes(f"latest-resource-icon {icon_class}")
+            ui.label(title).classes("latest-resource-title")
+        components.name = ui.label("Sin registros disponibles.").classes(
+            "latest-resource-name"
+        )
+        components.meta = ui.label(
+            "Genera este recurso para visualizarlo aquí."
+        ).classes("latest-resource-meta")
+        components.path_display = ui.html(
+            '<span class="latest-resource-path-label">Ubicación:</span> '
+            '<span class="latest-resource-path-value">—</span>'
+        ).classes("latest-resource-path")
+        with ui.row().classes("latest-resource-actions"):
+            components.action = (
+                ui.button(
+                    "Abrir archivo",
+                    icon="open_in_new",
+                    on_click=on_open,
+                )
+                .props("flat color=primary")
+                .classes("latest-resource-action")
+            )
+            components.action.disable()
 
 
 def _register_bus_subscriptions() -> None:
@@ -414,6 +544,8 @@ def _register_bus_subscriptions() -> None:
         destino = _extract_result_path(msg)
         if destino is None and state.status_path is not None:
             destino = state.status_path
+        if destino is not None:
+            latest_resources.update_from_path(destino)
         update_status("success", "Proceso completado", open_path=destino)
 
     def _on_error(msg: str) -> None:
@@ -700,13 +832,16 @@ def build_ui() -> None:
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
-    min-height: 320px;
+    min-height: 360px;
+    max-height: 360px;
     box-shadow: 0 12px 32px rgba(15, 23, 42, 0.04);
+    overflow: hidden;
   }
   .log-empty {
     align-items: center;
     justify-content: center;
-    height: 220px;
+    height: 100%;
+    min-height: 0;
     width: 100%;
     gap: 0.5rem;
     color: #94a3b8;
@@ -714,7 +849,7 @@ def build_ui() -> None:
   }
   .log-list {
     flex: 1 1 auto;
-    max-height: 360px;
+    height: 100%;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
@@ -727,64 +862,73 @@ def build_ui() -> None:
     background: rgba(148, 163, 184, 0.4);
     border-radius: 9999px;
   }
-  .log-summary {
+  .latest-resources {
     width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .latest-resources-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: #0f172a;
+  }
+  .latest-resource-card {
     background: #ffffff;
     border-radius: 1rem;
     border: 1px solid rgba(148, 163, 184, 0.2);
     padding: 1.25rem;
     display: flex;
     flex-direction: column;
-    gap: 1.25rem;
+    gap: 0.75rem;
     box-shadow: 0 12px 32px rgba(15, 23, 42, 0.04);
   }
-  .log-summary-header {
+  .latest-resource-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    flex-wrap: wrap;
-  }
-  .log-summary-title {
-    font-size: 1.05rem;
-    font-weight: 600;
-    color: #0f172a;
-  }
-  .log-summary-metrics {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     gap: 0.85rem;
   }
-  .log-summary-metric {
-    border-radius: 0.85rem;
-    padding: 0.9rem 1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
+  .latest-resource-icon {
+    font-size: 1.2rem;
+    color: #1d4ed8;
+  }
+  .latest-resource-title {
+    font-size: 0.95rem;
+    font-weight: 700;
     color: #0f172a;
   }
-  .log-summary-metric.metric-total {
-    background: rgba(37, 99, 235, 0.14);
+  .latest-resource-name {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #1e293b;
   }
-  .log-summary-metric.metric-success {
-    background: rgba(16, 185, 129, 0.16);
+  .latest-resource-meta {
+    font-size: 0.8rem;
+    color: #64748b;
   }
-  .log-summary-metric.metric-error {
-    background: rgba(239, 68, 68, 0.18);
-  }
-  .log-summary-metric.metric-info {
-    background: rgba(14, 116, 144, 0.14);
-  }
-  .log-summary-label {
+  .latest-resource-path {
     font-size: 0.78rem;
+    color: #475569;
+  }
+  .latest-resource-path-label {
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: #475569;
     font-weight: 600;
+    color: #94a3b8;
+    margin-right: 0.35rem;
   }
-  .log-summary-value {
-    font-size: 1.5rem;
-    font-weight: 700;
+  .latest-resource-path-value {
+    font-weight: 600;
+    color: #1f2937;
+    word-break: break-all;
+  }
+  .latest-resource-actions {
+    margin-top: auto;
+    display: flex;
+    gap: 0.5rem;
+  }
+  .latest-resource-action {
+    border-radius: 0.75rem !important;
   }
   .log-entry {
     width: 100%;
@@ -1211,50 +1355,24 @@ def build_ui() -> None:
                         )
 
                     with ui.element("div").classes("log-wrapper w-full"):
-                        with ui.column().classes("log-summary"):
-                            with ui.row().classes("log-summary-header"):
-                                ui.label("Resumen de procesos").classes(
-                                    "log-summary-title"
-                                )
-                            with ui.element("div").classes(
-                                "log-summary-metrics"
-                            ):
-                                with ui.column().classes(
-                                    "log-summary-metric metric-total"
-                                ):
-                                    ui.label("Eventos totales").classes(
-                                        "log-summary-label"
-                                    )
-                                    state.summary_total = ui.label("0").classes(
-                                        "log-summary-value"
-                                    )
-                                with ui.column().classes(
-                                    "log-summary-metric metric-success"
-                                ):
-                                    ui.label("Éxitos").classes(
-                                        "log-summary-label"
-                                    )
-                                    state.summary_success = ui.label("0").classes(
-                                        "log-summary-value"
-                                    )
-                                with ui.column().classes(
-                                    "log-summary-metric metric-error"
-                                ):
-                                    ui.label("Errores").classes(
-                                        "log-summary-label"
-                                    )
-                                    state.summary_errors = ui.label("0").classes(
-                                        "log-summary-value"
-                                    )
-                                with ui.column().classes(
-                                    "log-summary-metric metric-info"
-                                ):
-                                    ui.label("Mensajes info").classes(
-                                        "log-summary-label"
-                                    )
-                                    state.summary_infos = ui.label("0").classes(
-                                        "log-summary-value"
-                                    )
+                        with ui.column().classes("latest-resources"):
+                            ui.label("Recursos recientes").classes(
+                                "latest-resources-title"
+                            )
+                            _latest_resource_entry(
+                                "Informe de rentabilidad",
+                                "table_view",
+                                "text-blue-500",
+                                state.latest_report,
+                                abrir_ultimo_informe,
+                            )
+                            _latest_resource_entry(
+                                "Listado de productos",
+                                "inventory_2",
+                                "text-emerald-500",
+                                state.latest_products,
+                                abrir_ultimo_listado,
+                            )
                         with ui.column().classes("log-stream"):
                             state.empty = ui.column().classes("log-empty")
                             with state.empty:
@@ -1286,7 +1404,7 @@ def build_ui() -> None:
                             state.status_button.disable()
                         state.last_update = ui.label("Última actualización: —")
 
-    log_manager.reset_summary()
+    latest_resources.refresh()
     _register_bus_subscriptions()
     _register_api_routes()
 
