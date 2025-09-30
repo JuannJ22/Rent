@@ -1101,7 +1101,7 @@ def build_ui() -> None:
             "max-w-6xl w-full mx-auto px-6 -mt-16 gap-6"
         ):
             with ui.card().classes("panel-card w-full"):
-                with ui.column().classes("content"):
+                with ui.column().classes("content w-full items-stretch"):
                     with ui.row().classes(
                         "items-center gap-4 flex-wrap w-full"
                     ):
@@ -1135,7 +1135,7 @@ def build_ui() -> None:
             ):
                 with ui.column().classes("flex-1 w-full gap-6"):
                     with ui.card().classes("panel-card"):
-                        with ui.column().classes("content"):
+                        with ui.column().classes("content w-full items-stretch"):
                             with ui.row().classes(
                                 "items-center gap-3 w-full flex-wrap"
                             ):
@@ -1194,7 +1194,7 @@ def build_ui() -> None:
                             ).classes("action-note")
 
                     with ui.card().classes("panel-card"):
-                        with ui.column().classes("content"):
+                        with ui.column().classes("content w-full items-stretch"):
                             with ui.row().classes(
                                 "items-center gap-3 w-full flex-wrap"
                             ):
@@ -1269,7 +1269,7 @@ def build_ui() -> None:
 
                 with ui.column().classes("flex-1 w-full gap-6"):
                     with ui.card().classes("panel-card"):
-                        with ui.column().classes("content"):
+                        with ui.column().classes("content w-full items-stretch"):
                             with ui.row().classes(
                                 "items-center gap-3 w-full flex-wrap"
                             ):
@@ -1319,7 +1319,7 @@ def build_ui() -> None:
                             _path_line("Destino", settings.context.productos_dir)
 
                     with ui.card().classes("panel-card"):
-                        with ui.column().classes("content"):
+                        with ui.column().classes("content w-full items-stretch"):
                             with ui.row().classes(
                                 "items-center gap-3 w-full flex-wrap"
                             ):
@@ -1338,7 +1338,7 @@ def build_ui() -> None:
                             ).classes("action-note")
 
             with ui.card().classes("panel-card w-full"):
-                with ui.column().classes("content"):
+                with ui.column().classes("content w-full items-stretch"):
                     with ui.row().classes(
                         "items-center gap-3 w-full flex-wrap"
                     ):
