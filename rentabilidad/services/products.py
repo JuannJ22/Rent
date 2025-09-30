@@ -36,6 +36,16 @@ def _format_command(parts: Sequence[str], platform: str) -> str:
     return shlex.join(parts)
 
 
+def _tail(path: str | Path, max_lines: int = 80) -> str:
+    """Devuelve las últimas ``max_lines`` líneas del archivo ``path``."""
+
+    try:
+        with open(path, "r", encoding="latin-1", errors="ignore") as handle:
+            return "".join(handle.readlines()[-max_lines:])
+    except Exception as exc:  # noqa: BLE001 - queremos el mensaje de error real
+        return f"(No se pudo leer el log: {exc})"
+
+
 @dataclass
 class SiigoCredentials:
     """Agrupa los parámetros de autenticación para ExcelSIIGO."""
@@ -59,6 +69,7 @@ class ProductGenerationConfig:
     credentials: SiigoCredentials
     activo_column: int | str
     keep_columns: Sequence[int | str]
+    siigo_command: str = "ExcelSIIGO.exe"
     siigo_output_filename: str = "ProductosMesDia.xlsx"
     wait_timeout: float = 30.0
     wait_interval: float = 0.2
@@ -110,8 +121,12 @@ class ExcelSiigoFacade:
             depuración.
         """
 
+        executable = Path(self._config.siigo_command)
+        if not executable.is_absolute():
+            executable = self._config.siigo_dir / executable
+
         command = [
-            "ExcelSIIGO",
+            str(executable),
             self._config.base_path,
             year,
             self._config.credentials.reporte,
@@ -126,32 +141,17 @@ class ExcelSiigoFacade:
         ]
 
         platform = os.name
-
-        if platform == "nt":
-            quoted_path = subprocess.list2cmdline([str(self._config.siigo_dir)])
-            cd_command = f"cd /d {quoted_path}"
-            joined_command = _format_command(command, platform)
-            cmdline = f"{cd_command} && {joined_command}"
-            printable_command = cmdline
-            result = subprocess.run(
-                ["cmd.exe", "/d", "/c", cmdline],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-        else:
-            printable_command = _format_command(command, platform)
-            result = subprocess.run(
-                command,
-                cwd=str(self._config.siigo_dir),
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-
-
+        printable_command = _format_command(command, platform)
         print(f"CWD> {self._config.siigo_dir}")
         print(f"CMD> {printable_command}")
+
+        result = subprocess.run(
+            command,
+            cwd=str(self._config.siigo_dir),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
 
         if result.stdout:
             print(result.stdout.strip())
@@ -159,9 +159,13 @@ class ExcelSiigoFacade:
             print(result.stderr.strip())
 
         if result.returncode != 0:
+            log_tail = _tail(self._config.log_path)
             raise RuntimeError(
-                "ExcelSIIGO falló con código "
-                f"{result.returncode}: {result.stderr.strip() or result.stdout.strip()}"
+                "ExcelSIIGO devolvió error.\n"
+                f"returncode={result.returncode}\n\n"
+                f"STDOUT:\n{result.stdout}\n"
+                f"STDERR:\n{result.stderr}\n\n"
+                f"LOG (últimas líneas):\n{log_tail}"
             )
 
 
@@ -314,10 +318,18 @@ class ProductListingService:
             with safe_backup(siigo_output):
                 self._facade.run(siigo_output, target_date.strftime("%Y"))
                 if not self._wait_for_file(siigo_output):
+                    log_tail = _tail(self._config.log_path)
                     raise FileNotFoundError(
                         "ExcelSIIGO finalizó sin generar el archivo esperado en "
                         f"{siigo_output}. Verifica la configuración del proceso o los permisos "
-                        "de escritura antes de reintentar."
+                        "de escritura antes de reintentar.\n"
+                        f"LOG (últimas líneas):\n{log_tail}"
+                    )
+                if siigo_output.stat().st_size < 1024:
+                    log_tail = _tail(self._config.log_path)
+                    raise RuntimeError(
+                        "No se generó el archivo de productos o quedó vacío.\n"
+                        f"LOG (últimas líneas):\n{log_tail}"
                     )
                 if siigo_output != output_path:
                     print(f"INFO: Moviendo resultado a {output_path}")

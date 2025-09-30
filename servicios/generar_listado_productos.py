@@ -47,7 +47,16 @@ def build_parser(defaults: dict[str, str | float]) -> argparse.ArgumentParser:
             "depura el archivo dejando solo columnas relevantes y productos activos."
         )
     )
-    parser.add_argument("--siigo-dir", default=defaults["SIIGO_DIR"], help="Carpeta donde se ubica ExcelSIIGO.exe")
+    parser.add_argument(
+        "--siigo-dir",
+        default=defaults["SIIGO_DIR"],
+        help="Carpeta donde se ubica ExcelSIIGO (también admite la ruta completa al ejecutable)",
+    )
+    parser.add_argument(
+        "--siigo-command",
+        default=defaults["SIIGO_COMMAND"],
+        help="Nombre del ejecutable de ExcelSIIGO (por defecto ExcelSIIGO.exe)",
+    )
     parser.add_argument(
         "--siigo-base",
         default=defaults["SIIGO_BASE"],
@@ -116,6 +125,7 @@ def _collect_defaults() -> dict[str, str | float]:
         "SIIGO_DIR": os.environ.get("SIIGO_DIR", r"C:\\Siigo"),
         "SIIGO_BASE": os.environ.get("SIIGO_BASE", r"D:\\SIIWI01"),
         "SIIGO_LOG": os.environ.get("SIIGO_LOG", str(Path(os.environ.get("SIIGO_BASE", r"D:\\SIIWI01")) / "LOGS" / "log_catalogos.txt")),
+        "SIIGO_COMMAND": os.environ.get("SIIGO_COMMAND", "ExcelSIIGO.exe"),
         "SIIGO_REPORTE": os.environ.get("SIIGO_REPORTE", "GETINV"),
         "SIIGO_EMPRESA": os.environ.get("SIIGO_EMPRESA", "L"),
         "SIIGO_USUARIO": os.environ.get("SIIGO_USUARIO", "JUAN"),
@@ -152,9 +162,23 @@ def main() -> None:
         )
         context.ensure_structure()
 
-    siigo_dir = Path(args.siigo_dir)
+    siigo_path = Path(args.siigo_dir)
+    siigo_command = args.siigo_command
+
+    if siigo_path.is_file():
+        siigo_dir = siigo_path.parent
+        siigo_command = siigo_path.name
+    else:
+        siigo_dir = siigo_path
+
     if not siigo_dir.exists():
         raise SystemExit(f"No existe la carpeta de SIIGO: {siigo_dir}")
+
+    if not siigo_dir.is_dir():
+        raise SystemExit(f"La ruta de SIIGO debe ser una carpeta: {siigo_dir}")
+
+    if not siigo_command:
+        raise SystemExit("Debes especificar el nombre del ejecutable de ExcelSIIGO")
 
     credenciales = SiigoCredentials(
         reporte=args.reporte,
@@ -173,6 +197,7 @@ def main() -> None:
         credentials=credenciales,
         activo_column=args.activo_column,
         keep_columns=KEEP_COLUMN_NUMBERS + (column_index_from_string(args.activo_column),),
+        siigo_command=str(siigo_command),
         siigo_output_filename=args.siigo_output,
         wait_timeout=args.wait_timeout,
         wait_interval=args.wait_interval,

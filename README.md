@@ -106,6 +106,7 @@ para generar un Excel de productos en `C:\\Rentabilidad\\Productos`
 
 - Variables de entorno (opcionales) que ajustan las rutas por defecto:
   - `SIIGO_DIR`: carpeta donde está instalado SIIGO (por defecto `C:\\Siigo`).
+  - `SIIGO_COMMAND`: nombre del ejecutable de SIIGO (por defecto `ExcelSIIGO.exe`).
   - `SIIGO_BASE`: ruta base pasada como primer parámetro a `ExcelSIIGO`
     (por defecto `D:\\SIIWI01`).
   - `PRODUCTOS_DIR`: carpeta destino de los Excel generados
