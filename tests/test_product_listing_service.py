@@ -9,6 +9,7 @@ import pytest
 
 from rentabilidad.core.paths import PathContext
 from rentabilidad.services.products import (
+    ExcelSiigoFacade,
     ProductGenerationConfig,
     ProductListingService,
     SiigoCredentials,
@@ -94,3 +95,53 @@ def test_generate_fails_when_file_never_appears(tmp_path: Path) -> None:
 
     with pytest.raises(FileNotFoundError):
         service.generate(date(2024, 1, 15))
+
+
+def test_facade_quotes_windows_paths(monkeypatch, tmp_path: Path) -> None:
+    from rentabilidad.services import products as products_module
+
+    siigo_dir = tmp_path / "Siigo Dir"
+    siigo_dir.mkdir()
+    output_path = tmp_path / "Productos Finales" / "salida.xlsx"
+
+    credentials = SiigoCredentials(
+        reporte="REP",
+        empresa="EMP",
+        usuario="USR",
+        clave="PWD",
+        estado_param="S",
+        rango_ini="0001",
+        rango_fin="9999",
+    )
+
+    config = ProductGenerationConfig(
+        siigo_dir=siigo_dir,
+        base_path="D:\\SIIWI01\\",
+        log_path="D:\\SIIWI01\\LOGS\\log_catalogos.txt",
+        credentials=credentials,
+        activo_column=1,
+        keep_columns=(1,),
+    )
+
+    facade = ExcelSiigoFacade(config)
+
+    captured_commands: list[list[str]] = []
+
+    class DummyResult:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(command, **kwargs):  # noqa: ANN001 - firma flexible para imitar subprocess.run
+        captured_commands.append(command)
+        return DummyResult()
+
+    monkeypatch.setattr(products_module, "os", type("FakeOS", (), {"name": "nt"}))
+    monkeypatch.setattr(products_module.subprocess, "run", fake_run)
+
+    facade.run(output_path, "2024")
+
+    assert captured_commands, "El comando de ExcelSIIGO debe ejecutarse"
+    cmd = captured_commands[0]
+    assert cmd[0:3] == ["cmd.exe", "/d", "/c"]
+    assert f'"{siigo_dir}"' in cmd[3]
