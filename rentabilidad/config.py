@@ -70,7 +70,7 @@ class Settings:
             credentials=credenciales,
             activo_column=activo_column,
             keep_columns=keep_columns,
-            siigo_output_filename=os.environ.get("SIIGO_OUTPUT_FILENAME", "Productosmesdia.xlsx"),
+            siigo_output_filename=os.environ.get("SIIGO_OUTPUT_FILENAME", "ProductosMesDia.xlsx"),
             wait_timeout=_read_float_env("SIIGO_WAIT_TIMEOUT", 60.0),
             wait_interval=_read_float_env("SIIGO_WAIT_INTERVAL", 0.2),
         )

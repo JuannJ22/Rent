@@ -25,7 +25,7 @@ from typing import Iterable, Sequence
 from openpyxl import load_workbook
 from openpyxl.utils import column_index_from_string
 
-from rentabilidad.core.paths import PathContext
+from rentabilidad.core.paths import SPANISH_MONTHS, PathContext
 
 
 def _format_command(parts: Sequence[str], platform: str) -> str:
@@ -59,9 +59,30 @@ class ProductGenerationConfig:
     credentials: SiigoCredentials
     activo_column: int | str
     keep_columns: Sequence[int | str]
-    siigo_output_filename: str = "Productosmesdia.xlsx"
+    siigo_output_filename: str = "ProductosMesDia.xlsx"
     wait_timeout: float = 30.0
     wait_interval: float = 0.2
+
+
+def _format_siigo_output_filename(template: str, target_date: date) -> str:
+    """Reemplaza los marcadores ``Mes`` y ``Dia`` por la fecha indicada."""
+
+    month_name = SPANISH_MONTHS[target_date.month]
+    day_number = target_date.strftime("%d")
+
+    replacements = {
+        "Mes": month_name,
+        "MES": month_name.upper(),
+        "mes": month_name.lower(),
+        "Dia": day_number,
+        "DIA": day_number,
+        "dia": day_number,
+    }
+
+    formatted = template
+    for placeholder, value in replacements.items():
+        formatted = formatted.replace(placeholder, value)
+    return formatted
 
 
 class ExcelSiigoFacade:
@@ -107,7 +128,8 @@ class ExcelSiigoFacade:
         platform = os.name
 
         if platform == "nt":
-            cd_command = subprocess.list2cmdline(["cd", "/d", str(self._config.siigo_dir)])
+            quoted_path = subprocess.list2cmdline([str(self._config.siigo_dir)])
+            cd_command = f"cd /d {quoted_path}"
             joined_command = _format_command(command, platform)
             cmdline = f"{cd_command} && {joined_command}"
             printable_command = cmdline
@@ -282,7 +304,10 @@ class ProductListingService:
         output_path = self._context.productos_path(target_date)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        siigo_output = self._context.productos_dir / self._config.siigo_output_filename
+        siigo_output_name = _format_siigo_output_filename(
+            self._config.siigo_output_filename, target_date
+        )
+        siigo_output = self._context.productos_dir / siigo_output_name
 
         print(f"INFO: Ejecutando ExcelSIIGO para generar {siigo_output}")
         with safe_backup(output_path):

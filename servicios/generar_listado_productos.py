@@ -125,7 +125,7 @@ def _collect_defaults() -> dict[str, str | float]:
         "SIIGO_RANGO_FIN": os.environ.get("SIIGO_RANGO_FIN", "0400027999999"),
         "SIIGO_ACTIVO_COL": os.environ.get("SIIGO_ACTIVO_COL", "AX"),
         "PRODUCTOS_DIR": os.environ.get("PRODUCTOS_DIR", str(context.productos_dir)),
-        "SIIGO_OUTPUT_FILENAME": os.environ.get("SIIGO_OUTPUT_FILENAME", "Productosmesdia.xlsx"),
+        "SIIGO_OUTPUT_FILENAME": os.environ.get("SIIGO_OUTPUT_FILENAME", "ProductosMesDia.xlsx"),
         "SIIGO_WAIT_TIMEOUT": _read_float_env("SIIGO_WAIT_TIMEOUT", 60.0),
         "SIIGO_WAIT_INTERVAL": _read_float_env("SIIGO_WAIT_INTERVAL", 0.2),
     }
