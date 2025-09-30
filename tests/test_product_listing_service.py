@@ -89,6 +89,31 @@ def test_generate_waits_for_delayed_file(tmp_path: Path) -> None:
     assert cleaner.cleaned == [result]
 
 
+def test_siigo_output_filename_replaces_placeholders(tmp_path: Path) -> None:
+    service = _build_service(tmp_path)
+    cleaner = _DummyCleaner()
+    service._cleaner = cleaner
+
+    captured_paths: list[Path] = []
+
+    class _CapturingFacade:
+        def run(self, output_path: Path, year: str) -> None:  # noqa: ARG002 - compatibilidad de firma
+            captured_paths.append(output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(b"contenido")
+
+    service._facade = _CapturingFacade()
+    service._config.siigo_output_filename = "ProductosMesDia.xlsx"
+
+    target_date = date(2024, 9, 5)
+    result = service.generate(target_date)
+
+    assert captured_paths, "Debe llamarse a la fachada con una ruta de salida"
+    assert captured_paths[0].name == "ProductosSeptiembre05.xlsx"
+    assert result.exists()
+    assert cleaner.cleaned == [result]
+
+
 def test_generate_fails_when_file_never_appears(tmp_path: Path) -> None:
     service = _build_service(tmp_path)
     service._facade = _DelayedFacade(create_file=False)
@@ -144,4 +169,6 @@ def test_facade_quotes_windows_paths(monkeypatch, tmp_path: Path) -> None:
     assert captured_commands, "El comando de ExcelSIIGO debe ejecutarse"
     cmd = captured_commands[0]
     assert cmd[0:3] == ["cmd.exe", "/d", "/c"]
+    assert cmd[3].startswith("cd /d ")
+    assert '"cd"' not in cmd[3], "El comando cd no debe ir entre comillas"
     assert f'"{siigo_dir}"' in cmd[3]
