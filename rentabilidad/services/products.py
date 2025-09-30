@@ -106,7 +106,7 @@ class ExcelSiigoFacade:
         ]
 
         if os.name == "nt":
-            cd_command = f"cd /d {self._config.siigo_dir}"
+            cd_command = f"cd /d {_quote_windows(str(self._config.siigo_dir))}"
             joined_command = " ".join(_quote_windows(arg) for arg in command)
             cmdline = f"{cd_command} && {joined_command}"
             printable_command = cmdline
