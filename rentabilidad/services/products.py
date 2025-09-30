@@ -11,7 +11,6 @@ abierto a nuevas variaciones.
 
 from __future__ import annotations
 
-import os
 import subprocess
 import time
 from contextlib import contextmanager
@@ -105,26 +104,15 @@ class ExcelSiigoFacade:
             str(output_path),
         ]
 
-        if os.name == "nt":
-            cd_command = f"cd /d {self._config.siigo_dir}"
-            joined_command = " ".join(_quote_windows(arg) for arg in command)
-            cmdline = f"{cd_command} && {joined_command}"
-            printable_command = cmdline
-            result = subprocess.run(
-                ["cmd.exe", "/d", "/c", cmdline],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-        else:
-            printable_command = " ".join(_quote_windows(arg) for arg in command)
-            result = subprocess.run(
-                command,
-                cwd=str(self._config.siigo_dir),
-                check=False,
-                capture_output=True,
-                text=True,
-            )
+        printable_command = " ".join(_quote_windows(arg) for arg in command)
+
+        result = subprocess.run(
+            command,
+            cwd=str(self._config.siigo_dir),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
 
         print(f"CWD> {self._config.siigo_dir}")
         print(f"CMD> {printable_command}")
