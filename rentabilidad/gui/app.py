@@ -687,19 +687,12 @@ def build_ui() -> None:
     background: #f8fafc;
     border: 1px dashed rgba(148, 163, 184, 0.35);
     padding: 1.5rem;
-  }
-  .log-layout {
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
   }
-  @media (min-width: 1024px) {
-    .log-layout {
-      flex-direction: row;
-    }
-  }
   .log-stream {
-    flex: 1 1 420px;
+    width: 100%;
     background: #ffffff;
     border-radius: 1rem;
     border: 1px solid rgba(148, 163, 184, 0.2);
@@ -707,7 +700,8 @@ def build_ui() -> None:
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
-    min-height: 280px;
+    min-height: 320px;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.04);
   }
   .log-empty {
     align-items: center;
@@ -734,7 +728,7 @@ def build_ui() -> None:
     border-radius: 9999px;
   }
   .log-summary {
-    flex: 1 1 260px;
+    width: 100%;
     background: #ffffff;
     border-radius: 1rem;
     border: 1px solid rgba(148, 163, 184, 0.2);
@@ -742,12 +736,14 @@ def build_ui() -> None:
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.04);
   }
-  @media (min-width: 1024px) {
-    .log-summary {
-      max-width: 320px;
-      margin-left: auto;
-    }
+  .log-summary-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
   }
   .log-summary-title {
     font-size: 1.05rem;
@@ -1215,62 +1211,62 @@ def build_ui() -> None:
                         )
 
                     with ui.element("div").classes("log-wrapper w-full"):
-                        with ui.element("div").classes("log-layout w-full"):
-                            with ui.column().classes("log-stream"):
-                                state.empty = ui.column().classes("log-empty")
-                                with state.empty:
-                                    ui.icon("inbox").classes(
-                                        "text-4xl text-slate-300"
-                                    )
-                                    ui.label(
-                                        "Aún no hay registros. Ejecuta una acción para comenzar."
-                                    ).classes("text-sm text-slate-400")
-                                state.log = ui.column().classes(
-                                    "hidden log-list"
-                                )
-                            with ui.column().classes("log-summary"):
+                        with ui.column().classes("log-summary"):
+                            with ui.row().classes("log-summary-header"):
                                 ui.label("Resumen de procesos").classes(
                                     "log-summary-title"
                                 )
-                                with ui.element("div").classes(
-                                    "log-summary-metrics"
+                            with ui.element("div").classes(
+                                "log-summary-metrics"
+                            ):
+                                with ui.column().classes(
+                                    "log-summary-metric metric-total"
                                 ):
-                                    with ui.column().classes(
-                                        "log-summary-metric metric-total"
-                                    ):
-                                        ui.label("Eventos totales").classes(
-                                            "log-summary-label"
-                                        )
-                                        state.summary_total = ui.label("0").classes(
-                                            "log-summary-value"
-                                        )
-                                    with ui.column().classes(
-                                        "log-summary-metric metric-success"
-                                    ):
-                                        ui.label("Éxitos").classes(
-                                            "log-summary-label"
-                                        )
-                                        state.summary_success = ui.label("0").classes(
-                                            "log-summary-value"
-                                        )
-                                    with ui.column().classes(
-                                        "log-summary-metric metric-error"
-                                    ):
-                                        ui.label("Errores").classes(
-                                            "log-summary-label"
-                                        )
-                                        state.summary_errors = ui.label("0").classes(
-                                            "log-summary-value"
-                                        )
-                                    with ui.column().classes(
-                                        "log-summary-metric metric-info"
-                                    ):
-                                        ui.label("Mensajes info").classes(
-                                            "log-summary-label"
-                                        )
-                                        state.summary_infos = ui.label("0").classes(
-                                            "log-summary-value"
-                                        )
+                                    ui.label("Eventos totales").classes(
+                                        "log-summary-label"
+                                    )
+                                    state.summary_total = ui.label("0").classes(
+                                        "log-summary-value"
+                                    )
+                                with ui.column().classes(
+                                    "log-summary-metric metric-success"
+                                ):
+                                    ui.label("Éxitos").classes(
+                                        "log-summary-label"
+                                    )
+                                    state.summary_success = ui.label("0").classes(
+                                        "log-summary-value"
+                                    )
+                                with ui.column().classes(
+                                    "log-summary-metric metric-error"
+                                ):
+                                    ui.label("Errores").classes(
+                                        "log-summary-label"
+                                    )
+                                    state.summary_errors = ui.label("0").classes(
+                                        "log-summary-value"
+                                    )
+                                with ui.column().classes(
+                                    "log-summary-metric metric-info"
+                                ):
+                                    ui.label("Mensajes info").classes(
+                                        "log-summary-label"
+                                    )
+                                    state.summary_infos = ui.label("0").classes(
+                                        "log-summary-value"
+                                    )
+                        with ui.column().classes("log-stream"):
+                            state.empty = ui.column().classes("log-empty")
+                            with state.empty:
+                                ui.icon("inbox").classes(
+                                    "text-4xl text-slate-300"
+                                )
+                                ui.label(
+                                    "Aún no hay registros. Ejecuta una acción para comenzar."
+                                ).classes("text-sm text-slate-400")
+                            state.log = ui.column().classes(
+                                "hidden log-list"
+                            )
                     with ui.row().classes(
                         "items-center justify-between text-xs text-slate-500 w-full flex-wrap gap-3"
                     ):
