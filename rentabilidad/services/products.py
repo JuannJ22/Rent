@@ -11,6 +11,7 @@ abierto a nuevas variaciones.
 
 from __future__ import annotations
 
+
 import os
 import shlex
 import subprocess
@@ -125,6 +126,7 @@ class ExcelSiigoFacade:
                 capture_output=True,
                 text=True,
             )
+
 
         print(f"CWD> {self._config.siigo_dir}")
         print(f"CMD> {printable_command}")
