@@ -867,6 +867,8 @@ def build_ui() -> None:
     display: flex;
     flex-direction: column;
     gap: 1rem;
+    align-items: stretch;
+    align-self: stretch;
   }
   .latest-resources-title {
     font-size: 1.05rem;
@@ -882,6 +884,7 @@ def build_ui() -> None:
     flex-direction: column;
     gap: 0.75rem;
     box-shadow: 0 12px 32px rgba(15, 23, 42, 0.04);
+    width: 100%;
   }
   .latest-resource-header {
     display: flex;
