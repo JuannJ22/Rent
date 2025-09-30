@@ -34,9 +34,6 @@ class UIState:
     summary_infos: Any = None
     summary_success: Any = None
     summary_errors: Any = None
-    summary_last_info: Any = None
-    summary_last_success: Any = None
-    summary_last_error: Any = None
 
 
 state = UIState()
@@ -125,15 +122,6 @@ class LogManager:
         if component is not None:
             component.text = value
 
-    def _set_message(self, attr: str, message: str | None) -> None:
-        component = getattr(self._state, attr, None)
-        if component is None:
-            return
-        if not message:
-            component.text = "—"
-            return
-        component.text = shorten(message, 80)
-
     def _update_totals(self) -> None:
         total = self._info_count + self._success_count + self._error_count
         self._set_text("summary_total", str(total))
@@ -146,9 +134,6 @@ class LogManager:
         self._set_text("summary_success", "0")
         self._set_text("summary_errors", "0")
         self._set_text("summary_total", "0")
-        self._set_message("summary_last_info", None)
-        self._set_message("summary_last_success", None)
-        self._set_message("summary_last_error", None)
 
     def add(self, message: str, kind: str = "info") -> None:
         if self._state.empty is None or self._state.log is None:
@@ -182,15 +167,12 @@ class LogManager:
         if kind == "success":
             self._success_count += 1
             self._set_text("summary_success", str(self._success_count))
-            self._set_message("summary_last_success", message)
         elif kind == "error":
             self._error_count += 1
             self._set_text("summary_errors", str(self._error_count))
-            self._set_message("summary_last_error", message)
         else:
             self._info_count += 1
             self._set_text("summary_infos", str(self._info_count))
-            self._set_message("summary_last_info", message)
 
         self._update_totals()
 
@@ -761,6 +743,12 @@ def build_ui() -> None:
     flex-direction: column;
     gap: 1.25rem;
   }
+  @media (min-width: 1024px) {
+    .log-summary {
+      max-width: 320px;
+      margin-left: auto;
+    }
+  }
   .log-summary-title {
     font-size: 1.05rem;
     font-weight: 600;
@@ -801,26 +789,6 @@ def build_ui() -> None:
   .log-summary-value {
     font-size: 1.5rem;
     font-weight: 700;
-  }
-  .log-summary-section {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-  .log-summary-section-title {
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: #1e293b;
-  }
-  .log-summary-detail-card {
-    border-radius: 0.85rem;
-    border: 1px dashed rgba(148, 163, 184, 0.35);
-    padding: 0.9rem 1rem;
-    background: rgba(248, 250, 252, 0.8);
-  }
-  .log-summary-detail {
-    font-size: 0.85rem;
-    color: #334155;
   }
   .log-entry {
     width: 100%;
@@ -1303,40 +1271,6 @@ def build_ui() -> None:
                                         state.summary_infos = ui.label("0").classes(
                                             "log-summary-value"
                                         )
-                                with ui.column().classes(
-                                    "log-summary-section"
-                                ):
-                                    ui.label("Últimos mensajes").classes(
-                                        "log-summary-section-title"
-                                    )
-                                    with ui.column().classes(
-                                        "log-summary-detail-card"
-                                    ):
-                                        ui.label("Último éxito").classes(
-                                            "log-summary-label"
-                                        )
-                                        state.summary_last_success = ui.label("—").classes(
-                                            "log-summary-detail"
-                                        )
-                                    with ui.column().classes(
-                                        "log-summary-detail-card"
-                                    ):
-                                        ui.label("Último error").classes(
-                                            "log-summary-label"
-                                        )
-                                        state.summary_last_error = ui.label("—").classes(
-                                            "log-summary-detail"
-                                        )
-                                    with ui.column().classes(
-                                        "log-summary-detail-card"
-                                    ):
-                                        ui.label("Último aviso").classes(
-                                            "log-summary-label"
-                                        )
-                                        state.summary_last_info = ui.label("—").classes(
-                                            "log-summary-detail"
-                                        )
-
                     with ui.row().classes(
                         "items-center justify-between text-xs text-slate-500 w-full flex-wrap gap-3"
                     ):
