@@ -66,6 +66,39 @@ LOW_RENT_PRICE_OK_FILL = PatternFill(
 EMPTY_FILL = PatternFill(fill_type=None)
 
 
+def _format_currency_es(value: float) -> str:
+    """Formatea ``value`` como pesos con separadores españoles."""
+
+    amount = float(value or 0)
+    formatted = f"${amount:,.2f}"
+    return formatted.replace(",", "_").replace(".", ",").replace("_", ".")
+
+
+def _format_percent_es(value: float) -> str:
+    """Devuelve ``value`` con dos decimales usando coma decimal."""
+
+    return f"{value:.2f}".replace(".", ",")
+
+
+def _build_price_mismatch_message(
+    expected_unit: float, actual_unit: float, quantity: float | None, diff_ratio: float
+) -> str:
+    """Describe la diferencia de precio detectada en español."""
+
+    quantity_valid = quantity not in (None, 0)
+    diff_unit = actual_unit - expected_unit
+    diff_value = diff_unit * quantity if quantity_valid else diff_unit
+    direction = "mayor" if diff_value > 0 else "menor"
+    scope = "total" if quantity_valid else "unitario"
+    amount_text = _format_currency_es(abs(diff_value))
+    percent_value = diff_ratio * 100
+    if diff_value < 0:
+        percent_value = -percent_value
+    sign = "-" if percent_value < 0 else ""
+    percent_text = _format_percent_es(abs(percent_value))
+    return f"Precio {scope} {direction} que la lista en {amount_text} ({sign}{percent_text}%)."
+
+
 def _normalize_month_string(value: str) -> str:
     """Normaliza nombres de mes eliminando acentos y caracteres separadores."""
 
@@ -379,6 +412,16 @@ def _set_or_clear_fill(cell, fill: PatternFill, *, apply: bool) -> None:
         cell.fill = fill
     elif _fills_equal(cell.fill, fill):
         cell.fill = EMPTY_FILL
+
+
+def _clear_reason_cell(cell) -> None:
+    """Limpia el contenido y formato de observaciones en columna L."""
+
+    if cell is None:
+        return
+    cell.value = None
+    _set_or_clear_fill(cell, PRICE_MISMATCH_FILL, apply=False)
+    _set_or_clear_fill(cell, LOW_RENT_PRICE_OK_FILL, apply=False)
 
 def _norm(s: str) -> str:
     """Normaliza cadenas de encabezado para comparaciones tolerantes."""
@@ -2114,7 +2157,9 @@ def main():
 
     total_label_col = col_desc or col_cliente_combo or col_nit or 1
     total_label_key = "total general"
-    max_highlight_col = min(ws.max_column or 0, 12)
+    reason_col = 12
+    max_existing_col = ws.max_column or 0
+    max_highlight_col = min(max(max_existing_col, reason_col), 12)
     highlight_cols = list(range(1, max_highlight_col + 1)) if max_highlight_col else []
 
     for r in range(start_row, end_row + 1):
@@ -2123,7 +2168,13 @@ def main():
             if cidx and ws.cell(r, cidx).value not in (None, ""):
                 row_has_data = True
                 break
+        reason_cell = ws.cell(r, reason_col) if reason_col else None
+        if reason_cell:
+            reason_cell.border = border
+            reason_cell.number_format = "@"
+            reason_cell.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
         if args.safe_fill and not row_has_data:
+            _clear_reason_cell(reason_cell)
             continue
         if L_vend and L_nit:
             c = ws[f"{L_vend}{r}"]
@@ -2140,10 +2191,12 @@ def main():
             c.number_format = "0.00%"
 
         if not row_has_data:
+            _clear_reason_cell(reason_cell)
             continue
 
         label_value = ws.cell(r, total_label_col).value if total_label_col else None
         if isinstance(label_value, str) and label_value.strip().lower() == total_label_key:
+            _clear_reason_cell(reason_cell)
             continue
 
         nit_value = ws.cell(r, col_nit).value if col_nit else None
@@ -2166,6 +2219,7 @@ def main():
 
         price_mismatch = False
         price_checked = False
+        price_diff_details: tuple[float, float, float | None, float] | None = None
         if tercero_info and highlight_cols and col_desc and col_ventas and col_cant:
             lista_precio = tercero_info.get("lista")
             if lista_precio:
@@ -2187,6 +2241,12 @@ def main():
                         diff_ratio = abs(venta_unitaria - expected_sin_iva) / expected_sin_iva
                         if diff_ratio > PRICE_TOLERANCE:
                             price_mismatch = True
+                            price_diff_details = (
+                                expected_sin_iva,
+                                venta_unitaria,
+                                cantidad_value,
+                                diff_ratio,
+                            )
 
         low_rent_with_correct_price = False
         if (
@@ -2213,6 +2273,18 @@ def main():
                 else:
                     _set_or_clear_fill(cell, PRICE_MISMATCH_FILL, apply=False)
                     _set_or_clear_fill(cell, LOW_RENT_PRICE_OK_FILL, apply=False)
+
+        if reason_cell:
+            if price_mismatch and price_diff_details:
+                reason_cell.value = _build_price_mismatch_message(*price_diff_details)
+                _set_or_clear_fill(reason_cell, PRICE_MISMATCH_FILL, apply=True)
+                _set_or_clear_fill(reason_cell, LOW_RENT_PRICE_OK_FILL, apply=False)
+            elif low_rent_with_correct_price:
+                reason_cell.value = None
+                _set_or_clear_fill(reason_cell, PRICE_MISMATCH_FILL, apply=False)
+                _set_or_clear_fill(reason_cell, LOW_RENT_PRICE_OK_FILL, apply=True)
+            else:
+                _clear_reason_cell(reason_cell)
 
     # --- Fila de Total General -------------------------------------------
     total_label = "Total General"
