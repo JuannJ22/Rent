@@ -46,6 +46,10 @@ DEFAULT_VENDEDORES_DIR = os.environ.get(
 DEFAULT_VENDEDORES_PREFIX = os.environ.get(
     "VENDEDORES_PREFIX", "movimientocontable"
 )
+DEFAULT_TERCEROS_DIR = os.environ.get(
+    "TERCEROS_DIR", str(PATH_CONTEXT.base_dir / "Terceros")
+)
+DEFAULT_TERCEROS_FILENAME = os.environ.get("TERCEROS_FILENAME", "Terceros.xlsx")
 ACCOUNTING_FORMAT = '_-[$$-409]* #,##0.00_-;_-[$$-409]* (#,##0.00);_-[$$-409]* "-"??_-;_-@_-'
 
 
@@ -514,6 +518,20 @@ def _resolve_vendedores_path(
             if candidate.exists():
                 return candidate, search_dirs, candidate_names, False
 
+
+def _resolve_terceros_path(*, explicit_file=None, directory=None, filename=None):
+    """Obtiene la ruta del archivo con datos de terceros."""
+
+    if explicit_file:
+        path = Path(explicit_file)
+        return (path if path.exists() else None), [path.parent], [path.name], True
+
+    directory = Path(directory) if directory else Path(DEFAULT_TERCEROS_DIR)
+    filename = filename or DEFAULT_TERCEROS_FILENAME
+
+    candidate = directory / filename
+    return (candidate if candidate.exists() else None), [directory], [filename], False
+
     return None, search_dirs or candidate_dirs, candidate_names, False
 
 
@@ -592,6 +610,78 @@ def _update_vendedores_sheet(
         ws.cell(row=rows_written, column=2, value=None if col_a in ("", None) else col_a)
 
     summary = {"rows": rows_written}
+    return summary, path
+
+
+def _update_terceros_sheet(
+    wb,
+    *,
+    terceros_file=None,
+    terceros_dir=None,
+    terceros_name=None,
+):
+    """Sincroniza la hoja ``TERCEROS`` con el archivo maestro de terceros."""
+
+    sheet_name = "TERCEROS"
+    ws = wb[sheet_name] if sheet_name in wb.sheetnames else wb.create_sheet(sheet_name)
+    ws.sheet_state = "hidden"
+
+    path, search_dirs, candidate_names, explicit = _resolve_terceros_path(
+        explicit_file=terceros_file,
+        directory=terceros_dir,
+        filename=terceros_name,
+    )
+
+    if not path or not path.exists():
+        if explicit:
+            print(
+                "ERROR: No existe el archivo de terceros especificado "
+                f"({terceros_file})."
+            )
+        else:
+            locations = [str(d) for d in search_dirs if d]
+            if not locations:
+                base_dir = Path(terceros_dir) if terceros_dir else Path(DEFAULT_TERCEROS_DIR)
+                locations = [str(base_dir)]
+            names = ", ".join(candidate_names) if candidate_names else ""
+            print(
+                "ERROR: No se encontró archivo de terceros "
+                f"({names}) en: {', '.join(locations)}"
+            )
+        raise SystemExit(22)
+
+    src_wb = load_workbook(filename=path, data_only=True, read_only=True)
+    try:
+        src_ws = src_wb.active
+        rows = [
+            tuple(row[:3])
+            for row in src_ws.iter_rows(min_row=1, max_col=3, values_only=True)
+        ]
+    finally:
+        src_wb.close()
+
+    if ws.max_row:
+        ws.delete_rows(1, ws.max_row)
+
+    rows_written = 0
+    max_used_cols = 0
+
+    for nit, lista_precio, vendedor in rows:
+        if (nit, lista_precio, vendedor) == (None, None, None):
+            continue
+        rows_written += 1
+        ws.cell(row=rows_written, column=1, value=nit)
+        ws.cell(row=rows_written, column=2, value=lista_precio)
+        ws.cell(row=rows_written, column=3, value=vendedor)
+
+    if rows_written:
+        max_used_cols = 3
+
+    summary = {
+        "rows": rows_written,
+        "columns": max_used_cols,
+    }
+
     return summary, path
 
 
@@ -1562,6 +1652,22 @@ def main():
         default=DEFAULT_PRECIOS_PREFIX,
         help="Prefijo del archivo de precios (productos por defecto)",
     )
+    p.add_argument("--skip-terceros", action="store_true", help="No actualizar hoja TERCEROS")
+    p.add_argument(
+        "--terceros-file",
+        default=None,
+        help="Ruta exacta del archivo de terceros a copiar en la hoja TERCEROS",
+    )
+    p.add_argument(
+        "--terceros-dir",
+        default=DEFAULT_TERCEROS_DIR,
+        help="Carpeta donde se buscará Terceros.xlsx si no se especifica archivo",
+    )
+    p.add_argument(
+        "--terceros-name",
+        default=DEFAULT_TERCEROS_FILENAME,
+        help="Nombre del archivo de terceros (Terceros.xlsx por defecto)",
+    )
     args = p.parse_args()
 
     resolver = DateResolver(YesterdayStrategy())
@@ -1607,6 +1713,8 @@ def main():
     vendedores_file = None
     precios_summary = {}
     precios_file = None
+    terceros_summary = {}
+    terceros_file = None
 
     # --- Actualizar encabezado con fechas dinámicas -----------------------
     now = datetime.now()
@@ -1652,6 +1760,16 @@ def main():
         if archivo:
             precios_summary = resumen
             precios_file = archivo
+    if not args.skip_terceros:
+        resumen, archivo = _update_terceros_sheet(
+            wb,
+            terceros_file=args.terceros_file,
+            terceros_dir=args.terceros_dir,
+            terceros_name=args.terceros_name,
+        )
+        if archivo:
+            terceros_summary = resumen
+            terceros_file = archivo
     # ---------------------------------------------------------------------
 
     header_row, hmap = _find_header_row_and_map(ws)
@@ -1928,6 +2046,9 @@ def main():
     if precios_file:
         items = ", ".join(f"{k}={v}" for k, v in sorted(precios_summary.items())) or "sin datos"
         msg += f" | PRECIOS ({precios_file.name}): {items}"
+    if terceros_file:
+        items = ", ".join(f"{k}={v}" for k, v in sorted(terceros_summary.items())) or "sin datos"
+        msg += f" | TERCEROS ({terceros_file.name}): {items}"
     print(msg)
 
 if __name__ == "__main__":
