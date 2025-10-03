@@ -65,6 +65,16 @@ LOW_RENT_PRICE_OK_FILL = PatternFill(
 )
 EMPTY_FILL = PatternFill(fill_type=None)
 
+CONSUMIDOR_FINAL_NITS = {222222222222, "222222222222"}
+VENDOR_EQUIVALENCE_GROUPS = [
+    {"24", "25"},
+    {"26", "27"},
+    {"29", "30"},
+    {"51", "52"},
+    {"16", "17"},
+    {"7", "8"},
+]
+
 
 def _normalize_month_string(value: str) -> str:
     """Normaliza nombres de mes eliminando acentos y caracteres separadores."""
@@ -237,6 +247,19 @@ def _normalize_vendor_code(value):
     if not text:
         return None
     return text.upper()
+
+
+def _vendor_codes_equivalent(a: str | None, b: str | None) -> bool:
+    """Determina si dos códigos de vendedor deben considerarse equivalentes."""
+
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    for group in VENDOR_EQUIVALENCE_GROUPS:
+        if a in group and b in group:
+            return True
+    return False
 
 
 def _normalize_lista_precio(value):
@@ -2158,8 +2181,16 @@ def main():
 
         vendor_cell = ws.cell(r, col_vendedor) if col_vendedor else None
         vendor_mismatch = False
-        if vendor_cell and nit_norm is not None and assigned_vendor is not None:
-            if actual_vendor is None or actual_vendor != assigned_vendor:
+        ignore_vendor_mismatch = nit_norm in CONSUMIDOR_FINAL_NITS
+        if (
+            vendor_cell
+            and nit_norm is not None
+            and assigned_vendor is not None
+            and not ignore_vendor_mismatch
+        ):
+            if actual_vendor is None or not _vendor_codes_equivalent(
+                actual_vendor, assigned_vendor
+            ):
                 vendor_mismatch = True
         if vendor_cell:
             _set_or_clear_fill(vendor_cell, VENDOR_MISMATCH_FILL, apply=vendor_mismatch)
