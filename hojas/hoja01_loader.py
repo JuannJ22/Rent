@@ -15,7 +15,7 @@ from typing import Tuple
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
 from openpyxl import load_workbook
-from openpyxl.styles import Alignment, Border, Font, Side
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 
@@ -51,6 +51,19 @@ DEFAULT_TERCEROS_DIR = os.environ.get(
 )
 DEFAULT_TERCEROS_FILENAME = os.environ.get("TERCEROS_FILENAME", "Terceros.xlsx")
 ACCOUNTING_FORMAT = '_-[$$-409]* #,##0.00_-;_-[$$-409]* (#,##0.00);_-[$$-409]* "-"??_-;_-@_-'
+IVA_RATE = 0.19
+IVA_MULTIPLIER = 1 + IVA_RATE
+PRICE_TOLERANCE = 0.002
+VENDOR_MISMATCH_FILL = PatternFill(
+    fill_type="solid", start_color="FFFFC7CE", end_color="FFFFC7CE"
+)
+PRICE_MISMATCH_FILL = PatternFill(
+    fill_type="solid", start_color="FFFFF59D", end_color="FFFFF59D"
+)
+LOW_RENT_PRICE_OK_FILL = PatternFill(
+    fill_type="solid", start_color="FFC4D79B", end_color="FFC4D79B"
+)
+EMPTY_FILL = PatternFill(fill_type=None)
 
 
 def _normalize_month_string(value: str) -> str:
@@ -207,6 +220,165 @@ def _try_convert_numeric(text: str):
         return float(text)
     except ValueError:
         return None
+
+
+def _normalize_vendor_code(value):
+    """Normaliza códigos de vendedor eliminando espacios y homogeneizando tipo."""
+
+    if value is None or value is pd.NA:
+        return None
+    if isinstance(value, numbers.Real):
+        if pd.isna(value):
+            return None
+        if float(value).is_integer():
+            value = int(value)
+        return str(value).strip().upper()
+    text = str(value).strip()
+    if not text:
+        return None
+    return text.upper()
+
+
+def _normalize_lista_precio(value):
+    """Extrae el número de lista de precio desde ``value`` si es posible."""
+
+    if value is None or value is pd.NA:
+        return None
+    if isinstance(value, numbers.Real):
+        if pd.isna(value):
+            return None
+        return int(round(float(value)))
+    text = str(value).strip()
+    if not text:
+        return None
+    match = re.search(r"(\d+)", text)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def _normalize_product_key(value):
+    """Normaliza descripciones de producto para búsquedas tolerantes."""
+
+    if value is None or value is pd.NA:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    normalized = unicodedata.normalize("NFKD", text)
+    normalized = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized.lower()
+
+
+def _coerce_float(value):
+    """Convierte valores provenientes de Excel a ``float`` cuando es posible."""
+
+    if value is None or value is pd.NA:
+        return None
+    if isinstance(value, numbers.Real):
+        if pd.isna(value):
+            return None
+        return float(value)
+    text = str(value).strip()
+    if not text:
+        return None
+    sanitized = text.replace("$", "").replace(",", "").replace(" ", "")
+    numeric = _try_convert_numeric(sanitized)
+    if isinstance(numeric, numbers.Real):
+        return float(numeric)
+    try:
+        return float(sanitized)
+    except ValueError:
+        return None
+
+
+def _fills_equal(a: PatternFill, b: PatternFill) -> bool:
+    """Compara ``PatternFill`` considerando tipo y color principal."""
+
+    if a is b:
+        return True
+    if not a or not b:
+        return False
+    if getattr(a, "patternType", None) != getattr(b, "patternType", None):
+        return False
+    a_color = getattr(getattr(a, "fgColor", None), "rgb", None)
+    b_color = getattr(getattr(b, "fgColor", None), "rgb", None)
+    return a_color == b_color
+
+
+def _load_vendedores_lookup(wb):
+    """Crea un mapa NIT -> vendedor a partir de la hoja ``VENDEDORES``."""
+
+    sheet_name = "VENDEDORES"
+    if sheet_name not in wb.sheetnames:
+        return {}
+    ws = wb[sheet_name]
+    lookup = {}
+    for nit, vendedor in ws.iter_rows(min_row=1, max_row=ws.max_row, max_col=2, values_only=True):
+        nit_norm = _normalize_nit_value(nit)
+        if nit_norm is None:
+            continue
+        vend_norm = _normalize_vendor_code(vendedor)
+        if vend_norm is None:
+            continue
+        if nit_norm not in lookup:
+            lookup[nit_norm] = vend_norm
+    return lookup
+
+
+def _load_terceros_lookup(wb):
+    """Retorna un mapa NIT -> {"lista": int | None, "vendedor": str | None}."""
+
+    sheet_name = "TERCEROS"
+    if sheet_name not in wb.sheetnames:
+        return {}
+    ws = wb[sheet_name]
+    lookup = {}
+    for nit, lista, vendedor in ws.iter_rows(
+        min_row=1, max_row=ws.max_row, max_col=3, values_only=True
+    ):
+        nit_norm = _normalize_nit_value(nit)
+        if nit_norm is None:
+            continue
+        lookup[nit_norm] = {
+            "lista": _normalize_lista_precio(lista),
+            "vendedor": _normalize_vendor_code(vendedor),
+        }
+    return lookup
+
+
+def _load_precios_lookup(wb):
+    """Construye un mapa de descripciones normalizadas a precios por lista."""
+
+    sheet_name = "PRECIOS"
+    if sheet_name not in wb.sheetnames:
+        return {}
+    ws = wb[sheet_name]
+    lookup = {}
+    for row in ws.iter_rows(min_row=1, max_row=ws.max_row, max_col=13, values_only=True):
+        if not row:
+            continue
+        product_key = _normalize_product_key(row[0])
+        if not product_key:
+            continue
+        prices = {}
+        for idx, raw in enumerate(row[1:13], start=1):
+            price = _coerce_float(raw)
+            if price is not None:
+                prices[idx] = price
+        if prices and product_key not in lookup:
+            lookup[product_key] = prices
+    return lookup
+
+
+def _set_or_clear_fill(cell, fill: PatternFill, *, apply: bool) -> None:
+    """Aplica ``fill`` a ``cell`` o lo elimina si fue agregado por este proceso."""
+
+    if apply:
+        cell.fill = fill
+    elif _fills_equal(cell.fill, fill):
+        cell.fill = EMPTY_FILL
 
 def _norm(s: str) -> str:
     """Normaliza cadenas de encabezado para comparaciones tolerantes."""
@@ -1773,6 +1945,10 @@ def main():
             terceros_file = archivo
     # ---------------------------------------------------------------------
 
+    vendedores_lookup = _load_vendedores_lookup(wb)
+    terceros_lookup = _load_terceros_lookup(wb)
+    precios_lookup = _load_precios_lookup(wb)
+
     header_row, hmap = _find_header_row_and_map(ws)
     if not header_row:
         print("ERROR: No se detectaron cabeceras en Hoja 1")
@@ -1936,14 +2112,19 @@ def main():
     if args.max_rows and end_row < start_row + args.max_rows - 1:
         end_row = start_row + args.max_rows - 1
 
+    total_label_col = col_desc or col_cliente_combo or col_nit or 1
+    total_label_key = "total general"
+    max_highlight_col = min(ws.max_column or 0, 12)
+    highlight_cols = list(range(1, max_highlight_col + 1)) if max_highlight_col else []
+
     for r in range(start_row, end_row + 1):
-        if args.safe_fill:
-            has_any = False
-            for cidx in [col_nit, col_desc, col_ventas, col_cant]:
-                if cidx and ws.cell(r, cidx).value not in (None, ""):
-                    has_any = True; break
-            if not has_any:
-                continue
+        row_has_data = False
+        for cidx in [col_nit, col_desc, col_ventas, col_cant]:
+            if cidx and ws.cell(r, cidx).value not in (None, ""):
+                row_has_data = True
+                break
+        if args.safe_fill and not row_has_data:
+            continue
         if L_vend and L_nit:
             c = ws[f"{L_vend}{r}"]
             c.value = f"=VLOOKUP({L_nit}{r},VENDEDORES!{vend_range},2,0)"
@@ -1957,6 +2138,81 @@ def main():
             c.value = f"=1-(({L_vent}{r}*1.19)/{L_cant}{r}/{L_prec}{r})"
             c.border = border
             c.number_format = "0.00%"
+
+        if not row_has_data:
+            continue
+
+        label_value = ws.cell(r, total_label_col).value if total_label_col else None
+        if isinstance(label_value, str) and label_value.strip().lower() == total_label_key:
+            continue
+
+        nit_value = ws.cell(r, col_nit).value if col_nit else None
+        nit_norm = _normalize_nit_value(nit_value) if col_nit else None
+        tercero_info = terceros_lookup.get(nit_norm) if nit_norm is not None else None
+        assigned_vendor = (
+            tercero_info.get("vendedor") if tercero_info else None
+        )
+        actual_vendor = (
+            vendedores_lookup.get(nit_norm) if nit_norm is not None else None
+        )
+
+        vendor_cell = ws.cell(r, col_vendedor) if col_vendedor else None
+        vendor_mismatch = False
+        if vendor_cell and nit_norm is not None and assigned_vendor is not None:
+            if actual_vendor is None or actual_vendor != assigned_vendor:
+                vendor_mismatch = True
+        if vendor_cell:
+            _set_or_clear_fill(vendor_cell, VENDOR_MISMATCH_FILL, apply=vendor_mismatch)
+
+        price_mismatch = False
+        price_checked = False
+        if tercero_info and highlight_cols and col_desc and col_ventas and col_cant:
+            lista_precio = tercero_info.get("lista")
+            if lista_precio:
+                desc_value = ws.cell(r, col_desc).value
+                product_key = _normalize_product_key(desc_value)
+                prices = precios_lookup.get(product_key, {}) if product_key else {}
+                expected_con_iva = prices.get(lista_precio)
+                ventas_value = _coerce_float(ws.cell(r, col_ventas).value)
+                cantidad_value = _coerce_float(ws.cell(r, col_cant).value)
+                if (
+                    expected_con_iva is not None
+                    and ventas_value is not None
+                    and cantidad_value not in (None, 0)
+                ):
+                    price_checked = True
+                    expected_sin_iva = expected_con_iva / IVA_MULTIPLIER
+                    if expected_sin_iva:
+                        venta_unitaria = ventas_value / cantidad_value
+                        diff_ratio = abs(venta_unitaria - expected_sin_iva) / expected_sin_iva
+                        if diff_ratio > PRICE_TOLERANCE:
+                            price_mismatch = True
+
+        low_rent_with_correct_price = False
+        if (
+            price_checked
+            and not price_mismatch
+            and highlight_cols
+            and col_renta
+        ):
+            renta_value = _coerce_float(ws.cell(r, col_renta).value)
+            if renta_value is not None:
+                renta_percent = renta_value * 100 if abs(renta_value) <= 1 else renta_value
+                if renta_percent < 10:
+                    low_rent_with_correct_price = True
+
+        if highlight_cols:
+            for col_idx in highlight_cols:
+                cell = ws.cell(r, col_idx)
+                if price_mismatch:
+                    _set_or_clear_fill(cell, PRICE_MISMATCH_FILL, apply=True)
+                    _set_or_clear_fill(cell, LOW_RENT_PRICE_OK_FILL, apply=False)
+                elif low_rent_with_correct_price:
+                    _set_or_clear_fill(cell, PRICE_MISMATCH_FILL, apply=False)
+                    _set_or_clear_fill(cell, LOW_RENT_PRICE_OK_FILL, apply=True)
+                else:
+                    _set_or_clear_fill(cell, PRICE_MISMATCH_FILL, apply=False)
+                    _set_or_clear_fill(cell, LOW_RENT_PRICE_OK_FILL, apply=False)
 
     # --- Fila de Total General -------------------------------------------
     total_label = "Total General"
