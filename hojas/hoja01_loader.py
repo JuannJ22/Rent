@@ -599,6 +599,7 @@ def _update_vendedores_sheet(
         src_wb.close()
 
     ws = wb[sheet_name]
+    ws.sheet_state = "hidden"
     ws.delete_rows(1, ws.max_row)
 
     rows_written = 0
