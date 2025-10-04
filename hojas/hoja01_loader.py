@@ -958,6 +958,27 @@ def _guess_map(df_cols):
                         return original
 
         return None
+    quantity_col = pick(
+        "cantidad facturada",
+        "cant facturada",
+        "cantidad fact",
+        "cant fact",
+        "cantidad facturada (und)",
+        "cant facturada (und)",
+        "cantidad vendida",
+        "cant vendida",
+        contains=(
+            "cantidad fact",
+            "cant fact",
+            "cantidad vend",
+            "cant vend",
+            "cant factura",
+            "cant entrega",
+        ),
+    )
+    if not quantity_col:
+        quantity_col = pick("cantidad", "cant")
+
     return {
         "centro_costo": pick(
             "centro de costo",
@@ -986,7 +1007,7 @@ def _guess_map(df_cols):
         "linea": pick("linea", "línea"),
         "grupo": pick("grupo", "grupo descripción", contains=("grupo",)),
         "descripcion": pick("descripcion","descripción","producto","nombre producto","item"),
-        "cantidad": pick("cantidad","cant"),
+        "cantidad": quantity_col,
         "ventas": pick("ventas","subtotal sin iva","total sin iva","valor venta","base"),
         "costos": pick("costos","costo","costo total","costo sin iva"),
         "renta": pick(

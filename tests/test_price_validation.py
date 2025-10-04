@@ -2,7 +2,12 @@ import math
 
 import pytest
 
-from hojas.hoja01_loader import IVA_MULTIPLIER, PRICE_TOLERANCE, _coerce_float
+from hojas.hoja01_loader import (
+    IVA_MULTIPLIER,
+    PRICE_TOLERANCE,
+    _coerce_float,
+    _guess_map,
+)
 
 
 def _diff_ratio(ventas, cantidad, expected_con_iva):
@@ -29,6 +34,20 @@ def test_wrong_quantity_triggers_price_mismatch():
     diff_ratio = _diff_ratio(ventas, cantidad, expected_con_iva)
 
     assert diff_ratio > PRICE_TOLERANCE
+
+
+def test_guess_map_prefers_facturada_quantity_column():
+    cols = [
+        "Nit",
+        "Descripción",
+        "Cant Pedida",
+        "Cant Fact.",
+        "Ventas",
+    ]
+
+    mapping = _guess_map(cols)
+
+    assert mapping["cantidad"] == "Cant Fact."
 
 
 @pytest.mark.parametrize(
