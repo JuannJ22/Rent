@@ -57,6 +57,9 @@ PRICE_TOLERANCE = 0.002
 VENDOR_MISMATCH_FILL = PatternFill(
     fill_type="solid", start_color="FFFFC7CE", end_color="FFFFC7CE"
 )
+MISSING_TERCERO_FILL = PatternFill(
+    fill_type="solid", start_color="FF9BC2E6", end_color="FF9BC2E6"
+)
 PRICE_MISMATCH_FILL = PatternFill(
     fill_type="solid", start_color="FFFFF59D", end_color="FFFFF59D"
 )
@@ -2250,6 +2253,9 @@ def main():
         vendor_cell = ws.cell(r, col_vendedor) if col_vendedor else None
         vendor_mismatch = False
         ignore_vendor_mismatch = nit_norm in CONSUMIDOR_FINAL_NITS
+        missing_tercero = (
+            vendor_cell is not None and nit_norm is not None and tercero_info is None
+        )
         if (
             vendor_cell
             and nit_norm is not None
@@ -2262,37 +2268,47 @@ def main():
                 vendor_mismatch = True
         if vendor_cell:
             _set_or_clear_fill(vendor_cell, VENDOR_MISMATCH_FILL, apply=vendor_mismatch)
+            _set_or_clear_fill(vendor_cell, MISSING_TERCERO_FILL, apply=missing_tercero)
 
         price_mismatch = False
         price_checked = False
         price_diff_details: tuple[float, float, float | None, float] | None = None
-        if tercero_info and highlight_cols and col_desc and col_ventas and col_cant:
+        lista_precio = None
+        if tercero_info:
             lista_precio = tercero_info.get("lista")
-            if lista_precio:
-                desc_value = ws.cell(r, col_desc).value
-                product_key = _normalize_product_key(desc_value)
-                prices = precios_lookup.get(product_key, {}) if product_key else {}
-                expected_con_iva = prices.get(lista_precio)
-                ventas_value = _coerce_float(ws.cell(r, col_ventas).value)
-                cantidad_value = _coerce_float(ws.cell(r, col_cant).value)
-                if (
-                    expected_con_iva is not None
-                    and ventas_value is not None
-                    and cantidad_value not in (None, 0)
-                ):
-                    price_checked = True
-                    expected_sin_iva = expected_con_iva / IVA_MULTIPLIER
-                    if expected_sin_iva:
-                        venta_unitaria = ventas_value / cantidad_value
-                        diff_ratio = abs(venta_unitaria - expected_sin_iva) / expected_sin_iva
-                        if diff_ratio > PRICE_TOLERANCE:
-                            price_mismatch = True
-                            price_diff_details = (
-                                expected_sin_iva,
-                                venta_unitaria,
-                                cantidad_value,
-                                diff_ratio,
-                            )
+        elif nit_norm is not None:
+            lista_precio = 1
+        if (
+            lista_precio
+            and highlight_cols
+            and col_desc
+            and col_ventas
+            and col_cant
+        ):
+            desc_value = ws.cell(r, col_desc).value
+            product_key = _normalize_product_key(desc_value)
+            prices = precios_lookup.get(product_key, {}) if product_key else {}
+            expected_con_iva = prices.get(lista_precio)
+            ventas_value = _coerce_float(ws.cell(r, col_ventas).value)
+            cantidad_value = _coerce_float(ws.cell(r, col_cant).value)
+            if (
+                expected_con_iva is not None
+                and ventas_value is not None
+                and cantidad_value not in (None, 0)
+            ):
+                price_checked = True
+                expected_sin_iva = expected_con_iva / IVA_MULTIPLIER
+                if expected_sin_iva:
+                    venta_unitaria = ventas_value / cantidad_value
+                    diff_ratio = abs(venta_unitaria - expected_sin_iva) / expected_sin_iva
+                    if diff_ratio > PRICE_TOLERANCE:
+                        price_mismatch = True
+                        price_diff_details = (
+                            expected_sin_iva,
+                            venta_unitaria,
+                            cantidad_value,
+                            diff_ratio,
+                        )
 
         low_rent_with_correct_price = False
         if (
