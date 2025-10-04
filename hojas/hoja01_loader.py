@@ -94,7 +94,12 @@ def _format_percent_es(value: float) -> str:
 
 
 def _build_price_mismatch_message(
-    expected_unit: float, actual_unit: float, quantity: float | None, diff_ratio: float
+    expected_unit: float,
+    actual_unit: float,
+    quantity: float | None,
+    diff_ratio: float,
+    *,
+    lista_precio: int | None = None,
 ) -> str:
     """Describe la diferencia de precio detectada en español."""
 
@@ -109,7 +114,36 @@ def _build_price_mismatch_message(
         percent_value = -percent_value
     sign = "-" if percent_value < 0 else ""
     percent_text = _format_percent_es(abs(percent_value))
-    return f"Precio {scope} {direction} que la lista en {amount_text} ({sign}{percent_text}%)."
+    lista_text = f" la lista {lista_precio}" if lista_precio else " la lista"
+    return (
+        f"Precio {scope} {direction} que{lista_text} en {amount_text} "
+        f"({sign}{percent_text}%)."
+    )
+
+
+def _build_vendor_mismatch_message(assigned_vendor: str | None) -> str | None:
+    """Construye el texto para advertir un código de vendedor diferente."""
+
+    if not assigned_vendor:
+        return None
+    return f"Está creado con código {assigned_vendor}."
+
+
+def _build_sika_customer_message(lista_precio: int | None) -> str | None:
+    """Retorna el comentario requerido para clientes de Constructora SIKA."""
+
+    if lista_precio == 7:
+        return "CLIENTE CONSTRUCTORA SIKA TIPO A"
+    if lista_precio == 9:
+        return "CLIENTE CONSTRUCTORA SIKA TIPO B"
+    return None
+
+
+def _combine_reason_messages(messages: list[str]) -> str:
+    """Unifica los mensajes de observación en una sola línea."""
+
+    cleaned = [m.strip() for m in messages if m and str(m).strip()]
+    return " ".join(cleaned)
 
 
 def _normalize_month_string(value: str) -> str:
@@ -2234,7 +2268,9 @@ def main():
         if reason_cell:
             reason_cell.border = border
             reason_cell.number_format = "@"
-            reason_cell.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+            reason_cell.alignment = Alignment(
+                horizontal="left", vertical="top", wrap_text=False
+            )
         if args.safe_fill and not row_has_data:
             _clear_reason_cell(reason_cell)
             continue
@@ -2344,6 +2380,28 @@ def main():
                 if renta_percent < 10:
                     low_rent_with_correct_price = True
 
+        vendor_message = (
+            _build_vendor_mismatch_message(assigned_vendor)
+            if vendor_mismatch
+            else None
+        )
+        sika_message = (
+            _build_sika_customer_message(lista_precio)
+            if low_rent_with_correct_price
+            else None
+        )
+        reason_messages: list[str] = []
+        if price_mismatch and price_diff_details:
+            reason_messages.append(
+                _build_price_mismatch_message(
+                    *price_diff_details, lista_precio=lista_precio
+                )
+            )
+        if sika_message:
+            reason_messages.append(sika_message)
+        if vendor_message:
+            reason_messages.append(vendor_message)
+
         if highlight_cols:
             for col_idx in highlight_cols:
                 cell = ws.cell(r, col_idx)
@@ -2359,13 +2417,21 @@ def main():
 
         if reason_cell:
             if price_mismatch and price_diff_details:
-                reason_cell.value = _build_price_mismatch_message(*price_diff_details)
+                reason_cell.value = _combine_reason_messages(reason_messages)
                 _set_or_clear_fill(reason_cell, PRICE_MISMATCH_FILL, apply=True)
                 _set_or_clear_fill(reason_cell, LOW_RENT_PRICE_OK_FILL, apply=False)
             elif low_rent_with_correct_price:
-                reason_cell.value = None
+                reason_cell.value = (
+                    _combine_reason_messages(reason_messages)
+                    if reason_messages
+                    else None
+                )
                 _set_or_clear_fill(reason_cell, PRICE_MISMATCH_FILL, apply=False)
                 _set_or_clear_fill(reason_cell, LOW_RENT_PRICE_OK_FILL, apply=True)
+            elif vendor_message:
+                reason_cell.value = vendor_message
+                _set_or_clear_fill(reason_cell, PRICE_MISMATCH_FILL, apply=False)
+                _set_or_clear_fill(reason_cell, LOW_RENT_PRICE_OK_FILL, apply=False)
             else:
                 _clear_reason_cell(reason_cell)
 
