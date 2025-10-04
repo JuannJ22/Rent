@@ -1,4 +1,8 @@
-from hojas.hoja01_loader import IVA_MULTIPLIER, PRICE_TOLERANCE
+import math
+
+import pytest
+
+from hojas.hoja01_loader import IVA_MULTIPLIER, PRICE_TOLERANCE, _coerce_float
 
 
 def _diff_ratio(ventas, cantidad, expected_con_iva):
@@ -25,3 +29,18 @@ def test_wrong_quantity_triggers_price_mismatch():
     diff_ratio = _diff_ratio(ventas, cantidad, expected_con_iva)
 
     assert diff_ratio > PRICE_TOLERANCE
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("37.596,005", 37_596.005),
+        ("37596,005", 37_596.005),
+        ("1,234,567.89", 1_234_567.89),
+        ("(1.234,56)", -1_234.56),
+    ],
+)
+def test_coerce_float_supports_common_decimal_formats(raw, expected):
+    parsed = _coerce_float(raw)
+    assert parsed is not None
+    assert math.isclose(parsed, expected, rel_tol=0, abs_tol=1e-9)

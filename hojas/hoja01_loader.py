@@ -339,7 +339,22 @@ def _coerce_float(value):
     text = str(value).strip()
     if not text:
         return None
-    sanitized = text.replace("$", "").replace(",", "").replace(" ", "")
+
+    text = text.replace("$", "").replace(" ", "")
+    if text.startswith("(") and text.endswith(")"):
+        text = f"-{text[1:-1]}"
+
+    sanitized = text.replace("'", "")
+    if "," in sanitized and "." in sanitized:
+        last_comma = sanitized.rfind(",")
+        last_dot = sanitized.rfind(".")
+        if last_comma > last_dot:
+            sanitized = sanitized.replace(".", "").replace(",", ".")
+        else:
+            sanitized = sanitized.replace(",", "")
+    elif "," in sanitized:
+        sanitized = sanitized.replace(",", ".")
+
     numeric = _try_convert_numeric(sanitized)
     if isinstance(numeric, numbers.Real):
         return float(numeric)
