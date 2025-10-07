@@ -7,9 +7,9 @@ import json
 import os
 import subprocess
 import sys
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from dataclasses import dataclass, field
 
 from typing import Any
 
@@ -376,6 +376,37 @@ latest_resources = LatestResourceManager(state)
 def shorten(text: str, length: int = 42) -> str:
     clean = str(text)
     return clean if len(clean) <= length else clean[: length - 1] + "…"
+
+
+def _is_windows() -> bool:
+    return sys.platform.startswith("win")
+
+
+def _webview2_available() -> bool:
+    """Detecta si el motor Edge WebView2 está disponible en Windows."""
+
+    if not _is_windows():
+        return False
+
+    try:
+        from webview.platforms.winforms import webview2  # type: ignore
+    except Exception:  # pragma: no cover - entorno específico de Windows
+        return False
+
+    try:
+        return bool(webview2.is_available())
+    except Exception:  # pragma: no cover - defensivo
+        return False
+
+
+def _can_use_native_window() -> bool:
+    """Determina si es viable utilizar la ventana nativa de pywebview."""
+
+    if not _is_windows():
+        # En otros sistemas operativos preferimos el navegador externo
+        return False
+
+    return _webview2_available()
 
 
 def _register_static_files() -> None:
@@ -1416,14 +1447,30 @@ def build_ui() -> None:
 
 def main() -> None:  # pragma: no cover - entrada manual
     build_ui()
-    ui.run(
-        native=True,
-        title="Rentabilidad",
-        window_size=(1200, 800),
-        fullscreen=False,
-        reload=False,
-        port=0,
+
+    base_kwargs: dict[str, Any] = {
+        "title": "Rentabilidad",
+        "reload": False,
+    }
+
+    if _can_use_native_window():
+        app.native.start_args.setdefault("gui", "edgechromium")
+        ui.run(
+            native=True,
+            window_size=(1200, 800),
+            fullscreen=False,
+            port=0,
+            **base_kwargs,
+        )
+        return
+
+    mensaje = (
+        "No fue posible iniciar la ventana nativa porque Microsoft Edge WebView2 "
+        "no está disponible. Instálalo para utilizar la ventana integrada o "
+        "continúa desde el navegador predeterminado."
     )
+    print(mensaje)
+    ui.run(native=False, **base_kwargs)
 
 
 if __name__ in {"__main__", "__mp_main__"}:  # pragma: no cover
