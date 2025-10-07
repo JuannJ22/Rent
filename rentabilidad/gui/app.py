@@ -515,7 +515,8 @@ def _latest_resource_entry(
         ).classes("latest-resource-meta")
         components.path_display = ui.html(
             '<span class="latest-resource-path-label">Ubicación:</span> '
-            '<span class="latest-resource-path-value">—</span>'
+            '<span class="latest-resource-path-value">—</span>',
+            sanitize=False,
         ).classes("latest-resource-path")
         with ui.row().classes("latest-resource-actions"):
             components.action = (
@@ -1061,7 +1062,7 @@ def build_ui() -> None:
                     "items-center gap-5 flex-wrap w-full hero-header"
                 ):
                     if logo_markup:
-                        ui.html(logo_markup).classes("hero-logo")
+                        ui.html(logo_markup, sanitize=False).classes("hero-logo")
                     elif logo_url:
                         ui.image(logo_url).classes("hero-logo")
                     else:
@@ -1393,7 +1394,8 @@ def build_ui() -> None:
                     ):
                         with ui.row().classes("status-actions"):
                             state.status = ui.html(
-                                status_manager.render("idle", "Sistema listo")
+                                status_manager.render("idle", "Sistema listo"),
+                                sanitize=False,
                             )
                             state.status_button = (
                                 ui.button(
