@@ -382,33 +382,6 @@ def _is_windows() -> bool:
     return sys.platform.startswith("win")
 
 
-def _webview2_available() -> bool:
-    """Detecta si el motor Edge WebView2 está disponible en Windows."""
-
-    if not _is_windows():
-        return False
-
-    try:
-        from webview.platforms.winforms import webview2  # type: ignore
-    except Exception:  # pragma: no cover - entorno específico de Windows
-        return False
-
-    try:
-        return bool(webview2.is_available())
-    except Exception:  # pragma: no cover - defensivo
-        return False
-
-
-def _can_use_native_window() -> bool:
-    """Determina si es viable utilizar la ventana nativa de pywebview."""
-
-    if not _is_windows():
-        # En otros sistemas operativos preferimos el navegador externo
-        return False
-
-    return _webview2_available()
-
-
 def _register_static_files() -> None:
     global _static_registered
     if _static_registered or not STATIC_DIR.exists():
@@ -1453,23 +1426,25 @@ def main() -> None:  # pragma: no cover - entrada manual
         "reload": False,
     }
 
-    if _can_use_native_window():
+    if _is_windows():
         app.native.start_args.setdefault("gui", "edgechromium")
-        ui.run(
-            native=True,
-            window_size=(1200, 800),
-            fullscreen=False,
-            port=0,
-            **base_kwargs,
-        )
-        return
+        try:
+            ui.run(
+                native=True,
+                window_size=(1200, 800),
+                fullscreen=False,
+                port=0,
+                **base_kwargs,
+            )
+            return
+        except Exception as exc:  # pragma: no cover - entorno específico de Windows
+            mensaje = (
+                "No fue posible iniciar la ventana nativa de Rentabilidad. "
+                "Se continuará en el navegador predeterminado.\n"
+                f"Detalle: {exc}"
+            )
+            print(mensaje)
 
-    mensaje = (
-        "No fue posible iniciar la ventana nativa porque Microsoft Edge WebView2 "
-        "no está disponible. Instálalo para utilizar la ventana integrada o "
-        "continúa desde el navegador predeterminado."
-    )
-    print(mensaje)
     ui.run(native=False, **base_kwargs)
 
 
