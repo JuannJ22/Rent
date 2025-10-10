@@ -53,6 +53,7 @@ DEFAULT_TERCEROS_FILENAME = os.environ.get("TERCEROS_FILENAME", "Terceros.xlsx")
 ACCOUNTING_FORMAT = '_-[$$-409]* #,##0.00_-;_-[$$-409]* (#,##0.00);_-[$$-409]* "-"??_-;_-@_-'
 IVA_RATE = 0.19
 IVA_MULTIPLIER = 1 + IVA_RATE
+IVA_MULTIPLIER_EXCEL = f"{IVA_MULTIPLIER:.2f}".rstrip("0").rstrip(".")
 PRICE_TOLERANCE = 0.002
 VENDOR_MISMATCH_FILL = PatternFill(
     fill_type="solid", start_color="FFFCD5B4", end_color="FFFCD5B4"
@@ -91,6 +92,26 @@ def _format_percent_es(value: float) -> str:
     """Devuelve ``value`` con dos decimales usando coma decimal."""
 
     return f"{value:.2f}".replace(".", ",")
+
+
+def _build_discount_formula(
+    ventas_col: str,
+    cantidad_col: str,
+    precio_col: str,
+    row: int,
+    *,
+    iva_exempt: bool,
+) -> str:
+    """Genera la fórmula de descuento considerando si aplica IVA."""
+
+    ventas_ref = f"{ventas_col}{row}"
+    cantidad_ref = f"{cantidad_col}{row}"
+    precio_ref = f"{precio_col}{row}"
+    if iva_exempt:
+        ventas_term = ventas_ref
+    else:
+        ventas_term = f"{ventas_ref}*{IVA_MULTIPLIER_EXCEL}"
+    return f"=1-(({ventas_term})/{cantidad_ref}/{precio_ref})"
 
 
 def _build_price_mismatch_message(
@@ -2296,8 +2317,12 @@ def main():
             c.value = f"=VLOOKUP({L_desc_src}{r},PRECIOS!{prec_range},13,0)"
             c.border = border
         if L_desc and L_vent and L_cant and L_prec:
+            desc_value = ws.cell(r, col_desc).value if col_desc else None
+            iva_exempt = _is_iva_exempt(desc_value)
             c = ws[f"{L_desc}{r}"]
-            c.value = f"=1-(({L_vent}{r}*1.19)/{L_cant}{r}/{L_prec}{r})"
+            c.value = _build_discount_formula(
+                L_vent, L_cant, L_prec, r, iva_exempt=iva_exempt
+            )
             c.border = border
             c.number_format = "0.00%"
 
