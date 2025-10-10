@@ -5,8 +5,10 @@ import base64
 import html
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +16,8 @@ from pathlib import Path
 from typing import Any
 
 from nicegui import app, ui
+from importlib import resources
+from contextlib import suppress
 
 from rentabilidad.app.dto import GenerarInformeRequest
 from rentabilidad.app.use_cases.generar_informe_automatico import run as uc_auto
@@ -48,11 +52,13 @@ state = UIState()
 
 BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
 STATIC_DIR = BASE_DIR / "static"
-LOGO_FILE = STATIC_DIR / "logo.svg"
+LOGO_FILENAME = "logo.svg"
 
 _subscriptions_registered = False
 _api_registered = False
 _static_registered = False
+_static_temp_dir: tempfile.TemporaryDirectory[str] | None = None
+_static_dir_cache: Path | None = None
 
 LOG_ICONS = {
     "info": "info",
@@ -397,33 +403,83 @@ def _is_remote_session() -> bool:
     return False
 
 
+def _ensure_static_dir() -> Path | None:
+    global _static_temp_dir, _static_dir_cache
+    if _static_dir_cache and _static_dir_cache.exists():
+        return _static_dir_cache
+
+    if STATIC_DIR.exists():
+        _static_dir_cache = STATIC_DIR
+        return _static_dir_cache
+
+    try:
+        package_static = resources.files("rentabilidad.gui").joinpath("static")
+    except (FileNotFoundError, ModuleNotFoundError):
+        return None
+
+    if not package_static.is_dir():
+        return None
+
+    if _static_temp_dir is None:
+        with suppress(FileNotFoundError):
+            with resources.as_file(package_static) as resolved:
+                resolved_path = Path(resolved)
+                if resolved_path.exists() and resolved_path.is_dir():
+                    temp_dir = tempfile.TemporaryDirectory(prefix="rent_static_")
+                    temp_path = Path(temp_dir.name) / "static"
+                    try:
+                        shutil.copytree(resolved_path, temp_path, dirs_exist_ok=True)
+                    except OSError:
+                        temp_dir.cleanup()
+                    else:
+                        _static_temp_dir = temp_dir
+                        _static_dir_cache = temp_path
+
+    return _static_dir_cache
+
+
 def _register_static_files() -> None:
     global _static_registered
-    if _static_registered or not STATIC_DIR.exists():
+    if _static_registered:
         return
 
-    app.add_static_files("/static", str(STATIC_DIR))
+    static_dir = _ensure_static_dir()
+    if not static_dir:
+        return
+
+    app.add_static_files("/static", str(static_dir))
     _static_registered = True
 
 
+def _get_logo_file() -> Path | None:
+    static_dir = _ensure_static_dir()
+    if not static_dir:
+        return None
+
+    logo_path = static_dir / LOGO_FILENAME
+    return logo_path if logo_path.exists() else None
+
+
 def _logo_source() -> str | None:
-    if LOGO_FILE.exists():
+    logo_path = _get_logo_file()
+    if logo_path and logo_path.exists():
         try:
-            encoded = base64.b64encode(LOGO_FILE.read_bytes()).decode("ascii")
+            encoded = base64.b64encode(logo_path.read_bytes()).decode("ascii")
         except OSError:
             pass
         else:
             return f"data:image/svg+xml;base64,{encoded}"
-    if STATIC_DIR.exists():
-        return f"/static/{LOGO_FILE.name}"
+    if _ensure_static_dir():
+        return f"/static/{LOGO_FILENAME}"
     return None
 
 
 def _inline_logo_markup() -> str | None:
-    if not LOGO_FILE.exists():
+    logo_path = _get_logo_file()
+    if not logo_path or not logo_path.exists():
         return None
     try:
-        svg = LOGO_FILE.read_text(encoding="utf-8")
+        svg = logo_path.read_text(encoding="utf-8")
     except OSError:
         return None
 
