@@ -4,6 +4,7 @@ import asyncio
 import base64
 import html
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -1488,10 +1489,15 @@ def build_ui() -> None:
     _register_api_routes()
 
 
-def main() -> None:  # pragma: no cover - entrada manual
+@ui.page("/")
+def main_page() -> None:
     _register_static_files()
     build_ui()
     ui.update()
+
+
+def main() -> None:  # pragma: no cover - entrada manual
+    logging.basicConfig(level=logging.DEBUG)
 
     base_kwargs: dict[str, Any] = {
         "title": "Rentabilidad",
