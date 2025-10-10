@@ -364,6 +364,19 @@ def _normalize_product_key(value):
     return normalized.lower()
 
 
+def _is_iva_exempt(description) -> bool:
+    """Determina si ``description`` indica que el producto no causa IVA."""
+
+    if description is None or description is pd.NA:
+        return False
+    text = str(description).strip()
+    if not text:
+        return False
+    normalized = unicodedata.normalize("NFKD", text)
+    normalized = normalized.casefold()
+    return "exento" in normalized or "excluido" in normalized
+
+
 def _coerce_float(value):
     """Convierte valores provenientes de Excel a ``float`` cuando es posible."""
 
@@ -2343,6 +2356,7 @@ def main():
             and col_cant
         ):
             desc_value = ws.cell(r, col_desc).value
+            iva_exempt = _is_iva_exempt(desc_value)
             product_key = _normalize_product_key(desc_value)
             prices = precios_lookup.get(product_key, {}) if product_key else {}
             expected_con_iva = prices.get(lista_precio)
@@ -2354,14 +2368,16 @@ def main():
                 and cantidad_value not in (None, 0)
             ):
                 price_checked = True
-                expected_sin_iva = expected_con_iva / IVA_MULTIPLIER
-                if expected_sin_iva:
+                expected_unit_price = (
+                    expected_con_iva if iva_exempt else expected_con_iva / IVA_MULTIPLIER
+                )
+                if expected_unit_price:
                     venta_unitaria = ventas_value / cantidad_value
-                    diff_ratio = abs(venta_unitaria - expected_sin_iva) / expected_sin_iva
+                    diff_ratio = abs(venta_unitaria - expected_unit_price) / expected_unit_price
                     if diff_ratio > PRICE_TOLERANCE:
                         price_mismatch = True
                         price_diff_details = (
-                            expected_sin_iva,
+                            expected_unit_price,
                             venta_unitaria,
                             cantidad_value,
                             diff_ratio,

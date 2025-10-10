@@ -7,13 +7,14 @@ from hojas.hoja01_loader import (
     PRICE_TOLERANCE,
     _coerce_float,
     _guess_map,
+    _is_iva_exempt,
 )
 
 
-def _diff_ratio(ventas, cantidad, expected_con_iva):
-    expected_sin_iva = expected_con_iva / IVA_MULTIPLIER
+def _diff_ratio(ventas, cantidad, expected_con_iva, *, iva_exempt=False):
+    expected_unit = expected_con_iva if iva_exempt else expected_con_iva / IVA_MULTIPLIER
     venta_unitaria = ventas / cantidad
-    return abs(venta_unitaria - expected_sin_iva) / expected_sin_iva
+    return abs(venta_unitaria - expected_unit) / expected_unit
 
 
 def test_sample_row_is_within_tolerance_when_using_quantity_column():
@@ -34,6 +35,16 @@ def test_wrong_quantity_triggers_price_mismatch():
     diff_ratio = _diff_ratio(ventas, cantidad, expected_con_iva)
 
     assert diff_ratio > PRICE_TOLERANCE
+
+
+def test_exempt_products_do_not_apply_iva_multiplier():
+    ventas = 10_000
+    cantidad = 5
+    expected_con_iva = 2_000
+
+    diff_ratio = _diff_ratio(ventas, cantidad, expected_con_iva, iva_exempt=True)
+
+    assert diff_ratio == 0
 
 
 def test_guess_map_prefers_facturada_quantity_column():
@@ -63,3 +74,16 @@ def test_coerce_float_supports_common_decimal_formats(raw, expected):
     parsed = _coerce_float(raw)
     assert parsed is not None
     assert math.isclose(parsed, expected, rel_tol=0, abs_tol=1e-9)
+
+
+@pytest.mark.parametrize(
+    "description, expected",
+    [
+        ("Producto EXENTO de IVA", True),
+        ("Servicio excluido IVA", True),
+        ("Producto gravado", False),
+        (None, False),
+    ],
+)
+def test_is_iva_exempt_detects_keywords(description, expected):
+    assert _is_iva_exempt(description) is expected
