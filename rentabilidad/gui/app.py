@@ -382,6 +382,21 @@ def _is_windows() -> bool:
     return sys.platform.startswith("win")
 
 
+def _is_remote_session() -> bool:
+    if not _is_windows():
+        return False
+
+    session_name = os.environ.get("SESSIONNAME", "").strip().lower()
+    if session_name and "rdp" in session_name:
+        return True
+
+    client_name = os.environ.get("CLIENTNAME", "").strip().lower()
+    if client_name and client_name != "console":
+        return True
+
+    return False
+
+
 def _register_static_files() -> None:
     global _static_registered
     if _static_registered or not STATIC_DIR.exists():
@@ -1426,7 +1441,7 @@ def main() -> None:  # pragma: no cover - entrada manual
         "reload": False,
     }
 
-    if _is_windows():
+    if _is_windows() and not _is_remote_session():
         app.native.start_args.setdefault("gui", "edgechromium")
         try:
             ui.run(
@@ -1444,6 +1459,11 @@ def main() -> None:  # pragma: no cover - entrada manual
                 f"Detalle: {exc}"
             )
             print(mensaje)
+    elif _is_remote_session():
+        print(
+            "Sesión remota de Windows detectada. "
+            "La aplicación se abrirá en el navegador predeterminado."
+        )
 
     ui.run(native=False, **base_kwargs)
 
