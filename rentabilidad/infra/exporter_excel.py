@@ -14,6 +14,7 @@ from .fs import asegurar_carpeta
 class ExporterExcel:
     _ACCOUNTING_FORMAT = "_-[$$-409]* #,##0.00_-;_-[$$-409]* (#,##0.00);_-[$$-409]* \"-\"??_-;_-@_-"
     _CANTIDAD_FORMAT = "#,##0.00"
+    _FLOAT_TOLERANCE = 1e-6
 
     def __init__(self, ruta_plantilla: Path):
         self.ruta = Path(ruta_plantilla)
@@ -105,6 +106,18 @@ class ExporterExcel:
         util = 0.0 if costos_val == 0 else (ventas_val / costos_val) - 1
         return rent, util
 
+    def _es_cero(self, value: float) -> bool:
+        return abs(value) <= self._FLOAT_TOLERANCE
+
+    def _debe_excluirse_por_rentabilidad(self, ventas: float, costos: float) -> bool:
+        return self._es_cero(costos) and not self._es_cero(ventas)
+
+    @staticmethod
+    def _sumar_totales(destino: Dict[str, float], cantidad: float, ventas: float, costos: float) -> None:
+        destino["cantidad"] += cantidad
+        destino["ventas"] += ventas
+        destino["costos"] += costos
+
     def _actualizar_hoja_lineas(self, libro, filas: List[Dict]) -> None:
         sheet_name = "LINEAS"
         if sheet_name not in libro.sheetnames:
@@ -153,10 +166,11 @@ class ExporterExcel:
             ventas = self._a_float(fila.get("ventas"))
             costos = self._a_float(fila.get("costos"))
 
+            if self._debe_excluirse_por_rentabilidad(ventas, costos):
+                continue
+
             group_totals = grupos_por_linea[linea][grupo]
-            group_totals["cantidad"] += cantidad
-            group_totals["ventas"] += ventas
-            group_totals["costos"] += costos
+            self._sumar_totales(group_totals, cantidad, ventas, costos)
 
         if not grupos_por_linea:
             cell = hoja.cell(row=2, column=1, value="SIN DATOS PARA MOSTRAR")
@@ -178,12 +192,22 @@ class ExporterExcel:
 
         fila_idx = 2
         total_general = {"cantidad": 0.0, "ventas": 0.0, "costos": 0.0}
+        datos_escritos = False
 
         for linea, grupos in ordenar_items(grupos_por_linea.items()):
             grupos_ordenados = ordenar_items(grupos.items())
             line_totals = {"cantidad": 0.0, "ventas": 0.0, "costos": 0.0}
 
-            for grupo, totales in grupos_ordenados:
+            grupos_filtrados = [
+                (grupo, totales)
+                for grupo, totales in grupos_ordenados
+                if not self._debe_excluirse_por_rentabilidad(totales["ventas"], totales["costos"])
+            ]
+
+            if not grupos_filtrados:
+                continue
+
+            for grupo, totales in grupos_filtrados:
                 cantidad = totales["cantidad"]
                 ventas = totales["ventas"]
                 costos = totales["costos"]
@@ -197,11 +221,10 @@ class ExporterExcel:
                 escribir_celda(fila_idx, 6, rent, number_format="0.00%")
                 escribir_celda(fila_idx, 7, util, number_format="0.00%")
 
-                line_totals["cantidad"] += cantidad
-                line_totals["ventas"] += ventas
-                line_totals["costos"] += costos
+                self._sumar_totales(line_totals, cantidad, ventas, costos)
 
                 fila_idx += 1
+                datos_escritos = True
 
             line_rent, line_util = self._calcular_metricas(line_totals["ventas"], line_totals["costos"])
 
@@ -213,11 +236,15 @@ class ExporterExcel:
             escribir_celda(fila_idx, 6, line_rent, number_format="0.00%", bold=True)
             escribir_celda(fila_idx, 7, line_util, number_format="0.00%", bold=True)
 
-            total_general["cantidad"] += line_totals["cantidad"]
-            total_general["ventas"] += line_totals["ventas"]
-            total_general["costos"] += line_totals["costos"]
+            self._sumar_totales(total_general, line_totals["cantidad"], line_totals["ventas"], line_totals["costos"])
 
             fila_idx += 1
+            datos_escritos = True
+
+        if not datos_escritos:
+            cell = hoja.cell(row=2, column=1, value="SIN DATOS PARA MOSTRAR")
+            cell.border = border
+            return
 
         total_rent, total_util = self._calcular_metricas(total_general["ventas"], total_general["costos"])
 
