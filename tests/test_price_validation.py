@@ -5,6 +5,7 @@ import pytest
 from hojas.hoja01_loader import (
     IVA_MULTIPLIER,
     PRICE_TOLERANCE,
+    _build_discount_formula,
     _coerce_float,
     _guess_map,
     _is_iva_exempt,
@@ -45,6 +46,18 @@ def test_exempt_products_do_not_apply_iva_multiplier():
     diff_ratio = _diff_ratio(ventas, cantidad, expected_con_iva, iva_exempt=True)
 
     assert diff_ratio == 0
+
+
+def test_build_discount_formula_applies_iva_multiplier_for_taxed_products():
+    formula = _build_discount_formula("F", "E", "J", 7, iva_exempt=False)
+
+    assert formula == "=1-((F7*1.19)/E7/J7)"
+
+
+def test_build_discount_formula_skips_iva_multiplier_for_exempt_products():
+    formula = _build_discount_formula("F", "E", "J", 7, iva_exempt=True)
+
+    assert formula == "=1-((F7)/E7/J7)"
 
 
 def test_guess_map_prefers_facturada_quantity_column():
