@@ -55,13 +55,13 @@ IVA_RATE = 0.19
 IVA_MULTIPLIER = 1 + IVA_RATE
 PRICE_TOLERANCE = 0.002
 VENDOR_MISMATCH_FILL = PatternFill(
-    fill_type="solid", start_color="FFFFC7CE", end_color="FFFFC7CE"
+    fill_type="solid", start_color="FFFCD5B4", end_color="FFFCD5B4"
 )
 MISSING_TERCERO_FILL = PatternFill(
     fill_type="solid", start_color="FF9BC2E6", end_color="FF9BC2E6"
 )
 PRICE_MISMATCH_FILL = PatternFill(
-    fill_type="solid", start_color="FFFFF59D", end_color="FFFFF59D"
+    fill_type="solid", start_color="FFFFFF00", end_color="FFFFFF00"
 )
 LOW_RENT_PRICE_OK_FILL = PatternFill(
     fill_type="solid", start_color="FFC4D79B", end_color="FFC4D79B"
@@ -2404,6 +2404,13 @@ def main():
 
         if highlight_cols:
             for col_idx in highlight_cols:
+                if (
+                    col_vendedor
+                    and col_idx == col_vendedor
+                    and vendor_cell is not None
+                    and (vendor_mismatch or missing_tercero)
+                ):
+                    continue
                 cell = ws.cell(r, col_idx)
                 if price_mismatch:
                     _set_or_clear_fill(cell, PRICE_MISMATCH_FILL, apply=True)
