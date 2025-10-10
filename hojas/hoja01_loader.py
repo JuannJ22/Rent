@@ -1206,6 +1206,40 @@ def _select_cod_rows(df: pd.DataFrame, label: str) -> pd.DataFrame:
     return _select_rows_by_norm(df, label, "cod_norm")
 
 
+def _drop_full_rentability_rows(
+    df: pd.DataFrame, *, column: str = "renta"
+) -> pd.DataFrame:
+    """Elimina filas cuya rentabilidad es 100% considerando distintos formatos."""
+
+    if column not in df.columns or df.empty:
+        return df
+
+    series = df[column]
+    mask_full = pd.Series(False, index=df.index)
+
+    # Detección basada en texto para casos como "100" o "100%"
+    text = series.astype(str).str.strip()
+    normalized_text = (
+        text.str.replace("%", "", regex=False)
+        .str.replace(",", ".", regex=False)
+        .str.replace(r"\s+", "", regex=True)
+    )
+    mask_full |= normalized_text.str.fullmatch(r"100(?:\.0+)?", na=False)
+
+    numeric = pd.to_numeric(series, errors="coerce")
+    if numeric.notna().any():
+        max_abs = numeric.abs().max(skipna=True)
+        if pd.notna(max_abs) and max_abs <= 1.5:
+            mask_full |= numeric.between(0.999, 1.001, inclusive="both")
+        else:
+            mask_full |= numeric.between(99.9, 100.1, inclusive="both")
+
+    if not mask_full.any():
+        return df
+
+    return df.loc[~mask_full].copy()
+
+
 def _update_ccosto_sheets(
     wb,
     excz_dir,
@@ -1315,6 +1349,8 @@ def _update_ccosto_sheets(
             continue
 
         data = data[order]
+
+        data = _drop_full_rentability_rows(data)
 
         mask_valid = data[["descripcion", "cantidad", "ventas", "costos", "renta", "utili"]].notna().any(axis=1)
         data = data[mask_valid]
@@ -1719,6 +1755,8 @@ def _update_cod_sheets(
             continue
 
         data = data[order]
+
+        data = _drop_full_rentability_rows(data)
 
         mask_valid = data[["descripcion", "cantidad", "ventas", "costos", "renta", "utili"]].notna().any(axis=1)
         data = data[mask_valid]
@@ -2184,6 +2222,8 @@ def main():
         if "descripcion" in sub.columns:
             sub = sub[~sub["descripcion"].astype(str).str.contains("total", case=False, na=False)]
             sub = sub[sub["descripcion"].notna()]
+
+        sub = _drop_full_rentability_rows(sub)
 
         lineas_summary = _update_lineas_sheet(wb, sub.copy(), accounting_fmt, border)
 
