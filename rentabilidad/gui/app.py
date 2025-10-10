@@ -1489,8 +1489,9 @@ def build_ui() -> None:
 
 
 def main() -> None:  # pragma: no cover - entrada manual
-    build_ui()
     _register_static_files()
+    build_ui()
+    ui.update()
 
     base_kwargs: dict[str, Any] = {
         "title": "Rentabilidad",
@@ -1504,7 +1505,6 @@ def main() -> None:  # pragma: no cover - entrada manual
         native=True,
         window_size=(1200, 800),
         fullscreen=False,
-        port=8080,
         **base_kwargs,
     )
 
