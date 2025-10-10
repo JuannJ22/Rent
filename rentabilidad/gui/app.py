@@ -668,7 +668,6 @@ def _register_api_routes() -> None:
 
 def build_ui() -> None:
     bus.bind_loop()
-    _register_static_files()
     logo_url = _logo_source()
     logo_markup = _inline_logo_markup()
 
@@ -1491,6 +1490,7 @@ def build_ui() -> None:
 
 def main() -> None:  # pragma: no cover - entrada manual
     build_ui()
+    _register_static_files()
 
     base_kwargs: dict[str, Any] = {
         "title": "Rentabilidad",
@@ -1499,29 +1499,14 @@ def main() -> None:  # pragma: no cover - entrada manual
 
     if _is_windows() and not _is_remote_session():
         app.native.start_args.setdefault("gui", "edgechromium")
-        try:
-            ui.run(
-                native=True,
-                window_size=(1200, 800),
-                fullscreen=False,
-                port=0,
-                **base_kwargs,
-            )
-            return
-        except Exception as exc:  # pragma: no cover - entorno específico de Windows
-            mensaje = (
-                "No fue posible iniciar la ventana nativa de Rentabilidad. "
-                "Se continuará en el navegador predeterminado.\n"
-                f"Detalle: {exc}"
-            )
-            print(mensaje)
-    elif _is_remote_session():
-        print(
-            "Sesión remota de Windows detectada. "
-            "La aplicación se abrirá en el navegador predeterminado."
-        )
 
-    ui.run(native=False, **base_kwargs)
+    ui.run(
+        native=True,
+        window_size=(1200, 800),
+        fullscreen=False,
+        port=8080,
+        **base_kwargs,
+    )
 
 
 if __name__ in {"__main__", "__mp_main__"}:  # pragma: no cover
