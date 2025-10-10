@@ -1,8 +1,11 @@
+import pandas as pd
+
 from hojas.hoja01_loader import (
     _build_price_mismatch_message,
     _build_sika_customer_message,
     _build_vendor_mismatch_message,
     _combine_reason_messages,
+    _drop_full_rentability_rows,
 )
 
 
@@ -38,3 +41,29 @@ def test_combine_reason_messages_single_line() -> None:
 
     assert message == "Uno Dos"
     assert "\n" not in message
+
+
+def test_drop_full_rentability_rows_removes_100_percent_values() -> None:
+    df = pd.DataFrame(
+        {
+            "descripcion": ["ok", "full_text", "full_numeric", "nan_value"],
+            "renta": [50, "100%", 100.0, None],
+        }
+    )
+
+    result = _drop_full_rentability_rows(df)
+
+    assert list(result["descripcion"]) == ["ok", "nan_value"]
+
+
+def test_drop_full_rentability_rows_removes_fractional_hundreds() -> None:
+    df = pd.DataFrame(
+        {
+            "descripcion": ["keep", "remove_fraction"],
+            "renta": [0.85, 1.0],
+        }
+    )
+
+    result = _drop_full_rentability_rows(df)
+
+    assert list(result["descripcion"]) == ["keep"]
