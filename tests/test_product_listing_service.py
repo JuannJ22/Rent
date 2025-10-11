@@ -160,6 +160,13 @@ def test_facade_runs_with_cwd_and_executable(monkeypatch, tmp_path: Path) -> Non
     siigo_dir.mkdir()
     output_path = tmp_path / "Productos Finales" / "salida.xlsx"
 
+    base_path_dir = tmp_path / "SIIWI01"
+    base_path_dir.mkdir()
+    (base_path_dir / "Z06").touch()
+
+    log_path = base_path_dir / "LOGS" / "log_catalogos.txt"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
     credentials = SiigoCredentials(
         reporte="REP",
         empresa="EMP",
@@ -172,8 +179,8 @@ def test_facade_runs_with_cwd_and_executable(monkeypatch, tmp_path: Path) -> Non
 
     config = ProductGenerationConfig(
         siigo_dir=siigo_dir,
-        base_path="D:\\SIIWI01\\",
-        log_path="D:\\SIIWI01\\LOGS\\log_catalogos.txt",
+        base_path=str(base_path_dir),
+        log_path=str(log_path),
         credentials=credentials,
         activo_column=1,
         keep_columns=(1,),
@@ -213,6 +220,13 @@ def test_facade_accepts_custom_executable(monkeypatch, tmp_path: Path) -> None:
     siigo_dir.mkdir()
     output_path = tmp_path / "salida.xlsx"
 
+    base_path_dir = tmp_path / "SIIWI01"
+    base_path_dir.mkdir()
+    (base_path_dir / "Z06").touch()
+
+    log_path = base_path_dir / "LOGS" / "log_catalogos.txt"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
     credentials = SiigoCredentials(
         reporte="REP",
         empresa="EMP",
@@ -225,8 +239,8 @@ def test_facade_accepts_custom_executable(monkeypatch, tmp_path: Path) -> None:
 
     config = ProductGenerationConfig(
         siigo_dir=siigo_dir,
-        base_path="D:\\SIIWI01\\",
-        log_path="D:\\SIIWI01\\LOGS\\log_catalogos.txt",
+        base_path=str(base_path_dir),
+        log_path=str(log_path),
         credentials=credentials,
         activo_column=1,
         keep_columns=(1,),

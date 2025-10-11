@@ -39,6 +39,12 @@ def _format_command(parts: Sequence[str], platform: str) -> str:
     return shlex.join(parts)
 
 
+def _ensure_trailing_backslash(path: str) -> str:
+    """Garantiza que ``path`` termine con un separador de carpeta."""
+
+    return path if path.endswith(("\\", "/")) else path + "\\"
+
+
 def _tail(path: str | Path, max_lines: int = 80) -> str:
     """Devuelve las últimas ``max_lines`` líneas del archivo ``path``."""
 
@@ -74,7 +80,7 @@ class ProductGenerationConfig:
     keep_columns: Sequence[int | str]
     siigo_command: str = "ExcelSIIGO.exe"
     siigo_output_filename: str = "ProductosMesDia.xlsx"
-    wait_timeout: float = 30.0
+    wait_timeout: float = 120.0
     wait_interval: float = 0.2
 
 
@@ -128,9 +134,24 @@ class ExcelSiigoFacade:
         if not executable.is_absolute():
             executable = self._config.siigo_dir / executable
 
+        base_path = _ensure_trailing_backslash(self._config.base_path)
+        base_dir = Path(base_path.rstrip("\\/"))
+
+        z06 = base_dir / "Z06"
+        if not z06.exists():
+            raise FileNotFoundError(
+                f"No se encontró el archivo requerido por GETINV: {z06}. "
+                "Verifica SIIGO_BASE o copia el Z06 correcto en la ruta."
+            )
+
+        try:
+            Path(self._config.log_path).parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+
         command = [
             str(executable),
-            self._config.base_path,
+            base_path,
             year,
             self._config.credentials.reporte,
             self._config.credentials.empresa,
