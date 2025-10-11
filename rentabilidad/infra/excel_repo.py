@@ -6,6 +6,8 @@ from numbers import Number
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from math import isnan
+
 import re
 import unicodedata
 
@@ -211,6 +213,63 @@ def _parse_numeric(value, *, is_percent: bool = False) -> float:
     return result
 
 
+_RENTABILITY_TOLERANCE = 1e-3
+
+
+def _is_close(value: Optional[float], target: float) -> bool:
+    if value is None:
+        return False
+    try:
+        if isnan(value):
+            return False
+    except TypeError:
+        return False
+    return abs(value - target) <= _RENTABILITY_TOLERANCE
+
+
+def _is_full_rentability(
+    ventas: Optional[float], costos: Optional[float], renta_pct: Optional[float]
+) -> bool:
+    """Detecta filas con rentabilidad del 100% considerando varios formatos."""
+
+    candidates: List[float] = []
+
+    if renta_pct is not None:
+        try:
+            if not isnan(renta_pct):
+                renta_value = float(renta_pct)
+            else:
+                renta_value = None
+        except TypeError:
+            renta_value = None
+        if renta_value is not None:
+            candidates.append(renta_value)
+            if abs(renta_value) > 1 + _RENTABILITY_TOLERANCE:
+                candidates.append(renta_value / 100)
+
+    ventas_value: Optional[float] = None
+    costos_value: Optional[float] = None
+    try:
+        if ventas is not None and not isnan(ventas):
+            ventas_value = float(ventas)
+    except TypeError:
+        ventas_value = None
+    try:
+        if costos is not None and not isnan(costos):
+            costos_value = float(costos)
+    except TypeError:
+        costos_value = None
+
+    if ventas_value is not None and costos_value is not None:
+        if not _is_close(ventas_value, 0.0):
+            rent_calc = 1 - (costos_value / ventas_value)
+            candidates.append(rent_calc)
+        if _is_close(costos_value, 0.0) and not _is_close(ventas_value, 0.0):
+            return True
+
+    return any(_is_close(value, 1.0) for value in candidates)
+
+
 def _split_cliente_combo(value) -> Tuple[str, str, str]:
     texto = _limpiar_texto(value)
     if not texto:
@@ -338,6 +397,13 @@ class ExcelRepo:
                 if texto_linea.lower().startswith("total"):
                     continue
 
+                cantidad_val = _parse_numeric(take("cantidad"))
+                ventas_val = _parse_numeric(take("ventas"))
+                costos_val = _parse_numeric(take("costos"))
+                renta_pct_val = _parse_numeric(take("renta"), is_percent=True)
+                if _is_full_rentability(ventas_val, costos_val, renta_pct_val):
+                    continue
+
                 filas.append(
                     {
                         "nit": _limpiar_texto(nit_raw),
@@ -347,12 +413,12 @@ class ExcelRepo:
                         "grupo": _limpiar_texto(grupo_raw),
                         "producto": _limpiar_texto(producto_raw),
                         "descripcion": texto_descripcion,
-                        "cantidad": _parse_numeric(take("cantidad")),
-                        "ventas": _parse_numeric(take("ventas")),
-                        "costos": _parse_numeric(take("costos")),
+                        "cantidad": cantidad_val,
+                        "ventas": ventas_val,
+                        "costos": costos_val,
                         "descuento": 0.0,
                         "vendedor": _limpiar_texto(vendedor_raw),
-                        "renta_pct": _parse_numeric(take("renta"), is_percent=True),
+                        "renta_pct": renta_pct_val,
                         "utilidad_pct": _parse_numeric(take("utili"), is_percent=True),
                     }
                 )

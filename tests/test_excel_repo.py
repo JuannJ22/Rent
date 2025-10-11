@@ -116,3 +116,25 @@ def test_excel_repo_fecha_manual_inexistente_usa_archivo_mas_reciente(tmp_path) 
     fila = filas_inexistentes[0]
     assert fila["cliente"] == "Cliente B"
     assert fila["descripcion"] == "Producto Especial B"
+
+
+def test_excel_repo_omite_rentabilidad_total(tmp_path) -> None:
+    excz_path = tmp_path / "EXCZ98020240102083000.xlsx"
+    _crear_excz(excz_path)
+
+    libro = load_workbook(excz_path)
+    hoja = libro.active
+    hoja.cell(5, 1, "123456 - PRINCIPAL - Cliente A")
+    hoja.cell(5, 2, "Producto 100")
+    hoja.cell(5, 3, "5")
+    hoja.cell(5, 4, "1.000,00")
+    hoja.cell(5, 5, "0")
+    hoja.cell(5, 6, "100%")
+    libro.save(excz_path)
+    libro.close()
+
+    repo = ExcelRepo(base_dir=tmp_path, prefix="EXCZ980", hoja="Hoja1")
+
+    filas = repo.cargar_por_fecha("2024-01-02")
+
+    assert filas == []
