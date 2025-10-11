@@ -16,7 +16,8 @@ from pathlib import Path
 
 from typing import Any
 
-from nicegui import app, run, ui
+from nicegui import app, context, ui
+from nicegui.client import Client
 from importlib import resources
 from contextlib import suppress
 
@@ -92,8 +93,8 @@ def safe_notify(*args: Any, **kwargs: Any) -> None:
     NiceGUI raises ``RuntimeError`` when UI components are updated from
     background tasks. Notifications triggered from callbacks (for example,
     asynchronous event bus listeners) may execute outside the active client
-    context. By deferring ``ui.notify`` with :func:`nicegui.run.later` we make
-    sure the call happens on the main UI task.
+    context. By deferring ``ui.notify`` with :meth:`nicegui.client.Client.safe_invoke`
+    we make sure the call happens on the main UI task.
     """
 
     def _notify() -> None:
@@ -102,7 +103,16 @@ def safe_notify(*args: Any, **kwargs: Any) -> None:
         except Exception:  # pragma: no cover - defensive fallback
             logging.getLogger(__name__).exception("Error sending UI notification")
 
-    run.later(0, _notify)
+    client: Client | None = None
+    with suppress(RuntimeError):
+        client = context.client
+
+    if client is not None:
+        client.safe_invoke(_notify)
+        return
+
+    for connected_client in list(Client.instances.values()):
+        connected_client.safe_invoke(_notify)
 
 
 class StatusManager:
