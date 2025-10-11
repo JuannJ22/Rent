@@ -16,7 +16,7 @@ from pathlib import Path
 
 from typing import Any
 
-from nicegui import app, ui
+from nicegui import app, run, ui
 from importlib import resources
 from contextlib import suppress
 
@@ -86,6 +86,25 @@ LOG_NOTIFY_TYPES = {
 }
 
 
+def safe_notify(*args: Any, **kwargs: Any) -> None:
+    """Schedule a notification inside NiceGUI's UI context.
+
+    NiceGUI raises ``RuntimeError`` when UI components are updated from
+    background tasks. Notifications triggered from callbacks (for example,
+    asynchronous event bus listeners) may execute outside the active client
+    context. By deferring ``ui.notify`` with :func:`nicegui.run.later` we make
+    sure the call happens on the main UI task.
+    """
+
+    def _notify() -> None:
+        try:
+            ui.notify(*args, **kwargs)
+        except Exception:  # pragma: no cover - defensive fallback
+            logging.getLogger(__name__).exception("Error sending UI notification")
+
+    run.later(0, _notify)
+
+
 class StatusManager:
     def __init__(self, ui_state: UIState) -> None:
         self._state = ui_state
@@ -144,7 +163,7 @@ class LogManager:
         if notify_type is None:
             notify_type = "info"
 
-        ui.notify(
+        safe_notify(
             message,
             type=notify_type,
             position="top-right",
