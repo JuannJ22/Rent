@@ -44,10 +44,11 @@ class _DummyCleaner:
     def __init__(self) -> None:
         self.cleaned: list[Path] = []
 
-    def clean(self, path: Path) -> None:
+    def clean(self, path: Path) -> Path:
         if not path.exists():
             raise AssertionError("El archivo debe existir antes de limpiar")
         self.cleaned.append(path)
+        return path
 
 
 def _build_service(tmp_path: Path) -> ProductListingService:
@@ -116,6 +117,30 @@ def test_siigo_output_filename_replaces_placeholders(tmp_path: Path) -> None:
 
     assert captured_paths, "Debe llamarse a la fachada con una ruta de salida"
     assert captured_paths[0].name == "ProductosSeptiembre05.xlsx"
+    assert result.exists()
+    assert cleaner.cleaned == [result]
+
+
+def test_generate_respects_cleaner_return_path(tmp_path: Path) -> None:
+    service = _build_service(tmp_path)
+
+    class _RenamingCleaner:
+        def __init__(self) -> None:
+            self.cleaned: list[Path] = []
+
+        def clean(self, path: Path) -> Path:
+            renamed = path.with_name(path.stem + "_final.xlsx")
+            path.rename(renamed)
+            self.cleaned.append(renamed)
+            return renamed
+
+    cleaner = _RenamingCleaner()
+    service._cleaner = cleaner
+    service._facade = _DelayedFacade()
+
+    result = service.generate(date(2024, 4, 1))
+
+    assert result.name.endswith("_final.xlsx")
     assert result.exists()
     assert cleaner.cleaned == [result]
 
