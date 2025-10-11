@@ -16,14 +16,17 @@ import os
 import shlex
 import subprocess
 import time
+import zipfile
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Iterable, Sequence
 
+import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.utils import column_index_from_string
+from openpyxl.utils.exceptions import InvalidFileException
 
 from rentabilidad.core.paths import SPANISH_MONTHS, PathContext
 
@@ -177,14 +180,18 @@ class WorkbookCleaner:
         self._keep_columns = {self._resolve_column(idx) for idx in keep_columns}
         self._keep_columns.add(self._activo_idx)
 
-    def clean(self, file_path: Path) -> None:
-        """Filtra filas y columnas dejando únicamente productos activos.
+    def clean(self, file_path: Path) -> Path:
+        """Filtra filas y columnas dejando únicamente productos activos."""
 
-        El método carga el libro indicado, conserva solo las columnas
-        declaradas en ``keep_columns`` (más la columna ``activo``) y elimina las
-        filas cuyo indicador de producto activo no sea ``"S"``.
-        """
+        try:
+            return self._clean_with_openpyxl(file_path)
+        except (InvalidFileException, zipfile.BadZipFile):
+            print(
+                "WARN: No se pudo abrir el archivo como XLSX, intentando convertir un XLS heredado."
+            )
+            return self._clean_legacy(file_path)
 
+    def _clean_with_openpyxl(self, file_path: Path) -> Path:
         wb = load_workbook(filename=file_path)
         ws = wb.active
 
@@ -208,11 +215,60 @@ class WorkbookCleaner:
 
         wb.save(file_path)
         print(
-            "INFO: Limpieza completada -"
-            f" filas eliminadas: {removed_rows}, columnas eliminadas: {removed_columns}."
+            "INFO: Limpieza completada -",
+            f" filas eliminadas: {removed_rows}, columnas eliminadas: {removed_columns}.",
         )
         columnas_conservadas = ", ".join(str(idx) for idx in sorted(self._keep_columns))
         print(f"INFO: Columnas conservadas: {columnas_conservadas}")
+        return file_path
+
+    def _clean_legacy(self, file_path: Path) -> Path:
+        try:
+            dataframe = pd.read_excel(file_path, header=None, dtype=object, engine="xlrd")
+        except Exception as exc:  # noqa: BLE001 - queremos preservar el error original
+            raise RuntimeError(
+                "No se pudo convertir el archivo generado por ExcelSIIGO. "
+                "Verificá que el reporte esté guardado en formato XLS o XLSX."
+            ) from exc
+
+        activo_idx_zero = self._activo_idx - 1
+        if dataframe.shape[1] <= activo_idx_zero:
+            raise RuntimeError(
+                "La hoja activa no tiene la columna requerida para estado del producto."
+            )
+
+        header = dataframe.iloc[[0]]
+        data_rows = dataframe.iloc[1:].copy()
+
+        activos_mask = data_rows.iloc[:, activo_idx_zero].apply(self._normalize) == "S"
+        filtered_rows = data_rows[activos_mask]
+        removed_rows = len(data_rows) - len(filtered_rows)
+
+        columns_to_keep = sorted(idx - 1 for idx in self._keep_columns)
+        max_valid_index = dataframe.shape[1] - 1
+        valid_columns = [idx for idx in columns_to_keep if idx <= max_valid_index]
+        filtered_header = header.iloc[:, valid_columns]
+        filtered_rows = filtered_rows.iloc[:, valid_columns]
+        removed_columns = dataframe.shape[1] - len(valid_columns)
+
+        result = pd.concat([filtered_header, filtered_rows], ignore_index=True)
+
+        target_path = file_path.with_suffix(".xlsx")
+        with pd.ExcelWriter(target_path, engine="openpyxl") as writer:
+            result.to_excel(writer, index=False, header=False)
+
+        if target_path != file_path and file_path.exists():
+            file_path.unlink()
+
+        print(
+            "INFO: Limpieza completada -",
+            f" filas eliminadas: {removed_rows}, columnas eliminadas: {removed_columns}.",
+        )
+        columnas_conservadas = ", ".join(str(idx) for idx in sorted(self._keep_columns))
+        print(f"INFO: Columnas conservadas: {columnas_conservadas}")
+        if target_path != file_path:
+            print(f"INFO: Archivo convertido a formato XLSX: {target_path.name}")
+        return target_path
 
     @staticmethod
     def _normalize(value) -> str:
@@ -335,7 +391,7 @@ class ProductListingService:
                     print(f"INFO: Moviendo resultado a {output_path}")
                     siigo_output.replace(output_path)
                 print("INFO: Limpiando el archivo generado...")
-                self._cleaner.clean(output_path)
+                output_path = self._cleaner.clean(output_path)
         print(f"OK: Archivo final listo en {output_path}")
         return output_path
 
