@@ -62,6 +62,14 @@ class Settings:
         activo_column = os.environ.get("SIIGO_ACTIVO_COL", "AX")
         keep_columns = KEEP_COLUMN_NUMBERS + (resolve_column_index(activo_column),)
 
+        batch_script_env = os.environ.get("SIIGO_BATCH", "GenerarListadoProductos.bat")
+        batch_script: Path | None = None
+        if batch_script_env:
+            candidate = Path(batch_script_env)
+            if not candidate.is_absolute():
+                candidate = self.context.base_dir / candidate
+            batch_script = candidate
+
         return ProductGenerationConfig(
             siigo_dir=siigo_dir,
             base_path=base_path,
@@ -73,6 +81,7 @@ class Settings:
             siigo_output_filename=os.environ.get("SIIGO_OUTPUT_FILENAME", "ProductosMesDia.xlsx"),
             wait_timeout=_read_float_env("SIIGO_WAIT_TIMEOUT", 60.0),
             wait_interval=_read_float_env("SIIGO_WAIT_INTERVAL", 0.2),
+            batch_script=batch_script,
         )
 
     def build_product_service(self) -> ProductListingService:
