@@ -13,7 +13,12 @@ from rentabilidad.services.products import (
     ProductGenerationConfig,
     ProductListingService,
     SiigoCredentials,
+    resolve_column_index,
 )
+
+
+def test_resolve_column_index_accepts_numeric_string() -> None:
+    assert resolve_column_index("50") == 50
 
 
 class _DelayedFacade:
