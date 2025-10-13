@@ -6,8 +6,6 @@ import argparse
 import os
 from pathlib import Path
 
-from openpyxl.utils import column_index_from_string
-
 from rentabilidad.core.env import load_env
 from rentabilidad.core.dates import DateResolver, TodayStrategy
 from rentabilidad.core.paths import PathContext, PathContextFactory
@@ -15,6 +13,7 @@ from rentabilidad.services.products import (
     ProductGenerationConfig,
     ProductListingService,
     SiigoCredentials,
+    resolve_column_index,
 )
 
 KEEP_COLUMN_NUMBERS = (4, *range(7, 19))
@@ -196,7 +195,7 @@ def main() -> None:
         log_path=args.log,
         credentials=credenciales,
         activo_column=args.activo_column,
-        keep_columns=KEEP_COLUMN_NUMBERS + (column_index_from_string(args.activo_column),),
+        keep_columns=KEEP_COLUMN_NUMBERS + (resolve_column_index(args.activo_column),),
         siigo_command=str(siigo_command),
         siigo_output_filename=args.siigo_output,
         wait_timeout=args.wait_timeout,

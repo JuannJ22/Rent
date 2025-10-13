@@ -186,12 +186,36 @@ class ExcelSiigoFacade:
             )
 
 
+def resolve_column_index(value: int | str) -> int:
+    """Convierte ``value`` en un índice de columna de Excel (1-based)."""
+
+    if isinstance(value, int):
+        if value < 1:
+            raise ValueError("El índice de columna debe ser mayor o igual a 1")
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            raise ValueError("El identificador de columna no puede estar vacío")
+        if text.isdigit():
+            idx = int(text)
+        else:
+            try:
+                idx = column_index_from_string(text)
+            except ValueError as exc:  # pragma: no cover - conversión de openpyxl
+                raise ValueError(f"Columna inválida: {value!r}") from exc
+        if idx < 1:
+            raise ValueError("El índice de columna debe ser mayor o igual a 1")
+        return idx
+    raise TypeError("El identificador de columna debe ser entero o cadena")
+
+
 class WorkbookCleaner:
     """Responsable de filtrar columnas y filas en el archivo generado."""
 
     def __init__(self, activo_column: int | str, keep_columns: Iterable[int | str]):
-        self._activo_idx = self._resolve_column(activo_column)
-        self._keep_columns = {self._resolve_column(idx) for idx in keep_columns}
+        self._activo_idx = resolve_column_index(activo_column)
+        self._keep_columns = {resolve_column_index(idx) for idx in keep_columns}
         self._keep_columns.add(self._activo_idx)
 
     def clean(self, file_path: Path) -> Path:
@@ -293,31 +317,6 @@ class WorkbookCleaner:
         if isinstance(value, str):
             return value.strip().upper()
         return str(value).strip().upper()
-
-    @staticmethod
-    def _resolve_column(value: int | str) -> int:
-        """Convierte ``value`` en un índice de columna de Excel (1-based)."""
-
-        if isinstance(value, int):
-            if value < 1:
-                raise ValueError("El índice de columna debe ser mayor o igual a 1")
-            return value
-        if isinstance(value, str):
-            text = value.strip()
-            if not text:
-                raise ValueError("El identificador de columna no puede estar vacío")
-            if text.isdigit():
-                idx = int(text)
-            else:
-                try:
-                    idx = column_index_from_string(text)
-                except ValueError as exc:  # pragma: no cover - conversión de openpyxl
-                    raise ValueError(f"Columna inválida: {value!r}") from exc
-            if idx < 1:
-                raise ValueError("El índice de columna debe ser mayor o igual a 1")
-            return idx
-        raise TypeError("El identificador de columna debe ser entero o cadena")
-
 
 @contextmanager
 def safe_backup(path: Path):
@@ -425,5 +424,6 @@ __all__ = [
     "ProductGenerationConfig",
     "ProductListingService",
     "SiigoCredentials",
+    "resolve_column_index",
     "WorkbookCleaner",
 ]

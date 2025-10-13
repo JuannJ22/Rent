@@ -3,14 +3,13 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from openpyxl.utils import column_index_from_string
-
 from rentabilidad.core.env import load_env
 from rentabilidad.core.paths import PathContext, PathContextFactory
 from rentabilidad.services.products import (
     ProductGenerationConfig,
     ProductListingService,
     SiigoCredentials,
+    resolve_column_index,
 )
 from servicios.generar_listado_productos import KEEP_COLUMN_NUMBERS
 
@@ -61,7 +60,7 @@ class Settings:
         )
 
         activo_column = os.environ.get("SIIGO_ACTIVO_COL", "AX")
-        keep_columns = KEEP_COLUMN_NUMBERS + (column_index_from_string(activo_column),)
+        keep_columns = KEEP_COLUMN_NUMBERS + (resolve_column_index(activo_column),)
 
         return ProductGenerationConfig(
             siigo_dir=siigo_dir,
