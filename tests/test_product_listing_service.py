@@ -275,6 +275,99 @@ def test_facade_accepts_custom_executable(monkeypatch, tmp_path: Path) -> None:
     assert cmd[0].endswith("Excel Custom.exe")
 
 
+def test_facade_reports_missing_required_files(tmp_path: Path) -> None:
+    siigo_dir = tmp_path / "Siigo"
+    siigo_dir.mkdir()
+    output_path = tmp_path / "salida.xlsx"
+
+    base_path_dir = tmp_path / "SIIWI01"
+    base_path_dir.mkdir()
+
+    log_path = base_path_dir / "LOGS" / "log_catalogos.txt"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    credentials = SiigoCredentials(
+        reporte="REP",
+        empresa="EMP",
+        usuario="USR",
+        clave="PWD",
+        estado_param="S",
+        rango_ini="0001",
+        rango_fin="9999",
+    )
+
+    config = ProductGenerationConfig(
+        siigo_dir=siigo_dir,
+        base_path=str(base_path_dir),
+        log_path=str(log_path),
+        credentials=credentials,
+        activo_column=1,
+        keep_columns=(1,),
+        required_files=("Z99",),
+    )
+
+    facade = ExcelSiigoFacade(config)
+
+    with pytest.raises(FileNotFoundError) as excinfo:
+        facade.run(output_path, "2024")
+
+    assert "Z99" in str(excinfo.value)
+
+
+def test_facade_allows_disabling_required_files_check(monkeypatch, tmp_path: Path) -> None:
+    from rentabilidad.services import products as products_module
+
+    siigo_dir = tmp_path / "Siigo"
+    siigo_dir.mkdir()
+    output_path = tmp_path / "salida.xlsx"
+
+    base_path_dir = tmp_path / "SIIWI01"
+    base_path_dir.mkdir()
+
+    log_path = base_path_dir / "LOGS" / "log_catalogos.txt"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    credentials = SiigoCredentials(
+        reporte="REP",
+        empresa="EMP",
+        usuario="USR",
+        clave="PWD",
+        estado_param="S",
+        rango_ini="0001",
+        rango_fin="9999",
+    )
+
+    config = ProductGenerationConfig(
+        siigo_dir=siigo_dir,
+        base_path=str(base_path_dir),
+        log_path=str(log_path),
+        credentials=credentials,
+        activo_column=1,
+        keep_columns=(1,),
+        required_files=(),
+    )
+
+    facade = ExcelSiigoFacade(config)
+
+    class DummyResult:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    captured: dict[str, object] = {}
+
+    def fake_run(command, **kwargs):  # noqa: ANN001 - firma flexible para imitar subprocess.run
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        return DummyResult()
+
+    monkeypatch.setattr(products_module.subprocess, "run", fake_run)
+
+    facade.run(output_path, "2024")
+
+    assert captured, "Debe ejecutarse ExcelSIIGO incluso sin archivos requeridos"
+
+
 def test_generate_fails_when_file_too_small(tmp_path: Path) -> None:
     service = _build_service(tmp_path)
     service._facade = _DelayedFacade(payload_size=10)
