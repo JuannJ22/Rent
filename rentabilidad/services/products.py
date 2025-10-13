@@ -12,7 +12,9 @@ abierto a nuevas variaciones.
 from __future__ import annotations
 
 
+import os
 import shlex
+import shutil
 import subprocess
 import time
 import zipfile
@@ -73,6 +75,7 @@ class ProductGenerationConfig:
     siigo_output_filename: str = "ProductosMesDia.xlsx"
     wait_timeout: float = 120.0
     wait_interval: float = 0.2
+    batch_script: Path | None = None
 
 
 def _format_siigo_output_filename(template: str, target_date: date) -> str:
@@ -357,6 +360,23 @@ class ProductListingService:
         )
         self._wait_timeout = config.wait_timeout
         self._wait_interval = config.wait_interval
+        script = config.batch_script
+        if script and os.name == "nt":
+            candidate = Path(script)
+            try:
+                candidate = candidate.expanduser().resolve(strict=False)
+            except RuntimeError:
+                candidate = candidate.expanduser().absolute()
+            if candidate.exists():
+                self._batch_script = candidate
+            else:
+                print(
+                    "INFO: No se encontró el script por lotes indicado. "
+                    "Se continuará utilizando la integración directa con ExcelSIIGO."
+                )
+                self._batch_script = None
+        else:
+            self._batch_script = None
 
     def generate(self, target_date: date) -> Path:
         """Genera el listado para ``target_date`` delegando en los componentes.
@@ -377,6 +397,15 @@ class ProductListingService:
         output_path = self._context.productos_path(target_date)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
+        if self._batch_script:
+            output_path = self._generate_with_batch(target_date, output_path)
+        else:
+            output_path = self._generate_with_siigo(target_date, output_path)
+
+        print(f"OK: Archivo final listo en {output_path}")
+        return output_path
+
+    def _generate_with_siigo(self, target_date: date, output_path: Path) -> Path:
         siigo_output_name = _format_siigo_output_filename(
             self._config.siigo_output_filename, target_date
         )
@@ -405,8 +434,67 @@ class ProductListingService:
                     siigo_output.replace(output_path)
                 print("INFO: Limpiando el archivo generado...")
                 output_path = self._cleaner.clean(output_path)
-        print(f"OK: Archivo final listo en {output_path}")
         return output_path
+
+    def _generate_with_batch(self, target_date: date, output_path: Path) -> Path:
+        raw_output = self._expected_batch_output(target_date)
+
+        with safe_backup(output_path):
+            with safe_backup(raw_output):
+                self._run_batch_script()
+                if not self._wait_for_file(raw_output):
+                    log_tail = _tail(self._config.log_path)
+                    raise FileNotFoundError(
+                        "El script por lotes finalizó sin generar el archivo esperado en "
+                        f"{raw_output}. Verifica la configuración antes de reintentar.\n"
+                        f"LOG (últimas líneas):\n{log_tail}"
+                    )
+                if raw_output.stat().st_size < 1024:
+                    log_tail = _tail(self._config.log_path)
+                    raise RuntimeError(
+                        "El archivo generado por el script parece vacío.\n"
+                        f"LOG (últimas líneas):\n{log_tail}"
+                    )
+                print("INFO: Limpiando el archivo generado por el script…")
+                cleaned_path = self._cleaner.clean(raw_output)
+                if cleaned_path != output_path:
+                    if output_path.exists():
+                        output_path.unlink()
+                    shutil.copy2(cleaned_path, output_path)
+
+        return output_path
+
+    def _expected_batch_output(self, target_date: date) -> Path:
+        month_name = SPANISH_MONTHS[target_date.month]
+        return self._context.productos_dir / f"Productos{month_name}{target_date:%d}.xlsx"
+
+    def _run_batch_script(self) -> None:
+        if not self._batch_script:
+            raise RuntimeError(
+                "No hay un script por lotes configurado para generar el listado de productos."
+            )
+
+        print(f"INFO: Ejecutando script por lotes: {self._batch_script}")
+        result = subprocess.run(
+            ["cmd", "/c", str(self._batch_script)],
+            cwd=str(self._batch_script.parent),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        if result.stdout:
+            print(result.stdout.strip())
+        if result.stderr:
+            print(result.stderr.strip())
+
+        if result.returncode != 0:
+            raise RuntimeError(
+                "El script configurado para generar productos devolvió un código distinto de cero.\n"
+                f"returncode={result.returncode}\n\n"
+                f"STDOUT:\n{result.stdout}\n"
+                f"STDERR:\n{result.stderr}"
+            )
 
     def _wait_for_file(self, path: Path) -> bool:
         """Espera de forma activa hasta que ``path`` exista o se agote el tiempo."""
