@@ -71,6 +71,7 @@ class ProductGenerationConfig:
     credentials: SiigoCredentials
     activo_column: int | str
     keep_columns: Sequence[int | str]
+    required_files: Sequence[str] = ("Z06",)
     siigo_command: str = "ExcelSIIGO.exe"
     siigo_output_filename: str = "ProductosMesDia.xlsx"
     wait_timeout: float = 120.0
@@ -131,11 +132,18 @@ class ExcelSiigoFacade:
         base_path = _ensure_trailing_backslash(self._config.base_path)
         base_dir = Path(base_path.rstrip("\\/"))
 
-        z06 = base_dir / "Z06"
-        if not z06.exists():
+        missing_files: list[Path] = []
+        for filename in self._config.required_files or ():
+            candidate = base_dir / filename
+            if not candidate.exists():
+                missing_files.append(candidate)
+
+        if missing_files:
+            missing_str = ", ".join(str(path) for path in missing_files)
             raise FileNotFoundError(
-                f"No se encontró el archivo requerido por GETINV: {z06}. "
-                "Verifica SIIGO_BASE o copia el Z06 correcto en la ruta."
+                "No se encontraron archivos requeridos por GETINV: "
+                f"{missing_str}. Ajusta `required_files` en la configuración si no son necesarios "
+                "o copia los archivos correctos en la ruta."
             )
 
         try:
