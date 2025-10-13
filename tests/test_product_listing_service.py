@@ -211,6 +211,7 @@ def test_facade_runs_with_cwd_and_executable(monkeypatch, tmp_path: Path) -> Non
     assert kwargs.get("cwd") == str(siigo_dir)
     assert kwargs.get("capture_output") is True
     assert kwargs.get("text") is True
+    assert kwargs.get("shell") is False
 
 
 def test_facade_accepts_custom_executable(monkeypatch, tmp_path: Path) -> None:

@@ -12,7 +12,6 @@ abierto a nuevas variaciones.
 from __future__ import annotations
 
 
-import os
 import shlex
 import subprocess
 import time
@@ -29,14 +28,6 @@ from openpyxl.utils import column_index_from_string
 from openpyxl.utils.exceptions import InvalidFileException
 
 from rentabilidad.core.paths import SPANISH_MONTHS, PathContext
-
-
-def _format_command(parts: Sequence[str], platform: str) -> str:
-    """Devuelve ``parts`` formateado para mostrarse como comando."""
-
-    if platform == "nt":
-        return subprocess.list2cmdline(list(parts))
-    return shlex.join(parts)
 
 
 def _ensure_trailing_backslash(path: str) -> str:
@@ -149,25 +140,26 @@ class ExcelSiigoFacade:
         except Exception:
             pass
 
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
         command = [
             str(executable),
             base_path,
-            year,
-            self._config.credentials.reporte,
-            self._config.credentials.empresa,
-            self._config.credentials.usuario,
-            self._config.credentials.clave,
-            self._config.log_path,
-            self._config.credentials.estado_param,
-            self._config.credentials.rango_ini,
-            self._config.credentials.rango_fin,
+            str(year),
+            str(self._config.credentials.reporte),
+            str(self._config.credentials.empresa),
+            str(self._config.credentials.usuario),
+            str(self._config.credentials.clave),
+            str(self._config.log_path),
+            str(self._config.credentials.estado_param),
+            str(self._config.credentials.rango_ini),
+            str(self._config.credentials.rango_fin),
             str(output_path),
         ]
 
-        platform = os.name
-        printable_command = _format_command(command, platform)
-        print(f"CWD> {self._config.siigo_dir}")
-        print(f"CMD> {printable_command}")
+        printable_command = " ".join(shlex.quote(part) for part in command)
+        print(f"[ExcelSIIGO] cwd: {self._config.siigo_dir}")
+        print(f"[ExcelSIIGO] Ejecutando: {printable_command}")
 
         result = subprocess.run(
             command,
@@ -175,6 +167,7 @@ class ExcelSiigoFacade:
             check=False,
             capture_output=True,
             text=True,
+            shell=False,
         )
 
         if result.stdout:
