@@ -142,6 +142,28 @@ def _build_price_mismatch_message(
     )
 
 
+def _build_document_reference_message(
+    tipo: str | None,
+    prefijo: str | None,
+    numero: str | int | None,
+) -> str | None:
+    """Compone un texto legible para referenciar un comprobante."""
+
+    parts = []
+    for value in (tipo, prefijo, numero):
+        if value is None:
+            continue
+        if isinstance(value, numbers.Real) and not isinstance(value, bool):
+            value = int(value) if float(value).is_integer() else float(value)
+        text = str(value).strip()
+        if text:
+            parts.append(text)
+    if not parts:
+        return None
+    reference = " ".join(parts)
+    return f"Documento {reference}"
+
+
 def _build_vendor_mismatch_message(assigned_vendor: str | None) -> str | None:
     """Construye el texto para advertir un código de vendedor diferente."""
 
@@ -457,7 +479,9 @@ def _load_vendedores_lookup(wb):
         return {}
     ws = wb[sheet_name]
     lookup = {}
-    for nit, vendedor in ws.iter_rows(min_row=1, max_row=ws.max_row, max_col=2, values_only=True):
+    for nit, vendedor in ws.iter_rows(
+        min_row=1, max_row=ws.max_row, max_col=2, values_only=True
+    ):
         nit_norm = _normalize_nit_value(nit)
         if nit_norm is None:
             continue
@@ -466,6 +490,32 @@ def _load_vendedores_lookup(wb):
             continue
         if nit_norm not in lookup:
             lookup[nit_norm] = vend_norm
+    return lookup
+
+
+def _load_vendedores_document_lookup(wb):
+    """Genera un mapa de productos a comprobantes provenientes de ``VENDEDORES``."""
+
+    sheet_name = "VENDEDORES"
+    if sheet_name not in wb.sheetnames:
+        return {}
+    ws = wb[sheet_name]
+    lookup: dict[str, list[dict[str, object]]] = {}
+    for nit, _, tipo, prefijo, numero, descripcion in ws.iter_rows(
+        min_row=1, max_row=ws.max_row, max_col=6, values_only=True
+    ):
+        product_key = _normalize_product_key(descripcion)
+        if not product_key:
+            continue
+        entry = {
+            "nit": _normalize_nit_value(nit),
+            "tipo": _clean_cell_value(tipo),
+            "prefijo": _clean_cell_value(prefijo),
+            "numero": _clean_cell_value(numero),
+        }
+        if not any(entry[key] for key in ("tipo", "prefijo", "numero")):
+            continue
+        lookup.setdefault(product_key, []).append(entry)
     return lookup
 
 
@@ -916,8 +966,8 @@ def _update_vendedores_sheet(
     try:
         src_ws = src_wb.active
         rows = [
-            (row[0], row[1])
-            for row in src_ws.iter_rows(min_row=1, max_col=2, values_only=True)
+            tuple(row[:6])
+            for row in src_ws.iter_rows(min_row=1, max_col=6, values_only=True)
         ]
     finally:
         src_wb.close()
@@ -927,14 +977,40 @@ def _update_vendedores_sheet(
     ws.delete_rows(1, ws.max_row)
 
     rows_written = 0
-    for col_a, col_b in rows:
-        if col_a in (None, "") and col_b in (None, ""):
-            continue
-        rows_written += 1
-        ws.cell(row=rows_written, column=1, value=None if col_b in ("", None) else col_b)
-        ws.cell(row=rows_written, column=2, value=None if col_a in ("", None) else col_a)
+    doc_columns_used = False
+    for tipo, prefijo, numero, cod_vendedor, nit, descripcion in rows:
+        nit_value = _clean_cell_value(nit)
+        cod_value = _clean_cell_value(cod_vendedor)
+        tipo_value = _clean_cell_value(tipo)
+        prefijo_value = _clean_cell_value(prefijo)
+        numero_value = _clean_cell_value(numero)
+        descripcion_value = _clean_cell_value(descripcion, strip=False)
 
-    summary = {"rows": rows_written}
+        if all(
+            value in (None, "")
+            for value in (
+                nit_value,
+                cod_value,
+                tipo_value,
+                prefijo_value,
+                numero_value,
+                descripcion_value,
+            )
+        ):
+            continue
+
+        rows_written += 1
+        ws.cell(row=rows_written, column=1, value=nit_value)
+        ws.cell(row=rows_written, column=2, value=cod_value)
+
+        if any(v is not None for v in (tipo_value, prefijo_value, numero_value, descripcion_value)):
+            ws.cell(row=rows_written, column=3, value=tipo_value)
+            ws.cell(row=rows_written, column=4, value=prefijo_value)
+            ws.cell(row=rows_written, column=5, value=numero_value)
+            ws.cell(row=rows_written, column=6, value=descripcion_value)
+            doc_columns_used = True
+
+    summary = {"rows": rows_written, "columns": 6 if doc_columns_used else 2}
     return summary, path
 
 
@@ -2157,6 +2233,7 @@ def main():
     # ---------------------------------------------------------------------
 
     vendedores_lookup = _load_vendedores_lookup(wb)
+    vendedores_document_lookup = _load_vendedores_document_lookup(wb)
     terceros_lookup = _load_terceros_lookup(wb)
     precios_lookup = _load_precios_lookup(wb)
 
@@ -2413,6 +2490,7 @@ def main():
             lista_precio = tercero_info.get("lista")
         elif nit_norm is not None:
             lista_precio = 1
+        product_key = None
         if (
             lista_precio
             and highlight_cols
@@ -2478,6 +2556,23 @@ def main():
                     *price_diff_details, lista_precio=lista_precio
                 )
             )
+            document_message = None
+            if product_key:
+                doc_entries = vendedores_document_lookup.get(product_key, [])
+                if doc_entries:
+                    prioritized = [
+                        entry for entry in doc_entries if entry.get("nit") == nit_norm
+                    ]
+                    for entry in prioritized or doc_entries:
+                        document_message = _build_document_reference_message(
+                            entry.get("tipo"),
+                            entry.get("prefijo"),
+                            entry.get("numero"),
+                        )
+                        if document_message:
+                            break
+            if document_message:
+                reason_messages.append(document_message)
         if sika_message:
             reason_messages.append(sika_message)
         if vendor_message:
