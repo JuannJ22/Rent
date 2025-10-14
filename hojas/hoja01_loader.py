@@ -2563,14 +2563,19 @@ def main():
                     prioritized = [
                         entry for entry in doc_entries if entry.get("nit") == nit_norm
                     ]
+                    document_messages: list[str] = []
+                    seen_documents: set[str] = set()
                     for entry in prioritized or doc_entries:
                         document_message = _build_document_reference_message(
                             entry.get("tipo"),
                             entry.get("prefijo"),
                             entry.get("numero"),
                         )
-                        if document_message:
-                            break
+                        if document_message and document_message not in seen_documents:
+                            document_messages.append(document_message)
+                            seen_documents.add(document_message)
+                    if document_messages:
+                        document_message = " / ".join(document_messages)
             if document_message:
                 reason_messages.append(document_message)
         if sika_message:
