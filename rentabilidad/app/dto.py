@@ -11,3 +11,11 @@ class GenerarInformeResponse(BaseModel):
     ok: bool
     mensaje: str
     ruta_salida: Optional[str] = None
+
+
+class GenerarInformeCodigosIncorrectosRequest(BaseModel):
+    mes: str
+
+
+class GenerarConsolidadoMalosCobrosRequest(BaseModel):
+    mes: str
