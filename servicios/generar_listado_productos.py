@@ -54,7 +54,7 @@ def build_parser(defaults: dict[str, str | float]) -> argparse.ArgumentParser:
     parser.add_argument(
         "--siigo-command",
         default=defaults["SIIGO_COMMAND"],
-        help="Nombre del ejecutable de ExcelSIIGO (por defecto ExcelSIIGO.exe)",
+        help="Nombre del ejecutable de ExcelSIIGO (por defecto ExcelSIIGO)",
     )
     parser.add_argument(
         "--siigo-base",
@@ -124,7 +124,7 @@ def _collect_defaults() -> dict[str, str | float]:
         "SIIGO_DIR": os.environ.get("SIIGO_DIR", r"C:\\Siigo"),
         "SIIGO_BASE": os.environ.get("SIIGO_BASE", r"D:\\SIIWI01"),
         "SIIGO_LOG": os.environ.get("SIIGO_LOG", str(Path(os.environ.get("SIIGO_BASE", r"D:\\SIIWI01")) / "LOGS" / "log_catalogos.txt")),
-        "SIIGO_COMMAND": os.environ.get("SIIGO_COMMAND", "ExcelSIIGO.exe"),
+        "SIIGO_COMMAND": os.environ.get("SIIGO_COMMAND", "ExcelSIIGO"),
         "SIIGO_REPORTE": os.environ.get("SIIGO_REPORTE", "GETINV"),
         "SIIGO_EMPRESA": os.environ.get("SIIGO_EMPRESA", "L"),
         "SIIGO_USUARIO": os.environ.get("SIIGO_USUARIO", "JUAN"),

@@ -213,7 +213,7 @@ def test_facade_runs_with_cwd_and_executable(monkeypatch, tmp_path: Path) -> Non
     assert captured, "El comando de ExcelSIIGO debe ejecutarse"
     cmd = captured["command"]
     kwargs = captured["kwargs"]
-    assert cmd[0] == str(siigo_dir / "ExcelSIIGO.exe")
+    assert cmd[0] == str(siigo_dir / "ExcelSIIGO")
     assert kwargs.get("cwd") == str(siigo_dir)
     assert kwargs.get("capture_output") is True
     assert kwargs.get("text") is True
