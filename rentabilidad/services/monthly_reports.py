@@ -220,7 +220,10 @@ class MonthlyReportService:
                 if not self._row_has_data(values):
                     continue
                 row_colors = self._row_colors(ws_styles, row_idx)
-                if not any(color in colors for color in row_colors):
+                matched_color = next(
+                    (color for color in row_colors if color in colors), None
+                )
+                if not matched_color:
                     continue
                 nit = _strip_text(values.get("nit"))
                 product_key = _normalize_product_key(values.get("descripcion"))
@@ -243,7 +246,7 @@ class MonthlyReportService:
                     "lista_12": lista_12,
                 })
                 comment = ws_styles.cell(row_idx, mapping.get("razon", 12)).comment
-                yield HighlightedRow(values, row_colors[0], comment, workbook_date)
+                yield HighlightedRow(values, matched_color, comment, workbook_date)
         finally:
             wb_values.close()
             wb_styles.close()
@@ -309,6 +312,7 @@ class MonthlyReportService:
 
     def _row_colors(self, ws, row_idx: int) -> list[str]:
         colors: list[str] = []
+        seen: set[str] = set()
         for col_idx in range(1, ws.max_column + 1):
             cell = ws.cell(row_idx, col_idx)
             fill = getattr(cell, "fill", None)
@@ -325,7 +329,16 @@ class MonthlyReportService:
                     or _normalize_color(getattr(start, "indexed", None))
                     or _normalize_color(getattr(start, "theme", None))
                 )
-            if color:
+            if not color:
+                fg = getattr(fill, "fgColor", None)
+                if fg is not None:
+                    color = (
+                        _normalize_color(getattr(fg, "rgb", None))
+                        or _normalize_color(getattr(fg, "indexed", None))
+                        or _normalize_color(getattr(fg, "theme", None))
+                    )
+            if color and color not in seen:
+                seen.add(color)
                 colors.append(color)
         return colors
 
@@ -473,8 +486,15 @@ class MonthlyReportService:
     @staticmethod
     def _clear_from(ws, start_row: int) -> None:
         max_row = ws.max_row or start_row
-        if max_row >= start_row:
-            ws.delete_rows(start_row, max_row - start_row + 1)
+        max_col = ws.max_column or 1
+        if max_row < start_row:
+            return
+        for row in ws.iter_rows(
+            min_row=start_row, max_row=max_row, max_col=max_col
+        ):
+            for cell in row:
+                cell.value = None
+                cell.comment = None
 
 
 __all__ = [
