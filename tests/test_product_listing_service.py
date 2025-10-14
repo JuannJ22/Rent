@@ -431,6 +431,30 @@ def test_parse_required_files_env() -> None:
     assert _parse_required_files_env("Z01, Z02 ; Z03") == ("Z01", "Z02", "Z03")
 
 
+def test_safe_backup_reports_locked_file(monkeypatch, tmp_path: Path) -> None:
+    from rentabilidad.services import products as products_module
+
+    target = tmp_path / "productos0101.xlsx"
+    target.write_text("datos")
+
+    original_replace = type(target).replace
+
+    def fake_replace(self, other):  # noqa: ANN001 - firma igual a pathlib.Path.replace
+        if self == target:
+            raise PermissionError("file locked")
+        return original_replace(self, other)
+
+    monkeypatch.setattr(type(target), "replace", fake_replace, raising=False)
+
+    with pytest.raises(PermissionError) as excinfo:
+        with products_module.safe_backup(target):
+            pass
+
+    message = str(excinfo.value)
+    assert "copia de seguridad" in message.lower()
+    assert str(target) in message
+
+
 def test_generate_fails_when_file_too_small(tmp_path: Path) -> None:
     service = _build_service(tmp_path)
     service._facade = _DelayedFacade(payload_size=10)
