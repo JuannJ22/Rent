@@ -347,7 +347,13 @@ def safe_backup(path: Path):
         backup = path.with_suffix(path.suffix + ".bak")
         if backup.exists():
             backup.unlink()
-        path.replace(backup)
+        try:
+            path.replace(backup)
+        except PermissionError as exc:
+            raise PermissionError(
+                "No se puede crear una copia de seguridad temporal para "
+                f"{path}. Cerrá el archivo en otras aplicaciones e intentá nuevamente."
+            ) from exc
     try:
         yield
     except Exception:
