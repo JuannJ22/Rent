@@ -298,14 +298,11 @@ def setup_ui() -> None:
         )
 
     def ejecutar_manual() -> None:
-        fecha = (fecha_input.value or "").strip() or None
-        objetivo = fecha or "día anterior"
-        actualizar_estado("running", f"Generando informe para {objetivo}…")
-        agregar_log(f"Iniciando generación manual del informe ({objetivo}).")
+        actualizar_estado("running", "Ejecutando script manual…")
+        agregar_log("Iniciando ejecución del script manual configurado.")
         uc_manual(
             GenerarInformeRequest(
                 ruta_plantilla=str(settings.ruta_plantilla),
-                fecha=fecha,
             ),
             bus,
         )
@@ -395,26 +392,22 @@ def setup_ui() -> None:
             ):
                 with ui.row().classes("items-center gap-2 px-4 pt-4"):
                     ui.icon("calendar_month").classes("text-violet-500")
-                    ui.label("Informe manual").classes("font-medium")
+                    ui.label("Script manual").classes("font-medium")
                 ui.label(
-                    "Permite elegir una fecha específica para regenerar el informe."
+                    "Ejecuta el archivo por lotes configurado para actualizar el informe."
                 ).classes("px-4 pb-2 text-sm text-gray-500")
-                fecha_input = ui.input(
-                    label="Fecha objetivo",
-                    value=ayer_str(),
-                )
-                fecha_input.props("type=date")
-                fecha_input.classes(
-                    "mx-4 mb-2 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
-                )
+                script_path = settings.manual_batch_script
+                script_text = _shorten(script_path) if script_path else "No configurado"
+                script_label = ui.label(f"Script: {script_text}")
+                script_label.classes("px-4 pb-2 text-xs text-gray-400")
+                if script_path:
+                    with script_label:
+                        ui.tooltip(str(script_path))
                 btn_manual = ui.button(
-                    "Generar informe manual", on_click=ejecutar_manual
+                    "Ejecutar script manual", on_click=ejecutar_manual
                 )
-                btn_manual.classes("mx-4 mb-2 w-full")
+                btn_manual.classes("mx-4 mb-4 w-full")
                 btn_manual.props("color=primary")
-                ui.label(
-                    "Deja la fecha vacía para utilizar el día anterior de forma automática."
-                ).classes("px-4 pb-4 text-xs text-gray-400")
 
             with ui.card().classes(
                 "rounded-2xl shadow-sm border border-gray-200 bg-white flex-1 min-w-[260px]"

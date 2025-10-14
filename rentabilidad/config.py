@@ -64,6 +64,18 @@ class Settings:
 
         self._product_config = self._build_product_config()
         self._monthly_reports_config = self._build_monthly_reports_config()
+        self.manual_batch_script = self._resolve_manual_batch_script()
+
+    def _resolve_manual_batch_script(self) -> Path | None:
+        batch_env = os.environ.get("MANUAL_BATCH")
+        if batch_env:
+            candidate = Path(batch_env)
+            if not candidate.is_absolute():
+                candidate = self.context.base_dir / candidate
+            return candidate
+
+        default_script = self.context.base_dir / "Productos.bat"
+        return default_script
 
     def _build_product_config(self) -> ProductGenerationConfig:
         siigo_dir = Path(os.environ.get("SIIGO_DIR", r"C:\\Siigo"))
