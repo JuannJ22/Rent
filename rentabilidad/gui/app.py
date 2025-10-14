@@ -35,7 +35,6 @@ from rentabilidad.app.use_cases.generar_informe_codigos_incorrectos import (
 )
 from rentabilidad.app.use_cases.generar_informe_manual import run as uc_manual
 from rentabilidad.app.use_cases.listar_meses_informes import run as uc_listar_meses
-from rentabilidad.app.use_cases.listar_productos import run as uc_listado
 from rentabilidad.config import bus, settings
 from rentabilidad.infra.fs import find_latest_informe, find_latest_producto
 
@@ -1324,7 +1323,7 @@ def build_ui() -> None:
                                 with ui.column().classes("gap-1"):
                                     ui.label("Script manual").classes("section-title")
                                     ui.label(
-                                        "Ejecuta el archivo por lotes configurado para actualizar el informe."
+                                        "Ejecuta el script GenerarListadoProductos.bat para construir el Excel manual."
                                     ).classes("action-note")
 
                             script_path = settings.manual_batch_script
@@ -1506,56 +1505,6 @@ def build_ui() -> None:
                                 ).classes("action-note text-amber-600")
 
                 with ui.column().classes("flex-1 w-full gap-6"):
-                    with ui.card().classes("panel-card"):
-                        with ui.column().classes("content w-full items-stretch"):
-                            with ui.row().classes(
-                                "items-center gap-3 w-full flex-wrap"
-                            ):
-                                with ui.element("div").classes("icon-bubble icon-emerald"):
-                                    ui.icon("inventory_2").classes("text-white text-xl")
-                                with ui.column().classes("gap-1"):
-                                    ui.label("Listado de productos").classes("section-title")
-                                    ui.label(
-                                        "Descarga y depura el catálogo directamente desde SIIGO."
-                                    ).classes("action-note")
-
-                            async def ejecutar_listado() -> None:
-                                update_status(
-                                    "running", "Generando listado de productos…"
-                                )
-                                agregar_log(
-                                    "Iniciando generación del listado de productos.", "info"
-                                )
-                                try:
-                                    ruta = await asyncio.to_thread(uc_listado, bus)
-                                except Exception as exc:  # pragma: no cover - defensivo
-                                    bus.publish("error", str(exc))
-                                    update_status("error", "Revisa los registros")
-                                    return
-                                if ruta:
-                                    update_status(
-                                        "success",
-                                        "Proceso completado",
-                                        open_path=ruta,
-                                    )
-                                else:
-                                    agregar_log(
-                                        "No se pudo generar el listado de productos."
-                                        " Verifica los registros anteriores para más detalles.",
-                                        "error",
-                                    )
-                                    update_status("error", "Revisa los registros")
-
-                            ui.button(
-                                "Generar listado de productos",
-                                icon="download",
-                                on_click=ejecutar_listado,
-                            ).classes("action-primary w-full sm:w-auto")
-                            ui.label(
-                                "Se conservarán las columnas configuradas y solo se incluirán productos activos."
-                            ).classes("action-note")
-                            _path_line("Destino", settings.context.productos_dir)
-
                     with ui.card().classes("panel-card"):
                         with ui.column().classes("content w-full items-stretch"):
                             with ui.row().classes(

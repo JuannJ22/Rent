@@ -67,14 +67,19 @@ class Settings:
         self.manual_batch_script = self._resolve_manual_batch_script()
 
     def _resolve_manual_batch_script(self) -> Path | None:
+        project_root = Path(__file__).resolve().parent.parent
+
         batch_env = os.environ.get("MANUAL_BATCH")
         if batch_env:
             candidate = Path(batch_env)
             if not candidate.is_absolute():
-                candidate = self.context.base_dir / candidate
+                candidate_base = self.context.base_dir / candidate
+                if candidate_base.exists():
+                    return candidate_base
+                candidate = project_root / candidate
             return candidate
 
-        default_script = self.context.base_dir / "Productos.bat"
+        default_script = project_root / "GenerarListadoProductos.bat"
         return default_script
 
     def _build_product_config(self) -> ProductGenerationConfig:
