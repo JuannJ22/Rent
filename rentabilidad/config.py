@@ -12,6 +12,10 @@ from rentabilidad.services.products import (
     SiigoCredentials,
     resolve_column_index,
 )
+from rentabilidad.services.monthly_reports import (
+    MonthlyReportConfig,
+    MonthlyReportService,
+)
 from servicios.generar_listado_productos import KEEP_COLUMN_NUMBERS
 
 from .infra.logging_bus import EventBus
@@ -59,6 +63,7 @@ class Settings:
         self.excz_sheet: str = os.environ.get("EXCZ_SHEET", "Hoja1")
 
         self._product_config = self._build_product_config()
+        self._monthly_reports_config = self._build_monthly_reports_config()
 
     def _build_product_config(self) -> ProductGenerationConfig:
         siigo_dir = Path(os.environ.get("SIIGO_DIR", r"C:\\Siigo"))
@@ -111,6 +116,51 @@ class Settings:
 
     def build_product_service(self) -> ProductListingService:
         return ProductListingService(self.context, self._product_config)
+
+    def _build_monthly_reports_config(self) -> MonthlyReportConfig:
+        base_dir = self.context.base_dir
+        informes_dir = Path(
+            os.environ.get("INFORMES_DIR", str(base_dir / "Informes"))
+        )
+        plantilla_codigos = Path(
+            os.environ.get(
+                "PLANTILLA_CODIGOS",
+                str(base_dir / "PLANTILLACODIGOS.xlsx"),
+            )
+        )
+        plantilla_malos = Path(
+            os.environ.get(
+                "PLANTILLA_MALCOBRO",
+                str(base_dir / "PLANTILLAMALCOBRO.xlsx"),
+            )
+        )
+        consolidados_base = Path(
+            os.environ.get(
+                "CONSOLIDADOS_DIR", str(base_dir / "Consolidados")
+            )
+        )
+        consolidados_codigos = Path(
+            os.environ.get(
+                "CONSOLIDADOS_CODIGOS_DIR",
+                str(consolidados_base / "Codigos"),
+            )
+        )
+        consolidados_cobros = Path(
+            os.environ.get(
+                "CONSOLIDADOS_COBROS_DIR",
+                str(consolidados_base / "Cobros"),
+            )
+        )
+        return MonthlyReportConfig(
+            informes_dir=informes_dir,
+            plantilla_codigos=plantilla_codigos,
+            plantilla_malos_cobros=plantilla_malos,
+            consolidados_codigos_dir=consolidados_codigos,
+            consolidados_cobros_dir=consolidados_cobros,
+        )
+
+    def build_monthly_report_service(self) -> MonthlyReportService:
+        return MonthlyReportService(self._monthly_reports_config)
 
 
 bus = EventBus()

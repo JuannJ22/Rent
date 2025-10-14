@@ -21,9 +21,20 @@ from nicegui.client import Client
 from importlib import resources
 from contextlib import suppress
 
-from rentabilidad.app.dto import GenerarInformeRequest
+from rentabilidad.app.dto import (
+    GenerarConsolidadoMalosCobrosRequest,
+    GenerarInformeCodigosIncorrectosRequest,
+    GenerarInformeRequest,
+)
+from rentabilidad.app.use_cases.generar_consolidado_malos_cobros import (
+    run as uc_malos_cobros,
+)
 from rentabilidad.app.use_cases.generar_informe_automatico import run as uc_auto
+from rentabilidad.app.use_cases.generar_informe_codigos_incorrectos import (
+    run as uc_codigos_incorrectos,
+)
 from rentabilidad.app.use_cases.generar_informe_manual import run as uc_manual
+from rentabilidad.app.use_cases.listar_meses_informes import run as uc_listar_meses
 from rentabilidad.app.use_cases.listar_productos import run as uc_listado
 from rentabilidad.config import bus, settings
 from rentabilidad.infra.fs import ayer_str, find_latest_informe, find_latest_producto
@@ -700,6 +711,8 @@ def build_ui() -> None:
     bus.bind_loop()
     logo_url = _logo_source()
     logo_markup = _inline_logo_markup()
+    month_options = uc_listar_meses()
+    default_month = month_options[-1] if month_options else None
 
     ui.add_head_html(
         """
@@ -873,6 +886,9 @@ def build_ui() -> None:
   }
   .icon-emerald {
     background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  }
+  .icon-green {
+    background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
   }
   .icon-purple {
     background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
@@ -1371,6 +1387,133 @@ def build_ui() -> None:
                             ui.label(
                                 "Si dejas la fecha vacía se utilizará el día anterior de forma automática."
                             ).classes("action-note")
+
+                    with ui.card().classes("panel-card"):
+                        with ui.column().classes("content w-full items-stretch"):
+                            with ui.row().classes(
+                                "items-center gap-3 w-full flex-wrap"
+                            ):
+                                with ui.element("div").classes("icon-bubble icon-green"):
+                                    ui.icon("insights").classes("text-white text-xl")
+                                with ui.column().classes("gap-1"):
+                                    ui.label("Informes mensuales").classes("section-title")
+                                    ui.label(
+                                        "Genera los consolidados mensuales a partir de los informes diarios."
+                                    ).classes("action-note")
+
+                            month_select = (
+                                ui.select(
+                                    options=month_options,
+                                    value=default_month,
+                                    label="Mes",
+                                )
+                                .props("outlined")
+                                .classes("w-full sm:w-64")
+                            )
+
+                            async def ejecutar_codigos() -> None:
+                                mes = (month_select.value or "").strip()
+                                if not mes:
+                                    safe_notify(
+                                        "Selecciona un mes disponible para continuar.",
+                                        type="warning",
+                                    )
+                                    return
+                                update_status(
+                                    "running",
+                                    f"Generando informe de códigos incorrectos ({mes})…",
+                                )
+                                agregar_log(
+                                    f"Iniciando generación del informe de códigos incorrectos para {mes}.",
+                                    "info",
+                                )
+                                try:
+                                    resultado = await asyncio.to_thread(
+                                        uc_codigos_incorrectos,
+                                        GenerarInformeCodigosIncorrectosRequest(mes=mes),
+                                        bus,
+                                    )
+                                except Exception as exc:  # pragma: no cover - defensivo
+                                    bus.publish("error", str(exc))
+                                    update_status("error", "Revisa los registros")
+                                    return
+                                if resultado.ok and resultado.ruta_salida:
+                                    update_status(
+                                        "success",
+                                        "Proceso completado",
+                                        open_path=resultado.ruta_salida,
+                                    )
+                                else:
+                                    agregar_log(
+                                        resultado.mensaje
+                                        or "No se pudo generar el informe de códigos incorrectos.",
+                                        "error",
+                                    )
+                                    update_status("error", "Revisa los registros")
+
+                            async def ejecutar_cobros() -> None:
+                                mes = (month_select.value or "").strip()
+                                if not mes:
+                                    safe_notify(
+                                        "Selecciona un mes disponible para continuar.",
+                                        type="warning",
+                                    )
+                                    return
+                                update_status(
+                                    "running",
+                                    f"Generando consolidado de malos cobros ({mes})…",
+                                )
+                                agregar_log(
+                                    f"Iniciando consolidado de malos cobros para {mes}.",
+                                    "info",
+                                )
+                                try:
+                                    resultado = await asyncio.to_thread(
+                                        uc_malos_cobros,
+                                        GenerarConsolidadoMalosCobrosRequest(mes=mes),
+                                        bus,
+                                    )
+                                except Exception as exc:  # pragma: no cover - defensivo
+                                    bus.publish("error", str(exc))
+                                    update_status("error", "Revisa los registros")
+                                    return
+                                if resultado.ok and resultado.ruta_salida:
+                                    update_status(
+                                        "success",
+                                        "Proceso completado",
+                                        open_path=resultado.ruta_salida,
+                                    )
+                                else:
+                                    agregar_log(
+                                        resultado.mensaje
+                                        or "No se pudo generar el consolidado de malos cobros.",
+                                        "error",
+                                    )
+                                    update_status("error", "Revisa los registros")
+
+                            with ui.row().classes("gap-3 flex-wrap w-full"):
+                                btn_codigos = ui.button(
+                                    "Informe códigos incorrectos",
+                                    icon="rule",
+                                    on_click=ejecutar_codigos,
+                                ).classes("action-primary w-full sm:w-auto")
+                                btn_cobros = ui.button(
+                                    "Consolidado malos cobros",
+                                    icon="summarize",
+                                    on_click=ejecutar_cobros,
+                                ).classes("action-secondary w-full sm:w-auto")
+                                if not month_options:
+                                    btn_codigos.disable()
+                                    btn_cobros.disable()
+
+                            if month_options:
+                                ui.label(
+                                    "El informe se guardará en las carpetas de consolidados configuradas."
+                                ).classes("action-note")
+                            else:
+                                ui.label(
+                                    "No se encontraron carpetas de meses en la ruta de informes configurada."
+                                ).classes("action-note text-amber-600")
 
                 with ui.column().classes("flex-1 w-full gap-6"):
                     with ui.card().classes("panel-card"):

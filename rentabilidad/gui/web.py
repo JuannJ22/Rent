@@ -12,9 +12,20 @@ from types import SimpleNamespace
 
 from nicegui import app, ui
 
-from rentabilidad.app.dto import GenerarInformeRequest
+from rentabilidad.app.dto import (
+    GenerarConsolidadoMalosCobrosRequest,
+    GenerarInformeCodigosIncorrectosRequest,
+    GenerarInformeRequest,
+)
+from rentabilidad.app.use_cases.generar_consolidado_malos_cobros import (
+    run as uc_malos_cobros,
+)
 from rentabilidad.app.use_cases.generar_informe_automatico import run as uc_auto
+from rentabilidad.app.use_cases.generar_informe_codigos_incorrectos import (
+    run as uc_codigos_incorrectos,
+)
 from rentabilidad.app.use_cases.generar_informe_manual import run as uc_manual
+from rentabilidad.app.use_cases.listar_meses_informes import run as uc_listar_meses
 from rentabilidad.app.use_cases.listar_productos import run as uc_listado
 from rentabilidad.config import bus, settings
 from rentabilidad.infra.fs import ayer_str
@@ -274,6 +285,9 @@ def setup_ui() -> None:
 
     _register_static_files()
     logo_url = f"/static/{LOGO_FILE.name}" if LOGO_FILE.exists() else None
+    month_options = uc_listar_meses()
+    default_month = month_options[-1] if month_options else None
+    month_select = None
 
     def ejecutar_auto() -> None:
         actualizar_estado("running", "Generando informe automático…")
@@ -300,6 +314,40 @@ def setup_ui() -> None:
         actualizar_estado("running", "Generando listado de productos…")
         agregar_log("Iniciando generación del listado de productos.")
         uc_listado(bus)
+
+    def ejecutar_codigos() -> None:
+        mes = (month_select.value or "").strip() if month_select else ""
+        if not mes:
+            agregar_log("Debes seleccionar un mes disponible.", "error")
+            actualizar_estado("error", "Selecciona un mes válido")
+            return
+        actualizar_estado(
+            "running", f"Generando informe de códigos incorrectos ({mes})…"
+        )
+        agregar_log(
+            f"Iniciando generación del informe de códigos incorrectos para {mes}."
+        )
+        uc_codigos_incorrectos(
+            GenerarInformeCodigosIncorrectosRequest(mes=mes),
+            bus,
+        )
+
+    def ejecutar_cobros() -> None:
+        mes = (month_select.value or "").strip() if month_select else ""
+        if not mes:
+            agregar_log("Debes seleccionar un mes disponible.", "error")
+            actualizar_estado("error", "Selecciona un mes válido")
+            return
+        actualizar_estado(
+            "running", f"Generando consolidado de malos cobros ({mes})…"
+        )
+        agregar_log(
+            f"Iniciando consolidado de malos cobros para {mes}."
+        )
+        uc_malos_cobros(
+            GenerarConsolidadoMalosCobrosRequest(mes=mes),
+            bus,
+        )
 
     with ui.column().classes("max-w-5xl mx-auto py-10 gap-6"):
         with ui.row().classes("items-center gap-4 w-full"):
@@ -387,6 +435,43 @@ def setup_ui() -> None:
                 ).classes("px-4 pb-4 text-xs text-gray-400")
                 with nota_productos:
                     ui.tooltip(str(settings.context.productos_dir))
+
+            with ui.card().classes(
+                "rounded-2xl shadow-sm border border-gray-200 bg-white flex-1 min-w-[260px]"
+            ):
+                with ui.row().classes("items-center gap-2 px-4 pt-4"):
+                    ui.icon("insights").classes("text-violet-500")
+                    ui.label("Informes mensuales").classes("font-medium")
+                ui.label(
+                    "Genera consolidaciones mensuales desde los informes existentes."
+                ).classes("px-4 pb-2 text-sm text-gray-500")
+                month_select = ui.select(
+                    options=month_options,
+                    value=default_month,
+                    label="Mes",
+                )
+                month_select.props("outlined")
+                month_select.classes("mx-4 mb-2 w-full text-sm")
+                btn_codigos = ui.button(
+                    "Informe códigos incorrectos",
+                    on_click=ejecutar_codigos,
+                )
+                btn_codigos.classes("mx-4 mb-2 w-full")
+                btn_codigos.props("color=primary")
+                btn_cobros = ui.button(
+                    "Consolidado malos cobros",
+                    on_click=ejecutar_cobros,
+                )
+                btn_cobros.classes("mx-4 mb-2 w-full")
+                nota_meses = ui.label(
+                    "Los resultados se guardarán en las carpetas de consolidados configuradas."
+                ).classes("px-4 pb-4 text-xs text-gray-400")
+                if not month_options:
+                    btn_codigos.disable()
+                    btn_cobros.disable()
+                    nota_meses.text = (
+                        "No se encontraron carpetas de meses en la ruta de informes."
+                    )
 
         with ui.card().classes(
             "rounded-2xl shadow-sm border border-gray-200 bg-white mt-6"
