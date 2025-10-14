@@ -130,7 +130,7 @@ def actualizar_estado(kind: str, mensaje: str) -> None:
     if state.status_icon:
         for cls in state.status_icon_classes:
             state.status_icon.classes(remove=cls)
-        state.status_icon.set_text(config["icon"])
+        state.status_icon.set_name(config["icon"])
         for cls in config["classes"]:
             state.status_icon.classes(add=cls)
         state.status_icon_classes = config["classes"]
@@ -339,99 +339,106 @@ def setup_ui() -> None:
             bus,
         )
 
-    with ui.column().classes("max-w-5xl mx-auto py-10 gap-6"):
-        with ui.row().classes("items-center gap-4 w-full"):
+    with ui.column().classes("max-w-5xl mx-auto py-10 space-y-6"):
+        with ui.row().classes("items-center gap-3 w-full"):
             if logo_url:
                 ui.image(logo_url).classes("h-12 w-auto object-contain")
             ui.label("Rentabilidad").classes("text-2xl font-semibold text-gray-800")
 
-        with ui.column().classes("gap-2 w-full"):
-            with ui.row().classes("items-center gap-2"):
+        with ui.card().classes(
+            "rounded-2xl shadow-sm border border-gray-200 bg-white w-full"
+        ):
+            with ui.row().classes("items-center gap-2 px-5 pt-4"):
                 ui.icon("folder_open").classes("text-gray-600")
                 ui.label("Plantilla base").classes("font-medium")
 
-            with ui.row().classes("items-center gap-2 w-full"):
+            with ui.row().classes(
+                "items-center gap-3 px-5 pb-4 w-full flex-wrap md:flex-nowrap"
+            ):
                 ruta_input = ui.input(value=str(settings.ruta_plantilla))
                 ruta_input.props("readonly")
                 ruta_input.classes(
-                    "flex-1 bg-gray-50 rounded-xl p-2 h-10 min-h-0 text-sm"
+                    "grow bg-gray-50 rounded-xl px-3 h-10 min-h-0 text-sm"
                 )
-                ui.button("Copiar", on_click=copiar_ruta)
-                ui.button("Abrir carpeta", on_click=abrir_carpeta)
+                ui.button("Copiar", on_click=copiar_ruta).classes("w-full md:w-auto")
+                ui.button("Abrir carpeta", on_click=abrir_carpeta).classes(
+                    "w-full md:w-auto"
+                )
 
-        with ui.row().classes("gap-4 flex-wrap w-full"):
-            with ui.card().classes(
-                "rounded-2xl shadow-sm border border-gray-200 bg-white flex-1 min-w-[260px]"
-            ):
-                with ui.row().classes("items-center gap-2 px-4 pt-4"):
+        def _card_container():
+            return ui.card().classes(
+                "h-full rounded-2xl shadow-sm border border-gray-200 bg-white flex flex-col"
+            )
+
+        with ui.element("div").classes(
+            "grid grid-cols-1 gap-4 w-full md:grid-cols-2 xl:grid-cols-3"
+        ):
+            with _card_container():
+                with ui.row().classes("items-center gap-2 px-5 pt-4"):
                     ui.icon("bolt").classes("text-violet-500")
                     ui.label("Informe automático").classes("font-medium")
                 ui.label(
                     "Genera el informe del día anterior usando el EXCZ más reciente disponible."
-                ).classes("px-4 pb-2 text-sm text-gray-500")
+                ).classes("px-5 pb-3 text-sm text-gray-500 leading-snug")
                 btn_auto = ui.button(
                     "Generar informe automático", on_click=ejecutar_auto
                 )
-                btn_auto.classes("mx-4 mb-2 w-full")
+                btn_auto.classes("mx-5 mb-2 w-full")
                 btn_auto.props("color=primary")
                 nota_auto = ui.label(
                     f"Prefijo EXCZ: {settings.excz_prefix} · Carpeta: {_shorten(settings.excz_dir)}"
-                ).classes("px-4 pb-4 text-xs text-gray-400")
+                ).classes("px-5 pb-5 text-xs text-gray-400")
                 with nota_auto:
                     ui.tooltip(str(settings.excz_dir))
 
-            with ui.card().classes(
-                "rounded-2xl shadow-sm border border-gray-200 bg-white flex-1 min-w-[260px]"
-            ):
-                with ui.row().classes("items-center gap-2 px-4 pt-4"):
+            with _card_container():
+                with ui.row().classes("items-center gap-2 px-5 pt-4"):
                     ui.icon("calendar_month").classes("text-violet-500")
                     ui.label("Script manual").classes("font-medium")
                 ui.label(
                     "Ejecuta el script GenerarListadoProductos.bat para construir el Excel manual."
-                ).classes("px-4 pb-2 text-sm text-gray-500")
+                ).classes("px-5 pb-3 text-sm text-gray-500 leading-snug")
                 script_path = settings.manual_batch_script
                 script_text = _shorten(script_path) if script_path else "No configurado"
                 script_label = ui.label(f"Script: {script_text}")
-                script_label.classes("px-4 pb-2 text-xs text-gray-400")
+                script_label.classes("px-5 pb-3 text-xs text-gray-400")
                 if script_path:
                     with script_label:
                         ui.tooltip(str(script_path))
                 btn_manual = ui.button(
                     "Ejecutar script manual", on_click=ejecutar_manual
                 )
-                btn_manual.classes("mx-4 mb-4 w-full")
+                btn_manual.classes("mx-5 mb-5 w-full")
                 btn_manual.props("color=primary")
 
-            with ui.card().classes(
-                "rounded-2xl shadow-sm border border-gray-200 bg-white flex-1 min-w-[260px]"
-            ):
-                with ui.row().classes("items-center gap-2 px-4 pt-4"):
+            with _card_container():
+                with ui.row().classes("items-center gap-2 px-5 pt-4"):
                     ui.icon("insights").classes("text-violet-500")
                     ui.label("Informes mensuales").classes("font-medium")
                 ui.label(
                     "Genera consolidaciones mensuales desde los informes existentes."
-                ).classes("px-4 pb-2 text-sm text-gray-500")
+                ).classes("px-5 pb-3 text-sm text-gray-500 leading-snug")
                 month_select = ui.select(
                     options=month_options,
                     value=default_month,
                     label="Mes",
                 )
                 month_select.props("outlined")
-                month_select.classes("mx-4 mb-2 w-full text-sm")
+                month_select.classes("mx-5 mb-2 w-full text-sm")
                 btn_codigos = ui.button(
                     "Informe códigos incorrectos",
                     on_click=ejecutar_codigos,
                 )
-                btn_codigos.classes("mx-4 mb-2 w-full")
+                btn_codigos.classes("mx-5 mb-2 w-full")
                 btn_codigos.props("color=primary")
                 btn_cobros = ui.button(
                     "Consolidado malos cobros",
                     on_click=ejecutar_cobros,
                 )
-                btn_cobros.classes("mx-4 mb-2 w-full")
+                btn_cobros.classes("mx-5 mb-2 w-full")
                 nota_meses = ui.label(
                     "Los resultados se guardarán en las carpetas de consolidados configuradas."
-                ).classes("px-4 pb-4 text-xs text-gray-400")
+                ).classes("px-5 pb-5 text-xs text-gray-400")
                 if not month_options:
                     btn_codigos.disable()
                     btn_cobros.disable()
