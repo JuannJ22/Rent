@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from rentabilidad.core.paths import PathContext
+from rentabilidad.config import _parse_required_files_env
 from rentabilidad.services.products import (
     ExcelSiigoFacade,
     ProductGenerationConfig,
@@ -275,6 +276,61 @@ def test_facade_accepts_custom_executable(monkeypatch, tmp_path: Path) -> None:
     assert cmd[0].endswith("Excel Custom.exe")
 
 
+def test_facade_normalizes_trailing_backslash(monkeypatch, tmp_path: Path) -> None:
+    from rentabilidad.services import products as products_module
+
+    siigo_dir = tmp_path / "Siigo"
+    siigo_dir.mkdir()
+    output_path = tmp_path / "salida.xlsx"
+
+    base_path_dir = tmp_path / "SIIWI01"
+    base_path_dir.mkdir()
+    (base_path_dir / "Z06").touch()
+
+    log_path = base_path_dir / "LOGS" / "log_catalogos.txt"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    credentials = SiigoCredentials(
+        reporte="REP",
+        empresa="EMP",
+        usuario="USR",
+        clave="PWD",
+        estado_param="S",
+        rango_ini="0001",
+        rango_fin="9999",
+    )
+
+    config = ProductGenerationConfig(
+        siigo_dir=siigo_dir,
+        base_path=str(base_path_dir) + "\\\\",  # simula doble barra invertida final
+        log_path=str(log_path),
+        credentials=credentials,
+        activo_column=1,
+        keep_columns=(1,),
+    )
+
+    facade = ExcelSiigoFacade(config)
+
+    captured: dict[str, object] = {}
+
+    class DummyResult:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(command, **kwargs):  # noqa: ANN001 - firma flexible
+        captured["command"] = command
+        return DummyResult()
+
+    monkeypatch.setattr(products_module.subprocess, "run", fake_run)
+
+    facade.run(output_path, "2024")
+
+    normalized_base = captured["command"][1]
+    assert normalized_base.endswith("\\")
+    assert not normalized_base.endswith("\\\\")
+
+
 def test_facade_reports_missing_required_files(tmp_path: Path) -> None:
     siigo_dir = tmp_path / "Siigo"
     siigo_dir.mkdir()
@@ -366,6 +422,13 @@ def test_facade_allows_disabling_required_files_check(monkeypatch, tmp_path: Pat
     facade.run(output_path, "2024")
 
     assert captured, "Debe ejecutarse ExcelSIIGO incluso sin archivos requeridos"
+
+
+def test_parse_required_files_env() -> None:
+    assert _parse_required_files_env(None) is None
+    assert _parse_required_files_env("") == ()
+    assert _parse_required_files_env("Z01") == ("Z01",)
+    assert _parse_required_files_env("Z01, Z02 ; Z03") == ("Z01", "Z02", "Z03")
 
 
 def test_generate_fails_when_file_too_small(tmp_path: Path) -> None:

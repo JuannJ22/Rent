@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 from rentabilidad.core.env import load_env
@@ -17,7 +18,22 @@ from .infra.logging_bus import EventBus
 
 
 def _ensure_trailing_backslash(path: str) -> str:
-    return path if path.endswith(("\\", "/")) else path + "\\"
+    if not path:
+        return "\\"
+
+    stripped = path.rstrip("\\/")
+    if not stripped:
+        return path
+
+    return stripped + "\\"
+
+
+def _parse_required_files_env(value: str | None) -> tuple[str, ...] | None:
+    if value is None:
+        return None
+
+    parts = [part.strip() for part in re.split(r"[;,]", value) if part.strip()]
+    return tuple(parts)
 
 
 def _read_float_env(name: str, default: float) -> float:
@@ -70,6 +86,14 @@ class Settings:
                 candidate = self.context.base_dir / candidate
             batch_script = candidate
 
+        required_files_override = _parse_required_files_env(
+            os.environ.get("SIIGO_REQUIRED_FILES")
+        )
+
+        config_kwargs: dict[str, object] = {}
+        if required_files_override is not None:
+            config_kwargs["required_files"] = required_files_override
+
         return ProductGenerationConfig(
             siigo_dir=siigo_dir,
             base_path=base_path,
@@ -82,6 +106,7 @@ class Settings:
             wait_timeout=_read_float_env("SIIGO_WAIT_TIMEOUT", 60.0),
             wait_interval=_read_float_env("SIIGO_WAIT_INTERVAL", 0.2),
             batch_script=batch_script,
+            **config_kwargs,
         )
 
     def build_product_service(self) -> ProductListingService:
