@@ -13,7 +13,6 @@ from __future__ import annotations
 
 
 import os
-import shlex
 import shutil
 import subprocess
 import time
@@ -81,7 +80,7 @@ class ProductGenerationConfig:
     activo_column: int | str
     keep_columns: Sequence[int | str]
     required_files: Sequence[str] = ("Z06",)
-    siigo_command: str = "ExcelSIIGO.exe"
+    siigo_command: str = "ExcelSIIGO"
     siigo_output_filename: str = "ProductosMesDia.xlsx"
     wait_timeout: float = 120.0
     wait_interval: float = 0.2
@@ -177,9 +176,10 @@ class ExcelSiigoFacade:
             str(output_path),
         ]
 
-        printable_command = " ".join(shlex.quote(part) for part in command)
         print(f"[ExcelSIIGO] cwd: {self._config.siigo_dir}")
-        print(f"[ExcelSIIGO] Ejecutando: {printable_command}")
+        print("[ExcelSIIGO] Ejecutando con argumentos:")
+        for index, part in enumerate(command):
+            print(f"    [{index}] {part}")
 
         result = subprocess.run(
             command,
