@@ -26,7 +26,6 @@ from rentabilidad.app.use_cases.generar_informe_codigos_incorrectos import (
 )
 from rentabilidad.app.use_cases.generar_informe_manual import run as uc_manual
 from rentabilidad.app.use_cases.listar_meses_informes import run as uc_listar_meses
-from rentabilidad.app.use_cases.listar_productos import run as uc_listado
 from rentabilidad.config import bus, settings
 from rentabilidad.infra.fs import ayer_str
 
@@ -307,11 +306,6 @@ def setup_ui() -> None:
             bus,
         )
 
-    def ejecutar_listado() -> None:
-        actualizar_estado("running", "Generando listado de productos…")
-        agregar_log("Iniciando generación del listado de productos.")
-        uc_listado(bus)
-
     def ejecutar_codigos() -> None:
         mes = (month_select.value or "").strip() if month_select else ""
         if not mes:
@@ -394,7 +388,7 @@ def setup_ui() -> None:
                     ui.icon("calendar_month").classes("text-violet-500")
                     ui.label("Script manual").classes("font-medium")
                 ui.label(
-                    "Ejecuta el archivo por lotes configurado para actualizar el informe."
+                    "Ejecuta el script GenerarListadoProductos.bat para construir el Excel manual."
                 ).classes("px-4 pb-2 text-sm text-gray-500")
                 script_path = settings.manual_batch_script
                 script_text = _shorten(script_path) if script_path else "No configurado"
@@ -408,26 +402,6 @@ def setup_ui() -> None:
                 )
                 btn_manual.classes("mx-4 mb-4 w-full")
                 btn_manual.props("color=primary")
-
-            with ui.card().classes(
-                "rounded-2xl shadow-sm border border-gray-200 bg-white flex-1 min-w-[260px]"
-            ):
-                with ui.row().classes("items-center gap-2 px-4 pt-4"):
-                    ui.icon("inventory_2").classes("text-violet-500")
-                    ui.label("Listado de productos").classes("font-medium")
-                ui.label(
-                    "Descarga y limpia el catálogo directamente desde SIIGO."
-                ).classes("px-4 pb-2 text-sm text-gray-500")
-                btn_listado = ui.button(
-                    "Generar listado de productos", on_click=ejecutar_listado
-                )
-                btn_listado.classes("mx-4 mb-2 w-full")
-                btn_listado.props("color=primary")
-                nota_productos = ui.label(
-                    f"Destino: {_shorten(settings.context.productos_dir)}"
-                ).classes("px-4 pb-4 text-xs text-gray-400")
-                with nota_productos:
-                    ui.tooltip(str(settings.context.productos_dir))
 
             with ui.card().classes(
                 "rounded-2xl shadow-sm border border-gray-200 bg-white flex-1 min-w-[260px]"
