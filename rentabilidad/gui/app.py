@@ -26,7 +26,7 @@ from rentabilidad.app.use_cases.generar_informe_automatico import run as uc_auto
 from rentabilidad.app.use_cases.generar_informe_manual import run as uc_manual
 from rentabilidad.app.use_cases.listar_productos import run as uc_listado
 from rentabilidad.config import bus, settings
-from rentabilidad.infra.fs import ayer_str, find_latest_informe, find_latest_producto
+from rentabilidad.infra.fs import find_latest_informe, find_latest_producto
 
 @dataclass(slots=True)
 class LatestResourceComponents:
@@ -1306,29 +1306,26 @@ def build_ui() -> None:
                                 with ui.element("div").classes("icon-bubble icon-purple"):
                                     ui.icon("calendar_month").classes("text-white text-xl")
                                 with ui.column().classes("gap-1"):
-                                    ui.label("Informe manual").classes("section-title")
+                                    ui.label("Script manual").classes("section-title")
                                     ui.label(
-                                        "Selecciona la fecha objetivo para regenerar un informe específico."
+                                        "Ejecuta el archivo por lotes configurado para actualizar el informe."
                                     ).classes("action-note")
 
-                            fecha_input = (
-                                ui.input(
-                                    label="Fecha objetivo",
-                                    value=ayer_str(),
-                                )
-                                .props("type=date")
-                                .classes("w-full rounded-xl border border-slate-200 px-3 py-2")
+                            script_path = settings.manual_batch_script
+                            script_text = (
+                                shorten(script_path, 36) if script_path else "No configurado"
                             )
+                            script_label = ui.label(
+                                f"Script configurado: {script_text}"
+                            ).classes("action-note")
+                            if script_path:
+                                with script_label:
+                                    ui.tooltip(str(script_path))
 
                             async def ejecutar_manual() -> None:
-                                fecha = (fecha_input.value or "").strip() or None
-                                if fecha:
-                                    estado = f"Generando informe para {fecha}…"
-                                else:
-                                    estado = "Generando informe manual…"
-                                update_status("running", estado)
+                                update_status("running", "Ejecutando script manual…")
                                 agregar_log(
-                                    f"Iniciando generación manual del informe ({fecha or 'día anterior'}).",
+                                    "Iniciando ejecución del script manual configurado.",
                                     "info",
                                 )
                                 try:
@@ -1336,7 +1333,6 @@ def build_ui() -> None:
                                         uc_manual,
                                         GenerarInformeRequest(
                                             ruta_plantilla=str(settings.ruta_plantilla),
-                                            fecha=fecha,
                                         ),
                                         bus,
                                     )
@@ -1344,10 +1340,7 @@ def build_ui() -> None:
                                     bus.publish("error", str(exc))
                                     update_status("error", "Revisa los registros")
                                     return
-                                if (
-                                    resultado.ok
-                                    and resultado.ruta_salida
-                                ):
+                                if resultado.ok:
                                     update_status(
                                         "success",
                                         "Proceso completado",
@@ -1364,13 +1357,10 @@ def build_ui() -> None:
                                     update_status("error", "Revisa los registros")
 
                             ui.button(
-                                "Generar informe manual",
-                                icon="event",
+                                "Ejecutar script manual",
+                                icon="terminal",
                                 on_click=ejecutar_manual,
                             ).classes("action-primary w-full sm:w-auto")
-                            ui.label(
-                                "Si dejas la fecha vacía se utilizará el día anterior de forma automática."
-                            ).classes("action-note")
 
                 with ui.column().classes("flex-1 w-full gap-6"):
                     with ui.card().classes("panel-card"):
