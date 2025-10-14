@@ -10,7 +10,6 @@ from typing import Iterable, Iterator, Mapping
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.comments import Comment
-from openpyxl.styles import PatternFill
 
 
 def _normalize_color(value: object | None) -> str | None:

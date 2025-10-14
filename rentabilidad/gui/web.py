@@ -27,7 +27,6 @@ from rentabilidad.app.use_cases.generar_informe_codigos_incorrectos import (
 from rentabilidad.app.use_cases.generar_informe_manual import run as uc_manual
 from rentabilidad.app.use_cases.listar_meses_informes import run as uc_listar_meses
 from rentabilidad.config import bus, settings
-from rentabilidad.infra.fs import ayer_str
 
 state = SimpleNamespace(
     empty=None,
