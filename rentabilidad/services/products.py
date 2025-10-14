@@ -33,9 +33,18 @@ from rentabilidad.core.paths import SPANISH_MONTHS, PathContext
 
 
 def _ensure_trailing_backslash(path: str) -> str:
-    """Garantiza que ``path`` termine con un separador de carpeta."""
+    """Garantiza que ``path`` termine con un único separador de carpeta."""
 
-    return path if path.endswith(("\\", "/")) else path + "\\"
+    if not path:
+        return "\\"
+
+    stripped = path.rstrip("\\/")
+    if not stripped:
+        # Cuando ``path`` sólo contiene separadores (``\\`` o ``/``) devolvemos la
+        # ruta original para no alterar rutas de red o POSIX.
+        return path
+
+    return stripped + "\\"
 
 
 def _tail(path: str | Path, max_lines: int = 80) -> str:
