@@ -164,6 +164,21 @@ def _build_document_reference_message(
     return f"Documento {reference}"
 
 
+def _format_document_quantity(value) -> str | None:
+    """Formatea una cantidad para mostrar junto al documento."""
+
+    if value is None:
+        return None
+    if isinstance(value, numbers.Real) and not isinstance(value, bool):
+        value_float = float(value)
+        if value_float.is_integer():
+            return str(int(value_float))
+        text = f"{value_float}".rstrip("0").rstrip(".")
+        return text if text else None
+    text = str(value).strip()
+    return text if text else None
+
+
 def _build_vendor_mismatch_message(assigned_vendor: str | None) -> str | None:
     """Construye el texto para advertir un código de vendedor diferente."""
 
@@ -501,17 +516,21 @@ def _load_vendedores_document_lookup(wb):
         return {}
     ws = wb[sheet_name]
     lookup: dict[str, list[dict[str, object]]] = {}
-    for nit, _, tipo, prefijo, numero, descripcion in ws.iter_rows(
+    for nit, cantidad, tipo, prefijo, numero, descripcion in ws.iter_rows(
         min_row=1, max_row=ws.max_row, max_col=6, values_only=True
     ):
         product_key = _normalize_product_key(descripcion)
         if not product_key:
             continue
+        quantity_value = _coerce_float(cantidad)
+        if quantity_value is not None and float(quantity_value).is_integer():
+            quantity_value = int(quantity_value)
         entry = {
             "nit": _normalize_nit_value(nit),
             "tipo": _clean_cell_value(tipo),
             "prefijo": _clean_cell_value(prefijo),
             "numero": _clean_cell_value(numero),
+            "cantidad": quantity_value,
         }
         if not any(entry[key] for key in ("tipo", "prefijo", "numero")):
             continue
@@ -2563,18 +2582,49 @@ def main():
                     prioritized = [
                         entry for entry in doc_entries if entry.get("nit") == nit_norm
                     ]
-                    document_messages: list[str] = []
-                    seen_documents: set[str] = set()
-                    for entry in prioritized or doc_entries:
+                    entries_to_iterate = prioritized or doc_entries
+                    document_order: list[str] = []
+                    document_quantities: dict[str, int | float | None] = {}
+                    for entry in entries_to_iterate:
                         document_message = _build_document_reference_message(
                             entry.get("tipo"),
                             entry.get("prefijo"),
                             entry.get("numero"),
                         )
-                        if document_message and document_message not in seen_documents:
-                            document_messages.append(document_message)
-                            seen_documents.add(document_message)
-                    if document_messages:
+                        if not document_message:
+                            continue
+                        if document_message not in document_order:
+                            document_order.append(document_message)
+                            document_quantities[document_message] = entry.get("cantidad")
+                        else:
+                            quantity = entry.get("cantidad")
+                            if isinstance(quantity, numbers.Real) and not isinstance(
+                                quantity, bool
+                            ):
+                                existing = document_quantities.get(document_message)
+                                if existing is None:
+                                    document_quantities[document_message] = quantity
+                                elif isinstance(existing, numbers.Real) and not isinstance(
+                                    existing, bool
+                                ):
+                                    total = existing + quantity
+                                    if float(total).is_integer():
+                                        total = int(total)
+                                    document_quantities[document_message] = total
+                                else:
+                                    document_quantities[document_message] = quantity
+                    if document_order:
+                        multiple_documents = len(document_order) > 1
+                        document_messages: list[str] = []
+                        for message in document_order:
+                            final_message = message
+                            if multiple_documents:
+                                quantity_text = _format_document_quantity(
+                                    document_quantities.get(message)
+                                )
+                                if quantity_text:
+                                    final_message = f"{message}({quantity_text})"
+                            document_messages.append(final_message)
                         document_message = " / ".join(document_messages)
             if document_message:
                 reason_messages.append(document_message)
