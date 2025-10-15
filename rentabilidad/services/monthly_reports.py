@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Iterable, Iterator, Mapping
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.cell.cell import MergedCell
 from openpyxl.comments import Comment
 
 
@@ -493,6 +494,8 @@ class MonthlyReportService:
             min_row=start_row, max_row=max_row, max_col=max_col
         ):
             for cell in row:
+                if isinstance(cell, MergedCell):
+                    continue
                 cell.value = None
                 cell.comment = None
 
