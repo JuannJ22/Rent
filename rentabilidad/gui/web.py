@@ -17,6 +17,9 @@ from rentabilidad.app.dto import (
     GenerarInformeCodigosIncorrectosRequest,
     GenerarInformeRequest,
 )
+from rentabilidad.app.use_cases.ejecutar_productos_script import (
+    run as uc_productos,
+)
 from rentabilidad.app.use_cases.generar_consolidado_malos_cobros import (
     run as uc_malos_cobros,
 )
@@ -24,9 +27,9 @@ from rentabilidad.app.use_cases.generar_informe_automatico import run as uc_auto
 from rentabilidad.app.use_cases.generar_informe_codigos_incorrectos import (
     run as uc_codigos_incorrectos,
 )
-from rentabilidad.app.use_cases.generar_informe_manual import run as uc_manual
 from rentabilidad.app.use_cases.listar_meses_informes import run as uc_listar_meses
 from rentabilidad.config import bus, settings
+from rentabilidad.infra.fs import ayer_str
 
 state = SimpleNamespace(
     empty=None,
@@ -37,6 +40,7 @@ state = SimpleNamespace(
     status_icon_classes=tuple(),
     status_action=None,
     status_target=None,
+    progress=None,
 )
 
 RUTA_PLANTILLA = str(settings.ruta_plantilla)
@@ -138,6 +142,11 @@ def actualizar_estado(kind: str, mensaje: str) -> None:
         state.status.text = mensaje
     if kind != "success":
         _set_status_action(None)
+    if state.progress:
+        if kind == "running":
+            state.progress.classes(remove="hidden")
+        else:
+            state.progress.classes(add="hidden")
 
 
 def agregar_log(msg: str, kind: str = "info") -> None:
@@ -286,6 +295,7 @@ def setup_ui() -> None:
     month_options = uc_listar_meses()
     default_month = month_options[-1] if month_options else None
     month_select = None
+    manual_date_input = None
 
     def ejecutar_auto() -> None:
         actualizar_estado("running", "Generando informe automático…")
@@ -296,14 +306,39 @@ def setup_ui() -> None:
         )
 
     def ejecutar_manual() -> None:
-        actualizar_estado("running", "Ejecutando script manual…")
-        agregar_log("Iniciando ejecución del script manual configurado.")
-        uc_manual(
+        fecha_texto = (
+            (manual_date_input.value or "").strip() if manual_date_input else ""
+        )
+        if not fecha_texto:
+            agregar_log("Debes seleccionar una fecha válida.", "error")
+            actualizar_estado("error", "Selecciona una fecha")
+            return
+        try:
+            datetime.strptime(fecha_texto, "%Y-%m-%d")
+        except ValueError:
+            agregar_log("La fecha debe tener el formato AAAA-MM-DD.", "error")
+            actualizar_estado("error", "Fecha inválida")
+            return
+        actualizar_estado(
+            "running", f"Generando informe manual ({fecha_texto})…"
+        )
+        agregar_log(
+            f"Iniciando generación manual del informe para {fecha_texto}."
+        )
+        uc_auto(
             GenerarInformeRequest(
                 ruta_plantilla=str(settings.ruta_plantilla),
+                fecha=fecha_texto,
             ),
             bus,
         )
+
+    def ejecutar_productos() -> None:
+        actualizar_estado("running", "Generando listado de productos…")
+        agregar_log(
+            "Iniciando generación del listado de productos (Productos.bat)."
+        )
+        uc_productos(bus)
 
     def ejecutar_codigos() -> None:
         mes = (month_select.value or "").strip() if month_select else ""
@@ -371,7 +406,7 @@ def setup_ui() -> None:
             )
 
         with ui.element("div").classes(
-            "grid grid-cols-1 gap-4 w-full md:grid-cols-2 xl:grid-cols-3"
+            "grid grid-cols-1 gap-4 w-full md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5"
         ):
             with _card_container():
                 with ui.row().classes("items-center gap-2 px-5 pt-4"):
@@ -394,22 +429,55 @@ def setup_ui() -> None:
             with _card_container():
                 with ui.row().classes("items-center gap-2 px-5 pt-4"):
                     ui.icon("calendar_month").classes("text-violet-500")
-                    ui.label("Script manual").classes("font-medium")
+                    ui.label("Informe manual").classes("font-medium")
                 ui.label(
-                    "Ejecuta el script GenerarListadoProductos.bat para construir el Excel manual."
+                    "Selecciona una fecha para generar el informe utilizando el EXCZ correspondiente."
                 ).classes("px-5 pb-3 text-sm text-gray-500 leading-snug")
-                script_path = settings.manual_batch_script
-                script_text = _shorten(script_path) if script_path else "No configurado"
+                manual_date_input = ui.input(
+                    label="Fecha objetivo",
+                    value=ayer_str(),
+                )
+                manual_date_input.props("type=date outlined")
+                manual_date_input.classes("mx-5 mb-2 w-full")
+                btn_manual = ui.button(
+                    "Generar informe manual", on_click=ejecutar_manual
+                )
+                btn_manual.classes("mx-5 mb-2 w-full")
+                btn_manual.props("color=primary")
+                ui.label(
+                    "Se utilizará el EXCZ de la fecha seleccionada si está disponible."
+                ).classes("px-5 pb-5 text-xs text-gray-400")
+
+            with _card_container():
+                with ui.row().classes("items-center gap-2 px-5 pt-4"):
+                    ui.icon("inventory_2").classes("text-violet-500")
+                    ui.label("Generar productos").classes("font-medium")
+                ui.label(
+                    "Ejecuta el script Productos.bat para actualizar el listado de productos."
+                ).classes("px-5 pb-3 text-sm text-gray-500 leading-snug")
+                productos_script = settings.productos_batch_script
+                script_text = (
+                    _shorten(productos_script) if productos_script else "No configurado"
+                )
                 script_label = ui.label(f"Script: {script_text}")
                 script_label.classes("px-5 pb-3 text-xs text-gray-400")
-                if script_path:
+                if productos_script:
                     with script_label:
-                        ui.tooltip(str(script_path))
-                btn_manual = ui.button(
-                    "Ejecutar script manual", on_click=ejecutar_manual
+                        ui.tooltip(str(productos_script))
+                btn_productos = ui.button(
+                    "Generar productos", on_click=ejecutar_productos
                 )
-                btn_manual.classes("mx-5 mb-5 w-full")
-                btn_manual.props("color=primary")
+                btn_productos.classes("mx-5 mb-2 w-full")
+                btn_productos.props("color=primary")
+                if not productos_script:
+                    btn_productos.disable()
+                    ui.label(
+                        "Configura la ruta del script Productos.bat antes de ejecutar esta acción."
+                    ).classes("px-5 pb-5 text-xs text-amber-500")
+                else:
+                    ui.label(
+                        "El resultado se guardará en la carpeta de productos configurada."
+                    ).classes("px-5 pb-5 text-xs text-gray-400")
 
             with _card_container():
                 with ui.row().classes("items-center gap-2 px-5 pt-4"):
@@ -446,6 +514,42 @@ def setup_ui() -> None:
                         "No se encontraron carpetas de meses en la ruta de informes."
                     )
 
+            with _card_container():
+                with ui.column().classes(
+                    "px-5 py-5 items-center text-center gap-3 flex-1"
+                ):
+                    ui.icon("route").classes("text-violet-500 text-3xl")
+                    ui.label("Rutas de trabajo").classes("font-medium")
+                    ui.label("Pronto…").classes(
+                        "text-lg font-semibold text-gray-500"
+                    )
+                    ui.label(
+                        "Estamos preparando nuevas herramientas para administrar rutas de trabajo."
+                    ).classes("text-sm text-gray-500 leading-snug")
+
+        def _path_entry(nombre: str, ruta: Path) -> None:
+            with ui.row().classes(
+                "items-center gap-2 px-5 text-sm text-gray-600 flex-wrap"
+            ):
+                ui.label(f"{nombre}:").classes("font-semibold text-gray-700")
+                valor = ui.label(_shorten(ruta)).classes("text-gray-600")
+                with valor:
+                    ui.tooltip(str(ruta))
+
+        with ui.card().classes(
+            "rounded-2xl shadow-sm border border-gray-200 bg-white mt-4 w-full"
+        ):
+            with ui.row().classes("items-center gap-2 px-5 pt-4"):
+                ui.icon("map").classes("text-violet-500")
+                ui.label("Ubicaciones configuradas").classes("font-medium")
+            with ui.column().classes("px-5 pb-4 gap-2"):
+                _path_entry("Informes", settings.context.informes_dir)
+                _path_entry("Productos", settings.context.productos_dir)
+                _path_entry("Plantilla", settings.ruta_plantilla)
+                ui.label(
+                    "Puedes modificar estas rutas mediante variables de entorno."
+                ).classes("text-xs text-gray-400")
+
         with ui.card().classes(
             "rounded-2xl shadow-sm border border-gray-200 bg-white mt-6"
         ):
@@ -468,18 +572,26 @@ def setup_ui() -> None:
 
                 state.log = ui.column().classes("hidden w-full gap-2 mt-3")
 
-        with ui.row().classes(
-            "items-center justify-between text-xs text-gray-500 mt-2"
+        with ui.column().classes(
+            "mt-2 w-full gap-2 text-xs text-gray-500"
         ):
-            with ui.row().classes("items-center gap-1"):
-                state.status_icon = ui.icon("check_circle").classes("text-emerald-500")
-                state.status = ui.label("Sistema listo")
-            state.status_action = ui.button(
-                "Abrir informe", on_click=_abrir_estado_destino
-            ).props("flat color=primary")
-            state.status_action.classes("text-xs hidden")
-            state.status_action.disable()
-            state.last_update = ui.label("Última actualización: —")
+            with ui.row().classes("items-center justify-between w-full"):
+                with ui.row().classes("items-center gap-1"):
+                    state.status_icon = ui.icon("check_circle").classes(
+                        "text-emerald-500"
+                    )
+                    state.status = ui.label("Sistema listo")
+                state.status_action = ui.button(
+                    "Abrir informe", on_click=_abrir_estado_destino
+                ).props("flat color=primary")
+                state.status_action.classes("text-xs hidden")
+                state.status_action.disable()
+                state.last_update = ui.label("Última actualización: —")
+            state.progress = (
+                ui.linear_progress()
+                .props("color=primary indeterminate")
+                .classes("hidden w-full")
+            )
 
     _register_api_routes()
     _register_bus_handlers()
