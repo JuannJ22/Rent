@@ -113,6 +113,12 @@ para generar un Excel de productos en `C:\\Rentabilidad\\Productos`
     (por defecto `C:\\Rentabilidad\\Productos`).
   - `SIIGO_LOG`: ruta del archivo de log usado por `ExcelSIIGO`
     (por defecto `D:\\SIIWI01\\LOGS\\log_catalogos.txt`).
+  - `SIIGO_WAIT_TIMEOUT`: tiempo máximo para esperar a que se cree el archivo
+    de SIIGO (por defecto `60`).
+  - `SIIGO_WAIT_INTERVAL`: intervalo entre verificaciones del archivo generado
+    (por defecto `0.2`).
+  - `SIIGO_POST_GENERATION_DELAY`: espera adicional antes de depurar el
+    archivo una vez creado (por defecto `10`).
 
 El archivo resultante sigue el formato `productosMMDD.xlsx`, usando la fecha
 actual si no se indica otra con la opción `--fecha`.

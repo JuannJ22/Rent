@@ -84,6 +84,7 @@ class ProductGenerationConfig:
     siigo_output_filename: str = "ProductosMesDia.xlsx"
     wait_timeout: float = 120.0
     wait_interval: float = 0.2
+    post_generation_delay: float = 0.0
     batch_script: Path | None = None
 
 
@@ -387,6 +388,7 @@ class ProductListingService:
         )
         self._wait_timeout = config.wait_timeout
         self._wait_interval = config.wait_interval
+        self._post_generation_delay = max(config.post_generation_delay, 0.0)
         script = config.batch_script
         if script and os.name == "nt":
             candidate = Path(script)
@@ -456,11 +458,13 @@ class ProductListingService:
                         "No se generó el archivo de productos o quedó vacío.\n"
                         f"LOG (últimas líneas):\n{log_tail}"
                     )
-                if siigo_output != output_path:
+                generated_path = siigo_output
+                self._delay_after_generation(generated_path)
+                if generated_path != output_path:
                     print(f"INFO: Moviendo resultado a {output_path}")
-                    siigo_output.replace(output_path)
+                    generated_path = generated_path.replace(output_path)
                 print("INFO: Limpiando el archivo generado...")
-                output_path = self._cleaner.clean(output_path)
+                output_path = self._cleaner.clean(generated_path)
         return output_path
 
     def _generate_with_batch(self, target_date: date, output_path: Path) -> Path:
@@ -482,6 +486,7 @@ class ProductListingService:
                         "El archivo generado por el script parece vacío.\n"
                         f"LOG (últimas líneas):\n{log_tail}"
                     )
+                self._delay_after_generation(raw_output)
                 print("INFO: Limpiando el archivo generado por el script…")
                 cleaned_path = self._cleaner.clean(raw_output)
                 if cleaned_path != output_path:
@@ -522,6 +527,18 @@ class ProductListingService:
                 f"STDOUT:\n{result.stdout}\n"
                 f"STDERR:\n{result.stderr}"
             )
+
+    def _delay_after_generation(self, path: Path) -> None:
+        """Espera adicional para permitir que Excel termine de escribir ``path``."""
+
+        if self._post_generation_delay <= 0:
+            return
+
+        print(
+            "INFO: Esperando "
+            f"{self._post_generation_delay:.1f} segundos antes de procesar {path.name}"
+        )
+        time.sleep(self._post_generation_delay)
 
     def _wait_for_file(self, path: Path) -> bool:
         """Espera de forma activa hasta que ``path`` exista o se agote el tiempo."""

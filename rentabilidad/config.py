@@ -144,6 +144,7 @@ class Settings:
             siigo_output_filename=os.environ.get("SIIGO_OUTPUT_FILENAME", "ProductosMesDia.xlsx"),
             wait_timeout=_read_float_env("SIIGO_WAIT_TIMEOUT", 60.0),
             wait_interval=_read_float_env("SIIGO_WAIT_INTERVAL", 0.2),
+            post_generation_delay=_read_float_env("SIIGO_POST_GENERATION_DELAY", 10.0),
             batch_script=batch_script,
             **config_kwargs,
         )

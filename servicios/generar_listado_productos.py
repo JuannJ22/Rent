@@ -113,6 +113,12 @@ def build_parser(defaults: dict[str, str | float]) -> argparse.ArgumentParser:
         default=defaults["SIIGO_WAIT_INTERVAL"],
         help="Intervalo en segundos entre verificaciones de existencia del archivo",
     )
+    parser.add_argument(
+        "--post-generation-delay",
+        type=float,
+        default=defaults["SIIGO_POST_GENERATION_DELAY"],
+        help="Tiempo adicional en segundos para esperar antes de limpiar el archivo generado",
+    )
     return parser
 
 
@@ -137,6 +143,7 @@ def _collect_defaults() -> dict[str, str | float]:
         "SIIGO_OUTPUT_FILENAME": os.environ.get("SIIGO_OUTPUT_FILENAME", "ProductosMesDia.xlsx"),
         "SIIGO_WAIT_TIMEOUT": _read_float_env("SIIGO_WAIT_TIMEOUT", 60.0),
         "SIIGO_WAIT_INTERVAL": _read_float_env("SIIGO_WAIT_INTERVAL", 0.2),
+        "SIIGO_POST_GENERATION_DELAY": _read_float_env("SIIGO_POST_GENERATION_DELAY", 10.0),
     }
     return defaults
 
@@ -200,6 +207,7 @@ def main() -> None:
         siigo_output_filename=args.siigo_output,
         wait_timeout=args.wait_timeout,
         wait_interval=args.wait_interval,
+        post_generation_delay=args.post_generation_delay,
     )
 
     service = ProductListingService(context, config)
