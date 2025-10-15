@@ -233,6 +233,9 @@ def resolve_column_index(value: int | str) -> int:
 class WorkbookCleaner:
     """Responsable de filtrar columnas y filas en el archivo generado."""
 
+    #: Número de filas iniciales que deben preservarse sin modificaciones.
+    _RESERVED_HEADER_ROWS = 5
+
     def __init__(self, activo_column: int | str, keep_columns: Iterable[int | str]):
         self._activo_idx = resolve_column_index(activo_column)
         self._keep_columns = {resolve_column_index(idx) for idx in keep_columns}
@@ -259,9 +262,10 @@ class WorkbookCleaner:
             )
 
         removed_rows = 0
-        for row in range(ws.max_row, 1, -1):
+        first_data_row = self._RESERVED_HEADER_ROWS + 1
+        for row in range(ws.max_row, first_data_row - 1, -1):
             value = ws.cell(row=row, column=self._activo_idx).value
-            if self._normalize(value) != "S":
+            if self._normalize(value) == "N":
                 ws.delete_rows(row, 1)
                 removed_rows += 1
 
@@ -295,17 +299,17 @@ class WorkbookCleaner:
                 "La hoja activa no tiene la columna requerida para estado del producto."
             )
 
-        header = dataframe.iloc[[0]]
-        data_rows = dataframe.iloc[1:].copy()
+        header_rows = dataframe.iloc[: self._RESERVED_HEADER_ROWS]
+        data_rows = dataframe.iloc[self._RESERVED_HEADER_ROWS :].copy()
 
-        activos_mask = data_rows.iloc[:, activo_idx_zero].apply(self._normalize) == "S"
+        activos_mask = data_rows.iloc[:, activo_idx_zero].apply(self._normalize) != "N"
         filtered_rows = data_rows[activos_mask]
         removed_rows = len(data_rows) - len(filtered_rows)
 
         columns_to_keep = sorted(idx - 1 for idx in self._keep_columns)
         max_valid_index = dataframe.shape[1] - 1
         valid_columns = [idx for idx in columns_to_keep if idx <= max_valid_index]
-        filtered_header = header.iloc[:, valid_columns]
+        filtered_header = header_rows.iloc[:, valid_columns]
         filtered_rows = filtered_rows.iloc[:, valid_columns]
         removed_columns = dataframe.shape[1] - len(valid_columns)
 
