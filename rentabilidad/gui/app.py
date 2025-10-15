@@ -1213,11 +1213,11 @@ def build_ui() -> None:
                             ui.icon("apartment").classes("hero-logo-fallback-icon")
                     with ui.column().classes("gap-2"):
                         ui.label(
-                            "Centro de control de rentabilidad"
+                            "Centro de control de rentabilidad del Arquitecto CABAR SAS"
                         ).classes("hero-title")
                         ui.label(
-                            "Administra la generación de informes, el cargue de EXCZ "
-                            "y los listados de productos desde un solo lugar."
+                            "Administra la generación de informes de rentabilidad, gestiona el"
+                            "control y último filtro en la facturación de la empresa."
                         ).classes("hero-subtitle")
 
                 with ui.grid().classes(
