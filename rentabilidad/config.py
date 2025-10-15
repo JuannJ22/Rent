@@ -65,6 +65,7 @@ class Settings:
         self._product_config = self._build_product_config()
         self._monthly_reports_config = self._build_monthly_reports_config()
         self.manual_batch_script = self._resolve_manual_batch_script()
+        self.productos_batch_script = self._resolve_productos_batch_script()
 
     def _resolve_manual_batch_script(self) -> Path | None:
         project_root = Path(__file__).resolve().parent.parent
@@ -80,6 +81,22 @@ class Settings:
             return candidate
 
         default_script = project_root / "GenerarListadoProductos.bat"
+        return default_script
+
+    def _resolve_productos_batch_script(self) -> Path | None:
+        project_root = Path(__file__).resolve().parent.parent
+
+        batch_env = os.environ.get("PRODUCTOS_BATCH")
+        if batch_env:
+            candidate = Path(batch_env)
+            if not candidate.is_absolute():
+                candidate_base = self.context.base_dir / candidate
+                if candidate_base.exists():
+                    return candidate_base
+                candidate = project_root / candidate
+            return candidate
+
+        default_script = project_root / "Productos.bat"
         return default_script
 
     def _build_product_config(self) -> ProductGenerationConfig:

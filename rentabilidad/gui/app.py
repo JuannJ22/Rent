@@ -26,6 +26,9 @@ from rentabilidad.app.dto import (
     GenerarInformeCodigosIncorrectosRequest,
     GenerarInformeRequest,
 )
+from rentabilidad.app.use_cases.ejecutar_productos_script import (
+    run as uc_productos,
+)
 from rentabilidad.app.use_cases.generar_consolidado_malos_cobros import (
     run as uc_malos_cobros,
 )
@@ -33,10 +36,9 @@ from rentabilidad.app.use_cases.generar_informe_automatico import run as uc_auto
 from rentabilidad.app.use_cases.generar_informe_codigos_incorrectos import (
     run as uc_codigos_incorrectos,
 )
-from rentabilidad.app.use_cases.generar_informe_manual import run as uc_manual
 from rentabilidad.app.use_cases.listar_meses_informes import run as uc_listar_meses
 from rentabilidad.config import bus, settings
-from rentabilidad.infra.fs import find_latest_informe, find_latest_producto
+from rentabilidad.infra.fs import ayer_str, find_latest_informe, find_latest_producto
 
 @dataclass(slots=True)
 class LatestResourceComponents:
@@ -58,6 +60,7 @@ class UIState:
     status_kind: str = "idle"
     latest_report: LatestResourceComponents = field(default_factory=LatestResourceComponents)
     latest_products: LatestResourceComponents = field(default_factory=LatestResourceComponents)
+    progress: Any = None
 
 
 state = UIState()
@@ -533,11 +536,30 @@ def _inline_logo_markup() -> str | None:
 
     return f'<div class="hero-logo-inline">{svg}</div>'
 
+
+def _show_progress() -> None:
+    component = state.progress
+    if component is None:
+        return
+    component.classes(remove="hidden")
+
+
+def _hide_progress() -> None:
+    component = state.progress
+    if component is None:
+        return
+    component.classes(add="hidden")
+
+
 def update_status(
     kind: str, text: str, open_path: str | Path | None = None
 ) -> None:
     previous_kind = state.status_kind
     status_manager.update(kind, text, open_path)
+    if kind == "running":
+        _show_progress()
+    else:
+        _hide_progress()
     if kind == "success" and open_path:
         destino = open_path if isinstance(open_path, Path) else Path(open_path)
         latest_resources.update_from_path(destino)
@@ -1251,278 +1273,384 @@ def build_ui() -> None:
                         ).classes("action-secondary w-full sm:w-auto")
 
             with ui.row().classes(
-                "gap-6 w-full flex-col lg:flex-row items-stretch"
+                "gap-6 w-full flex-wrap items-stretch justify-start"
             ):
-                with ui.column().classes("flex-1 w-full gap-6"):
-                    with ui.card().classes("panel-card"):
-                        with ui.column().classes("content w-full items-stretch"):
-                            with ui.row().classes(
-                                "items-center gap-3 w-full flex-wrap"
-                            ):
-                                with ui.element("div").classes("icon-bubble icon-amber"):
-                                    ui.icon("bolt").classes("text-white text-xl")
-                                with ui.column().classes("gap-1"):
-                                    ui.label("Informe automático").classes("section-title")
-                                    ui.label(
-                                        "Genera el informe del día anterior usando el EXCZ más reciente disponible."
-                                    ).classes("action-note")
-
-                            async def ejecutar_auto() -> None:
-                                update_status("running", "Generando informe automático…")
-                                agregar_log(
-                                    "Iniciando generación automática del informe.",
-                                    "info",
-                                )
-                                try:
-                                    resultado = await asyncio.to_thread(
-                                        uc_auto,
-                                        GenerarInformeRequest(
-                                            ruta_plantilla=str(settings.ruta_plantilla)
-                                        ),
-                                        bus,
-                                    )
-                                except Exception as exc:  # pragma: no cover - defensivo
-                                    bus.publish("error", str(exc))
-                                    update_status("error", "Revisa los registros")
-                                    return
-                                if (
-                                    resultado.ok
-                                    and resultado.ruta_salida
-                                ):
-                                    update_status(
-                                        "success",
-                                        "Proceso completado",
-                                        open_path=resultado.ruta_salida,
-                                    )
-                                else:
-                                    mensaje = resultado.mensaje or (
-                                        "No se pudo generar el informe automático."
-                                    )
-                                    agregar_log(
-                                        f"Error al generar el informe automático: {mensaje}",
-                                        "error",
-                                    )
-                                    update_status("error", "Revisa los registros")
-
-                            ui.button(
-                                "Generar informe automático",
-                                icon="play_arrow",
-                                on_click=ejecutar_auto,
-                            ).classes("action-primary w-full sm:w-auto")
-                            ui.label(
-                                "Se buscará el archivo con prefijo configurado en la carpeta de EXCZ."
-                            ).classes("action-note")
-
-                    with ui.card().classes("panel-card"):
-                        with ui.column().classes("content w-full items-stretch"):
-                            with ui.row().classes(
-                                "items-center gap-3 w-full flex-wrap"
-                            ):
-                                with ui.element("div").classes("icon-bubble icon-purple"):
-                                    ui.icon("calendar_month").classes("text-white text-xl")
-                                with ui.column().classes("gap-1"):
-                                    ui.label("Script manual").classes("section-title")
-                                    ui.label(
-                                        "Ejecuta el script GenerarListadoProductos.bat para construir el Excel manual."
-                                    ).classes("action-note")
-
-                            script_path = settings.manual_batch_script
-                            script_text = (
-                                shorten(script_path, 36) if script_path else "No configurado"
-                            )
-                            script_label = ui.label(
-                                f"Script configurado: {script_text}"
-                            ).classes("action-note")
-                            if script_path:
-                                with script_label:
-                                    ui.tooltip(str(script_path))
-
-                            async def ejecutar_manual() -> None:
-                                update_status("running", "Ejecutando script manual…")
-                                agregar_log(
-                                    "Iniciando ejecución del script manual configurado.",
-                                    "info",
-                                )
-                                try:
-                                    resultado = await asyncio.to_thread(
-                                        uc_manual,
-                                        GenerarInformeRequest(
-                                            ruta_plantilla=str(settings.ruta_plantilla),
-                                        ),
-                                        bus,
-                                    )
-                                except Exception as exc:  # pragma: no cover - defensivo
-                                    bus.publish("error", str(exc))
-                                    update_status("error", "Revisa los registros")
-                                    return
-                                if resultado.ok:
-                                    update_status(
-                                        "success",
-                                        "Proceso completado",
-                                        open_path=resultado.ruta_salida,
-                                    )
-                                else:
-                                    mensaje = resultado.mensaje or (
-                                        "No se pudo generar el informe manual."
-                                    )
-                                    agregar_log(
-                                        f"Error al generar el informe manual: {mensaje}",
-                                        "error",
-                                    )
-                                    update_status("error", "Revisa los registros")
-
-                            ui.button(
-                                "Ejecutar script manual",
-                                icon="terminal",
-                                on_click=ejecutar_manual,
-                            ).classes("action-primary w-full sm:w-auto")
-
-                    with ui.card().classes("panel-card"):
-                        with ui.column().classes("content w-full items-stretch"):
-                            with ui.row().classes(
-                                "items-center gap-3 w-full flex-wrap"
-                            ):
-                                with ui.element("div").classes("icon-bubble icon-green"):
-                                    ui.icon("insights").classes("text-white text-xl")
-                                with ui.column().classes("gap-1"):
-                                    ui.label("Informes mensuales").classes("section-title")
-                                    ui.label(
-                                        "Genera los consolidados mensuales a partir de los informes diarios."
-                                    ).classes("action-note")
-
-                            month_select = (
-                                ui.select(
-                                    options=month_options,
-                                    value=default_month,
-                                    label="Mes",
-                                )
-                                .props("outlined")
-                                .classes("w-full sm:w-64")
-                            )
-
-                            async def ejecutar_codigos() -> None:
-                                mes = (month_select.value or "").strip()
-                                if not mes:
-                                    safe_notify(
-                                        "Selecciona un mes disponible para continuar.",
-                                        type="warning",
-                                    )
-                                    return
-                                update_status(
-                                    "running",
-                                    f"Generando informe de códigos incorrectos ({mes})…",
-                                )
-                                agregar_log(
-                                    f"Iniciando generación del informe de códigos incorrectos para {mes}.",
-                                    "info",
-                                )
-                                try:
-                                    resultado = await asyncio.to_thread(
-                                        uc_codigos_incorrectos,
-                                        GenerarInformeCodigosIncorrectosRequest(mes=mes),
-                                        bus,
-                                    )
-                                except Exception as exc:  # pragma: no cover - defensivo
-                                    bus.publish("error", str(exc))
-                                    update_status("error", "Revisa los registros")
-                                    return
-                                if resultado.ok and resultado.ruta_salida:
-                                    update_status(
-                                        "success",
-                                        "Proceso completado",
-                                        open_path=resultado.ruta_salida,
-                                    )
-                                else:
-                                    agregar_log(
-                                        resultado.mensaje
-                                        or "No se pudo generar el informe de códigos incorrectos.",
-                                        "error",
-                                    )
-                                    update_status("error", "Revisa los registros")
-
-                            async def ejecutar_cobros() -> None:
-                                mes = (month_select.value or "").strip()
-                                if not mes:
-                                    safe_notify(
-                                        "Selecciona un mes disponible para continuar.",
-                                        type="warning",
-                                    )
-                                    return
-                                update_status(
-                                    "running",
-                                    f"Generando consolidado de malos cobros ({mes})…",
-                                )
-                                agregar_log(
-                                    f"Iniciando consolidado de malos cobros para {mes}.",
-                                    "info",
-                                )
-                                try:
-                                    resultado = await asyncio.to_thread(
-                                        uc_malos_cobros,
-                                        GenerarConsolidadoMalosCobrosRequest(mes=mes),
-                                        bus,
-                                    )
-                                except Exception as exc:  # pragma: no cover - defensivo
-                                    bus.publish("error", str(exc))
-                                    update_status("error", "Revisa los registros")
-                                    return
-                                if resultado.ok and resultado.ruta_salida:
-                                    update_status(
-                                        "success",
-                                        "Proceso completado",
-                                        open_path=resultado.ruta_salida,
-                                    )
-                                else:
-                                    agregar_log(
-                                        resultado.mensaje
-                                        or "No se pudo generar el consolidado de malos cobros.",
-                                        "error",
-                                    )
-                                    update_status("error", "Revisa los registros")
-
-                            with ui.row().classes("gap-3 flex-wrap w-full"):
-                                btn_codigos = ui.button(
-                                    "Informe códigos incorrectos",
-                                    icon="rule",
-                                    on_click=ejecutar_codigos,
-                                ).classes("action-primary w-full sm:w-auto")
-                                btn_cobros = ui.button(
-                                    "Consolidado malos cobros",
-                                    icon="summarize",
-                                    on_click=ejecutar_cobros,
-                                ).classes("action-secondary w-full sm:w-auto")
-                                if not month_options:
-                                    btn_codigos.disable()
-                                    btn_cobros.disable()
-
-                            if month_options:
+                with ui.card().classes("panel-card flex-1 min-w-[280px]"):
+                    with ui.column().classes(
+                        "content w-full items-stretch gap-4"
+                    ):
+                        with ui.row().classes(
+                            "items-center gap-3 w-full flex-wrap"
+                        ):
+                            with ui.element("div").classes("icon-bubble icon-amber"):
+                                ui.icon("bolt").classes("text-white text-xl")
+                            with ui.column().classes("gap-1"):
+                                ui.label("Informe automático").classes("section-title")
                                 ui.label(
-                                    "El informe se guardará en las carpetas de consolidados configuradas."
+                                    "Genera el informe del día anterior usando el EXCZ más reciente disponible."
                                 ).classes("action-note")
-                            else:
-                                ui.label(
-                                    "No se encontraron carpetas de meses en la ruta de informes configurada."
-                                ).classes("action-note text-amber-600")
 
-                with ui.column().classes("flex-1 w-full gap-6"):
-                    with ui.card().classes("panel-card"):
-                        with ui.column().classes("content w-full items-stretch"):
-                            with ui.row().classes(
-                                "items-center gap-3 w-full flex-wrap"
-                            ):
-                                with ui.element("div").classes("icon-bubble icon-blue"):
-                                    ui.icon("map").classes("text-white text-xl")
-                                with ui.column().classes("gap-1"):
-                                    ui.label("Rutas de trabajo").classes("section-title")
-                                    ui.label(
-                                        "Ubicaciones donde se guardan los archivos generados."
-                                    ).classes("action-note")
-                            _path_line("Informes", settings.context.informes_dir)
-                            _path_line("Productos", settings.context.productos_dir)
-                            _path_line("Plantilla", settings.ruta_plantilla)
+                        async def ejecutar_auto() -> None:
+                            update_status("running", "Generando informe automático…")
+                            agregar_log(
+                                "Iniciando generación automática del informe.",
+                                "info",
+                            )
+                            try:
+                                resultado = await asyncio.to_thread(
+                                    uc_auto,
+                                    GenerarInformeRequest(
+                                        ruta_plantilla=str(settings.ruta_plantilla)
+                                    ),
+                                    bus,
+                                )
+                            except Exception as exc:  # pragma: no cover - defensivo
+                                bus.publish("error", str(exc))
+                                update_status("error", "Revisa los registros")
+                                return
+                            if resultado.ok and resultado.ruta_salida:
+                                update_status(
+                                    "success",
+                                    "Proceso completado",
+                                    open_path=resultado.ruta_salida,
+                                )
+                            else:
+                                mensaje = resultado.mensaje or (
+                                    "No se pudo generar el informe automático."
+                                )
+                                agregar_log(
+                                    f"Error al generar el informe automático: {mensaje}",
+                                    "error",
+                                )
+                                update_status("error", "Revisa los registros")
+
+                        ui.button(
+                            "Generar informe automático",
+                            icon="play_arrow",
+                            on_click=ejecutar_auto,
+                        ).classes("action-primary w-full sm:w-auto")
+                        ui.label(
+                            "Se buscará el archivo con prefijo configurado en la carpeta de EXCZ."
+                        ).classes("action-note")
+
+                with ui.card().classes("panel-card flex-1 min-w-[280px]"):
+                    with ui.column().classes(
+                        "content w-full items-stretch gap-4"
+                    ):
+                        with ui.row().classes(
+                            "items-center gap-3 w-full flex-wrap"
+                        ):
+                            with ui.element("div").classes("icon-bubble icon-purple"):
+                                ui.icon("calendar_month").classes("text-white text-xl")
+                            with ui.column().classes("gap-1"):
+                                ui.label("Informe manual").classes("section-title")
+                                ui.label(
+                                    "Selecciona una fecha y se buscará el EXCZ correspondiente para generar el informe."
+                                ).classes("action-note")
+
+                        manual_date = (
+                            ui.input(
+                                label="Fecha objetivo",
+                                value=ayer_str(),
+                            )
+                            .props("type=date outlined")
+                            .classes("w-full")
+                        )
+
+                        async def ejecutar_manual() -> None:
+                            fecha_texto = (manual_date.value or "").strip()
+                            if not fecha_texto:
+                                safe_notify(
+                                    "Selecciona una fecha válida para continuar.",
+                                    type="warning",
+                                )
+                                manual_date.focus()
+                                return
+                            try:
+                                datetime.strptime(fecha_texto, "%Y-%m-%d")
+                            except ValueError:
+                                safe_notify(
+                                    "La fecha debe tener el formato AAAA-MM-DD.",
+                                    type="warning",
+                                )
+                                manual_date.focus()
+                                return
+
+                            update_status(
+                                "running",
+                                f"Generando informe manual ({fecha_texto})…",
+                            )
+                            agregar_log(
+                                f"Iniciando generación manual del informe para {fecha_texto}.",
+                                "info",
+                            )
+                            try:
+                                resultado = await asyncio.to_thread(
+                                    uc_auto,
+                                    GenerarInformeRequest(
+                                        ruta_plantilla=str(settings.ruta_plantilla),
+                                        fecha=fecha_texto,
+                                    ),
+                                    bus,
+                                )
+                            except Exception as exc:  # pragma: no cover - defensivo
+                                bus.publish("error", str(exc))
+                                update_status("error", "Revisa los registros")
+                                return
+                            if resultado.ok and resultado.ruta_salida:
+                                update_status(
+                                    "success",
+                                    "Proceso completado",
+                                    open_path=resultado.ruta_salida,
+                                )
+                            else:
+                                mensaje = resultado.mensaje or (
+                                    "No se pudo generar el informe manual."
+                                )
+                                agregar_log(
+                                    f"Error al generar el informe manual: {mensaje}",
+                                    "error",
+                                )
+                                update_status("error", "Revisa los registros")
+
+                        ui.button(
+                            "Generar informe manual",
+                            icon="manage_search",
+                            on_click=ejecutar_manual,
+                        ).classes("action-primary w-full sm:w-auto")
+                        ui.label(
+                            "Se utilizará el EXCZ de la fecha seleccionada si está disponible."
+                        ).classes("action-note")
+
+                with ui.card().classes("panel-card flex-1 min-w-[280px]"):
+                    with ui.column().classes(
+                        "content w-full items-stretch gap-4"
+                    ):
+                        with ui.row().classes(
+                            "items-center gap-3 w-full flex-wrap"
+                        ):
+                            with ui.element("div").classes("icon-bubble icon-emerald"):
+                                ui.icon("inventory_2").classes("text-white text-xl")
+                            with ui.column().classes("gap-1"):
+                                ui.label("Generar productos").classes("section-title")
+                                ui.label(
+                                    "Ejecuta el script Productos.bat para actualizar el listado de productos."
+                                ).classes("action-note")
+
+                        productos_script = settings.productos_batch_script
+                        script_text = (
+                            shorten(productos_script, 36)
+                            if productos_script
+                            else "No configurado"
+                        )
+                        script_label = ui.label(
+                            f"Script configurado: {script_text}"
+                        ).classes("action-note")
+                        if productos_script:
+                            with script_label:
+                                ui.tooltip(str(productos_script))
+
+                        async def ejecutar_productos() -> None:
+                            update_status(
+                                "running", "Generando listado de productos…"
+                            )
+                            agregar_log(
+                                "Iniciando generación del listado de productos (Productos.bat).",
+                                "info",
+                            )
+                            try:
+                                resultado = await asyncio.to_thread(
+                                    uc_productos,
+                                    bus,
+                                )
+                            except Exception as exc:  # pragma: no cover - defensivo
+                                bus.publish("error", str(exc))
+                                update_status("error", "Revisa los registros")
+                                return
+                            if resultado.ok:
+                                update_status("success", "Proceso completado")
+                            else:
+                                mensaje = resultado.mensaje or (
+                                    "No se pudo generar el listado de productos."
+                                )
+                                agregar_log(
+                                    f"Error al generar el listado de productos: {mensaje}",
+                                    "error",
+                                )
+                                update_status("error", "Revisa los registros")
+
+                        btn_productos = ui.button(
+                            "Generar productos",
+                            icon="play_arrow",
+                            on_click=ejecutar_productos,
+                        ).classes("action-primary w-full sm:w-auto")
+                        if not productos_script:
+                            btn_productos.disable()
                             ui.label(
-                                "Puedes modificar estas rutas mediante variables de entorno."
+                                "Configura la ruta del script Productos.bat antes de ejecutar esta acción."
+                            ).classes("action-note text-amber-600")
+
+                with ui.card().classes("panel-card flex-1 min-w-[280px]"):
+                    with ui.column().classes(
+                        "content w-full items-stretch gap-4"
+                    ):
+                        with ui.row().classes(
+                            "items-center gap-3 w-full flex-wrap"
+                        ):
+                            with ui.element("div").classes("icon-bubble icon-green"):
+                                ui.icon("insights").classes("text-white text-xl")
+                            with ui.column().classes("gap-1"):
+                                ui.label("Informes mensuales").classes("section-title")
+                                ui.label(
+                                    "Genera los consolidados mensuales a partir de los informes diarios."
+                                ).classes("action-note")
+
+                        month_select = (
+                            ui.select(
+                                options=month_options,
+                                value=default_month,
+                                label="Mes",
+                            )
+                            .props("outlined")
+                            .classes("w-full")
+                        )
+
+                        async def ejecutar_codigos() -> None:
+                            mes = (month_select.value or "").strip()
+                            if not mes:
+                                safe_notify(
+                                    "Selecciona un mes disponible para continuar.",
+                                    type="warning",
+                                )
+                                return
+                            update_status(
+                                "running",
+                                f"Generando informe de códigos incorrectos ({mes})…",
+                            )
+                            agregar_log(
+                                f"Iniciando generación del informe de códigos incorrectos para {mes}.",
+                                "info",
+                            )
+                            try:
+                                resultado = await asyncio.to_thread(
+                                    uc_codigos_incorrectos,
+                                    GenerarInformeCodigosIncorrectosRequest(mes=mes),
+                                    bus,
+                                )
+                            except Exception as exc:  # pragma: no cover - defensivo
+                                bus.publish("error", str(exc))
+                                update_status("error", "Revisa los registros")
+                                return
+                            if resultado.ok and resultado.ruta_salida:
+                                update_status(
+                                    "success",
+                                    "Proceso completado",
+                                    open_path=resultado.ruta_salida,
+                                )
+                            else:
+                                agregar_log(
+                                    resultado.mensaje
+                                    or "No se pudo generar el informe de códigos incorrectos.",
+                                    "error",
+                                )
+                                update_status("error", "Revisa los registros")
+
+                        async def ejecutar_cobros() -> None:
+                            mes = (month_select.value or "").strip()
+                            if not mes:
+                                safe_notify(
+                                    "Selecciona un mes disponible para continuar.",
+                                    type="warning",
+                                )
+                                return
+                            update_status(
+                                "running",
+                                f"Generando consolidado de malos cobros ({mes})…",
+                            )
+                            agregar_log(
+                                f"Iniciando consolidado de malos cobros para {mes}.",
+                                "info",
+                            )
+                            try:
+                                resultado = await asyncio.to_thread(
+                                    uc_malos_cobros,
+                                    GenerarConsolidadoMalosCobrosRequest(mes=mes),
+                                    bus,
+                                )
+                            except Exception as exc:  # pragma: no cover - defensivo
+                                bus.publish("error", str(exc))
+                                update_status("error", "Revisa los registros")
+                                return
+                            if resultado.ok and resultado.ruta_salida:
+                                update_status(
+                                    "success",
+                                    "Proceso completado",
+                                    open_path=resultado.ruta_salida,
+                                )
+                            else:
+                                agregar_log(
+                                    resultado.mensaje
+                                    or "No se pudo generar el consolidado de malos cobros.",
+                                    "error",
+                                )
+                                update_status("error", "Revisa los registros")
+
+                        with ui.row().classes("gap-3 flex-wrap w-full"):
+                            btn_codigos = ui.button(
+                                "Informe códigos incorrectos",
+                                icon="rule",
+                                on_click=ejecutar_codigos,
+                            ).classes("action-primary w-full sm:w-auto")
+                            btn_cobros = ui.button(
+                                "Consolidado malos cobros",
+                                icon="summarize",
+                                on_click=ejecutar_cobros,
+                            ).classes("action-secondary w-full sm:w-auto")
+                            if not month_options:
+                                btn_codigos.disable()
+                                btn_cobros.disable()
+
+                        if month_options:
+                            ui.label(
+                                "El informe se guardará en las carpetas de consolidados configuradas."
                             ).classes("action-note")
+                        else:
+                            ui.label(
+                                "No se encontraron carpetas de meses en la ruta de informes configurada."
+                            ).classes("action-note text-amber-600")
+
+                with ui.card().classes("panel-card flex-1 min-w-[280px]"):
+                    with ui.column().classes(
+                        "content w-full items-stretch gap-4 items-center text-center"
+                    ):
+                        with ui.element("div").classes("icon-bubble icon-blue"):
+                            ui.icon("route").classes("text-white text-xl")
+                        ui.label("Rutas de trabajo").classes("section-title")
+                        ui.label("Pronto…").classes(
+                            "text-lg font-semibold text-slate-500"
+                        )
+                        ui.label(
+                            "Muy pronto podrás administrar y automatizar tus rutas de trabajo desde aquí."
+                        ).classes("action-note text-center")
+
+            with ui.card().classes("panel-card w-full"):
+                with ui.column().classes("content w-full items-stretch"):
+                    with ui.row().classes(
+                        "items-center gap-3 w-full flex-wrap"
+                    ):
+                        with ui.element("div").classes("icon-bubble icon-blue"):
+                            ui.icon("map").classes("text-white text-xl")
+                        with ui.column().classes("gap-1"):
+                            ui.label("Ubicaciones configuradas").classes("section-title")
+                            ui.label(
+                                "Rutas utilizadas por el sistema para guardar informes y listados."
+                            ).classes("action-note")
+                    _path_line("Informes", settings.context.informes_dir)
+                    _path_line("Productos", settings.context.productos_dir)
+                    _path_line("Plantilla", settings.ruta_plantilla)
+                    ui.label(
+                        "Puedes modificar estas rutas mediante variables de entorno."
+                    ).classes("action-note")
 
             with ui.card().classes("panel-card w-full"):
                 with ui.column().classes("content w-full items-stretch"):
@@ -1575,25 +1703,31 @@ def build_ui() -> None:
                             state.log = ui.column().classes(
                                 "hidden log-list"
                             )
-                    with ui.row().classes(
-                        "items-center justify-between text-xs text-slate-500 w-full flex-wrap gap-3"
-                    ):
-                        with ui.row().classes("status-actions"):
-                            state.status = ui.html(
-                                status_manager.render("idle", "Sistema listo"),
-                                sanitize=False,
-                            )
-                            state.status_button = (
-                                ui.button(
-                                    "Abrir",
-                                    icon="open_in_new",
-                                    on_click=abrir_resultado_actual,
+                    with ui.column().classes("w-full gap-2"):
+                        with ui.row().classes(
+                            "items-center justify-between text-xs text-slate-500 w-full flex-wrap gap-3"
+                        ):
+                            with ui.row().classes("status-actions"):
+                                state.status = ui.html(
+                                    status_manager.render("idle", "Sistema listo"),
+                                    sanitize=False,
                                 )
-                                .props("flat")
-                                .classes("status-action")
-                            )
-                            state.status_button.disable()
-                        state.last_update = ui.label("Última actualización: —")
+                                state.status_button = (
+                                    ui.button(
+                                        "Abrir",
+                                        icon="open_in_new",
+                                        on_click=abrir_resultado_actual,
+                                    )
+                                    .props("flat")
+                                    .classes("status-action")
+                                )
+                                state.status_button.disable()
+                            state.last_update = ui.label("Última actualización: —")
+                        state.progress = (
+                            ui.linear_progress()
+                            .props("color=primary indeterminate")
+                            .classes("status-progress hidden w-full")
+                        )
 
     latest_resources.refresh()
     _register_bus_subscriptions()
