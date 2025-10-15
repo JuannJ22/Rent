@@ -516,14 +516,26 @@ def _load_vendedores_document_lookup(wb):
         return {}
     ws = wb[sheet_name]
     lookup: dict[str, list[dict[str, object]]] = {}
-    for nit, cantidad, tipo, prefijo, numero, descripcion in ws.iter_rows(
-        min_row=1, max_row=ws.max_row, max_col=6, values_only=True
+    for row in ws.iter_rows(
+        min_row=1, max_row=ws.max_row, max_col=7, values_only=True
     ):
+        padded = list(row) + [None] * (7 - len(row))
+        (
+            nit,
+            _cod_vendedor,
+            tipo,
+            prefijo,
+            numero,
+            descripcion,
+            cantidad,
+        ) = padded[:7]
         product_key = _normalize_product_key(descripcion)
         if not product_key:
             continue
         quantity_value = _coerce_float(cantidad)
-        if quantity_value is not None and float(quantity_value).is_integer():
+        if quantity_value is None:
+            quantity_value = _clean_cell_value(cantidad)
+        elif float(quantity_value).is_integer():
             quantity_value = int(quantity_value)
         entry = {
             "nit": _normalize_nit_value(nit),
@@ -985,8 +997,8 @@ def _update_vendedores_sheet(
     try:
         src_ws = src_wb.active
         rows = [
-            tuple(row[:6])
-            for row in src_ws.iter_rows(min_row=1, max_col=6, values_only=True)
+            tuple(row[:7])
+            for row in src_ws.iter_rows(min_row=1, max_col=7, values_only=True)
         ]
     finally:
         src_wb.close()
@@ -997,13 +1009,26 @@ def _update_vendedores_sheet(
 
     rows_written = 0
     doc_columns_used = False
-    for tipo, prefijo, numero, cod_vendedor, nit, descripcion in rows:
+    for row in rows:
+        padded = list(row) + [None] * (7 - len(row))
+        (
+            tipo,
+            prefijo,
+            numero,
+            cod_vendedor,
+            nit,
+            descripcion,
+            cantidad,
+        ) = padded[:7]
         nit_value = _clean_cell_value(nit)
         cod_value = _clean_cell_value(cod_vendedor)
         tipo_value = _clean_cell_value(tipo)
         prefijo_value = _clean_cell_value(prefijo)
         numero_value = _clean_cell_value(numero)
         descripcion_value = _clean_cell_value(descripcion, strip=False)
+        cantidad_value = _coerce_float(cantidad)
+        if cantidad_value is None:
+            cantidad_value = _clean_cell_value(cantidad)
 
         if all(
             value in (None, "")
@@ -1014,6 +1039,7 @@ def _update_vendedores_sheet(
                 prefijo_value,
                 numero_value,
                 descripcion_value,
+                cantidad_value,
             )
         ):
             continue
@@ -1022,14 +1048,25 @@ def _update_vendedores_sheet(
         ws.cell(row=rows_written, column=1, value=nit_value)
         ws.cell(row=rows_written, column=2, value=cod_value)
 
-        if any(v is not None for v in (tipo_value, prefijo_value, numero_value, descripcion_value)):
+        if any(
+            v is not None
+            for v in (
+                tipo_value,
+                prefijo_value,
+                numero_value,
+                descripcion_value,
+                cantidad_value,
+            )
+        ):
             ws.cell(row=rows_written, column=3, value=tipo_value)
             ws.cell(row=rows_written, column=4, value=prefijo_value)
             ws.cell(row=rows_written, column=5, value=numero_value)
             ws.cell(row=rows_written, column=6, value=descripcion_value)
+            if cantidad_value is not None:
+                ws.cell(row=rows_written, column=7, value=cantidad_value)
             doc_columns_used = True
 
-    summary = {"rows": rows_written, "columns": 6 if doc_columns_used else 2}
+    summary = {"rows": rows_written, "columns": 7 if doc_columns_used else 2}
     return summary, path
 
 

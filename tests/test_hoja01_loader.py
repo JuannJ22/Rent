@@ -1,10 +1,14 @@
 import pandas as pd
 
+from openpyxl import Workbook
+
 from hojas.hoja01_loader import (
     _build_price_mismatch_message,
     _build_sika_customer_message,
     _build_vendor_mismatch_message,
     _combine_reason_messages,
+    _load_vendedores_document_lookup,
+    _normalize_product_key,
     _drop_full_rentability_rows,
 )
 
@@ -34,6 +38,18 @@ def test_build_sika_customer_message_for_valid_lists() -> None:
     assert _build_sika_customer_message(7) == "CLIENTE CONSTRUCTORA SIKA TIPO A"
     assert _build_sika_customer_message(9) == "CLIENTE CONSTRUCTORA SIKA TIPO B"
     assert _build_sika_customer_message(1) is None
+
+
+def test_load_vendedores_document_lookup_uses_quantity_column() -> None:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "VENDEDORES"
+    ws.append(["123", "A1", "FAC", "PRF", "1001", "Producto X", 7])
+
+    lookup = _load_vendedores_document_lookup(wb)
+
+    key = _normalize_product_key("Producto X")
+    assert lookup[key][0]["cantidad"] == 7
 
 
 def test_combine_reason_messages_single_line() -> None:
