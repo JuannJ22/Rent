@@ -13,9 +13,7 @@ import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-
 from typing import Any
-
 from nicegui import app, context, ui
 from nicegui.client import Client
 from importlib import resources
@@ -804,7 +802,7 @@ def build_ui() -> None:
     flex-shrink: 0;
   }
   .hero-logo {
-    height: 3.25rem;
+    height: 9.75rem;
     width: auto;
     filter: drop-shadow(0 10px 24px rgba(15, 23, 42, 0.35));
   }
@@ -814,13 +812,13 @@ def build_ui() -> None:
     justify-content: center;
   }
   .hero-logo-inline svg {
-    height: 3.25rem;
+    height: 9.75rem;
     width: auto;
     filter: drop-shadow(0 10px 24px rgba(15, 23, 42, 0.35));
   }
   .hero-logo-fallback {
-    width: 3.25rem;
-    height: 3.25rem;
+    width: 9.75rem;
+    height: 9.75rem;
     border-radius: 1rem;
     display: inline-flex;
     align-items: center;
@@ -830,7 +828,7 @@ def build_ui() -> None:
     box-shadow: 0 14px 28px rgba(15, 23, 42, 0.2);
   }
   .hero-logo-fallback-icon {
-    font-size: 1.75rem;
+    font-size: 5.25rem;
   }
   .hero-title {
     font-size: 2.75rem;
@@ -1213,7 +1211,7 @@ def build_ui() -> None:
                             ui.icon("apartment").classes("hero-logo-fallback-icon")
                     with ui.column().classes("gap-2"):
                         ui.label(
-                            "Centro de control de rentabilidad del Arquitecto CABAR SAS"
+                            "Centro rentable del Arquitecto CABAR SAS"
                         ).classes("hero-title")
                         ui.label(
                             "Administra la generación de informes de rentabilidad, gestiona el"
@@ -1250,7 +1248,7 @@ def build_ui() -> None:
                         with ui.element("div").classes("icon-bubble icon-blue"):
                             ui.icon("folder_open").classes("text-white text-lg")
                         with ui.column().classes("gap-1"):
-                            ui.label("Plantilla base de informes").classes("section-title")
+                            ui.label("Plantilla base de informes de rentabilidad").classes("section-title")
                             ui.label(
                                 "Esta es la plantilla utilizada para cada informe generado."
                             ).classes("action-note")
@@ -1287,7 +1285,7 @@ def build_ui() -> None:
                             with ui.column().classes("gap-1"):
                                 ui.label("Informe automático").classes("section-title")
                                 ui.label(
-                                    "Genera el informe del día anterior usando el EXCZ más reciente disponible."
+                                    "Genera el informe del día anterior usando los EXCZ más recientes disponible."
                                 ).classes("action-note")
 
                         async def ejecutar_auto() -> None:
@@ -1325,12 +1323,12 @@ def build_ui() -> None:
                                 update_status("error", "Revisa los registros")
 
                         ui.button(
-                            "Generar informe automático",
+                            "Generar informe diario",
                             icon="play_arrow",
                             on_click=ejecutar_auto,
                         ).classes("action-primary w-full sm:w-auto")
                         ui.label(
-                            "Se buscará el archivo con prefijo configurado en la carpeta de EXCZ."
+                            "Se buscará los archivos con los prefijos configurados en la carpeta de EXCZ."
                         ).classes("action-note")
 
                 with ui.card().classes("panel-card flex-1 min-w-[280px]"):
@@ -1345,7 +1343,7 @@ def build_ui() -> None:
                             with ui.column().classes("gap-1"):
                                 ui.label("Informe manual").classes("section-title")
                                 ui.label(
-                                    "Selecciona una fecha y se buscará el EXCZ correspondiente para generar el informe."
+                                    "Selecciona una fecha y se buscará los EXCZ correspondientes para generar el informe."
                                 ).classes("action-note")
 
                         manual_date = (
@@ -1419,7 +1417,7 @@ def build_ui() -> None:
                             on_click=ejecutar_manual,
                         ).classes("action-primary w-full sm:w-auto")
                         ui.label(
-                            "Se utilizará el EXCZ de la fecha seleccionada si está disponible."
+                            "Se utilizará los EXCZ de la fecha seleccionada si están disponibles."
                         ).classes("action-note")
 
                 with ui.card().classes("panel-card flex-1 min-w-[280px]"):
@@ -1434,7 +1432,7 @@ def build_ui() -> None:
                             with ui.column().classes("gap-1"):
                                 ui.label("Generar productos").classes("section-title")
                                 ui.label(
-                                    "Ejecuta el script Productos.bat para actualizar el listado de productos."
+                                    "Ejecuta el script Productos.bat para actualizar el listado de productos actual."
                                 ).classes("action-note")
 
                         productos_script = settings.productos_batch_script
@@ -1625,12 +1623,12 @@ def build_ui() -> None:
                     ):
                         with ui.element("div").classes("icon-bubble icon-blue"):
                             ui.icon("route").classes("text-white text-xl")
-                        ui.label("Rutas de trabajo").classes("section-title")
+                        ui.label("Nuevas funcionalidades").classes("section-title")
                         ui.label("Pronto…").classes(
                             "text-lg font-semibold text-slate-500"
                         )
                         ui.label(
-                            "Muy pronto podrás administrar y automatizar tus rutas de trabajo desde aquí."
+                            "..."
                         ).classes("action-note text-center")
 
             with ui.card().classes("panel-card w-full"):
@@ -1649,7 +1647,7 @@ def build_ui() -> None:
                     _path_line("Productos", settings.context.productos_dir)
                     _path_line("Plantilla", settings.ruta_plantilla)
                     ui.label(
-                        "Puedes modificar estas rutas mediante variables de entorno."
+                        "Puedes modificar estas rutas mediante variables de entorno (Código)."
                     ).classes("action-note")
 
             with ui.card().classes("panel-card w-full"):
@@ -1754,7 +1752,7 @@ def main() -> None:  # pragma: no cover - entrada manual
 
     ui.run(
         native=True,
-        window_size=(1200, 800),
+        window_size=(1980, 1080),
         fullscreen=False,
         **base_kwargs,
     )
