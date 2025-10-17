@@ -12,6 +12,7 @@ from typing import Iterable, Iterator, Mapping
 from openpyxl import Workbook, load_workbook
 from openpyxl.cell.cell import MergedCell
 from openpyxl.comments import Comment
+from openpyxl.styles import PatternFill
 
 
 def _normalize_color(value: object | None) -> str | None:
@@ -275,10 +276,11 @@ class MonthlyReportService:
             "ventas": ("ventas",),
             "costos": ("costos", "costo"),
             "renta": ("renta", "rentabilidad"),
-            "utilidad": ("util", "utilidad"),
+            "utilidad": ("util", "utilidad", "utili"),
             "precio": ("precio",),
             "descuento": ("descuento",),
-            "razon": ("razon", "observacion", "detalle"),
+            "razon": ("razon", "observacion", "detalle", "comentario"),
+            "fecha": ("fecha",),
         }
 
         for sheet in wb.worksheets:
@@ -449,8 +451,9 @@ class MonthlyReportService:
             for offset, row in enumerate(rows):
                 values = row.values
                 target_row = start_row + offset
+                fecha_valor = values.get("fecha")
                 ws.cell(target_row, 1).value = self._format_report_date(
-                    row.workbook_date
+                    fecha_valor if fecha_valor not in (None, "") else row.workbook_date
                 )
                 for col_idx, key in enumerate(columns, start=2):
                     ws.cell(target_row, col_idx).value = values.get(key)
@@ -465,6 +468,7 @@ class MonthlyReportService:
                 else:
                     combined_reason = comment_text or reason or None
                 ws.cell(target_row, 13).value = combined_reason
+            self._apply_table_zebra_format(ws, start_row, len(rows))
             destino.parent.mkdir(parents=True, exist_ok=True)
             template.save(destino)
         finally:
@@ -496,11 +500,11 @@ class MonthlyReportService:
                     else 0.0
                 )
                 target_row = start_row + offset
-                ws.cell(target_row, 1).value = (
-                    row.workbook_date.strftime("%Y-%m-%d")
-                    if row.workbook_date
-                    else None
+                fecha_valor = values.get("fecha")
+                fecha_formateada = self._format_report_date(
+                    fecha_valor if fecha_valor not in (None, "") else row.workbook_date
                 )
+                ws.cell(target_row, 1).value = fecha_formateada
                 vendedor = values.get("vendedor") or values.get("cliente")
                 ws.cell(target_row, 2).value = vendedor
                 ws.cell(target_row, 3).value = factura
@@ -512,6 +516,7 @@ class MonthlyReportService:
                 ws.cell(target_row, 9).value = None
                 ws.cell(target_row, 10).value = valor_error
                 ws.cell(target_row, 11).value = None
+            self._apply_table_zebra_format(ws, start_row, len(rows))
             destino.parent.mkdir(parents=True, exist_ok=True)
             template.save(destino)
         finally:
@@ -569,6 +574,23 @@ class MonthlyReportService:
                     continue
                 cell.value = None
                 cell.comment = None
+
+    @staticmethod
+    def _apply_table_zebra_format(ws, start_row: int, count: int) -> None:
+        if count <= 0:
+            return
+        max_col = ws.max_column or 1
+        grey_fill = PatternFill(
+            fill_type="solid", start_color="00F2F2F2", end_color="00F2F2F2"
+        )
+        for offset in range(count):
+            row_index = start_row + offset
+            fill = grey_fill if offset % 2 == 1 else PatternFill()
+            for col_idx in range(1, max_col + 1):
+                cell = ws.cell(row_index, col_idx)
+                if isinstance(cell, MergedCell):
+                    continue
+                cell.fill = fill
 
 
 def _calculate_authorized_discount(
