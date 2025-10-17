@@ -25,6 +25,7 @@ def _create_templates(base_dir: Path) -> tuple[Path, Path]:
     ws_codigos = wb_codigos.active
     ws_codigos.append(
         [
+            None,
             "NIT",
             "CLIENTE",
             "DESCRIPCION",
@@ -39,6 +40,13 @@ def _create_templates(base_dir: Path) -> tuple[Path, Path]:
             "RAZON",
         ]
     )
+    for _ in range(23):
+        ws_codigos.append([None] * 13)
+    ws_codigos.append([None] * 13)
+    total_row = ws_codigos.max_row
+    ws_codigos.cell(total_row, 2).value = "TOTAL"
+    ws_codigos.cell(total_row, 6).value = "=SUM(F2:F24)"
+    ws_codigos.cell(total_row, 7).value = "=SUM(G2:G24)"
     wb_codigos.save(codigos_path)
     wb_codigos.close()
 
@@ -164,9 +172,11 @@ def test_monthly_reports_generation(tmp_path):
     codigos_path = service.generar_codigos_incorrectos("Marzo", bus=None)
     wb_codigos = load_workbook(codigos_path)
     ws_codigos = wb_codigos.active
-    assert ws_codigos.cell(2, 1).value == "123"
-    assert ws_codigos.cell(2, 3).value == "Producto A"
-    assert ws_codigos.cell(2, 12).value == "Precio diferente"
+    assert ws_codigos.cell(2, 1).value == "2023-03-01"
+    assert ws_codigos.cell(2, 2).value == "123"
+    assert ws_codigos.cell(2, 4).value == "Producto A"
+    assert ws_codigos.cell(2, 13).value == "Precio diferente"
+    assert ws_codigos.cell(25, 2).value == "TOTAL"
     wb_codigos.close()
 
     cobros_path = service.generar_malos_cobros("Marzo", bus=None)
@@ -184,6 +194,76 @@ def test_monthly_reports_generation(tmp_path):
     valor_error = ws_cobros.cell(2, 10).value
     assert valor_error == pytest.approx((facturado - autorizado) * 2000 * 5)
     wb_cobros.close()
+
+
+def test_codigos_incorrectos_inserta_filas(tmp_path):
+    codigos_tpl, cobros_tpl = _create_templates(tmp_path)
+    informes_dir = tmp_path / "Informes" / "Abril"
+    informes_dir.mkdir(parents=True, exist_ok=True)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "ABRIL 00"
+    for _ in range(5):
+        ws.append([None] * 12)
+    ws.append(
+        [
+            "NIT",
+            "CLIENTE",
+            "DESCRIPCION",
+            "VENDEDOR",
+            "CANTIDAD",
+            "VENTAS",
+            "COSTOS",
+            "RENTA",
+            "UTILIDAD",
+            "PRECIO",
+            "DESCUENTO",
+            "RAZON",
+        ]
+    )
+    for idx in range(24):
+        start_row = ws.max_row + 1
+        values = [
+            f"10{idx:02d}",
+            f"CLIENTE {idx}",
+            f"Producto {idx}",
+            f"Vendedor {idx}",
+            1,
+            1000 + idx,
+            800 + idx,
+            0.2,
+            0.3,
+            1200,
+            0.1,
+            f"Observacion {idx}",
+        ]
+        for col_idx, value in enumerate(values, start=1):
+            cell = ws.cell(start_row, col_idx, value)
+            if col_idx in (4, 12):
+                cell.fill = ORANGE
+
+    informe_path = informes_dir / "INFORME_20230401.xlsx"
+    wb.save(informe_path)
+    wb.close()
+
+    config = MonthlyReportConfig(
+        informes_dir=informes_dir.parent,
+        plantilla_codigos=codigos_tpl,
+        plantilla_malos_cobros=cobros_tpl,
+        consolidados_codigos_dir=tmp_path / "Consolidados" / "Codigos",
+        consolidados_cobros_dir=tmp_path / "Consolidados" / "Cobros",
+    )
+    service = MonthlyReportService(config)
+
+    codigos_path = service.generar_codigos_incorrectos("Abril", bus=None)
+    wb_codigos = load_workbook(codigos_path)
+    ws_codigos = wb_codigos.active
+    # 24 filas de datos deben mover la fila TOTAL una posición hacia abajo
+    assert ws_codigos.cell(2, 2).value == "1000"
+    assert ws_codigos.cell(25, 2).value == "1023"
+    assert ws_codigos.cell(26, 2).value == "TOTAL"
+    wb_codigos.close()
 
 
 def test_month_directory_missing(tmp_path):
