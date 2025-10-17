@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -117,6 +119,7 @@ def _create_informe(base_dir: Path) -> Path:
         if col_idx == 4:
             cell.fill = ORANGE
     ws.cell(start_row, 12).fill = ORANGE
+    ws.cell(start_row, 12).comment = Comment("Observación de prueba", "QA")
     row_cobros = [
         "456",
         "000456-000-CLIENTE DOS",
@@ -175,7 +178,11 @@ def test_monthly_reports_generation(tmp_path):
     assert ws_codigos.cell(2, 1).value == "2023-03-01"
     assert ws_codigos.cell(2, 2).value == "123"
     assert ws_codigos.cell(2, 4).value == "Producto A"
-    assert ws_codigos.cell(2, 13).value == "Precio diferente"
+    assert ws_codigos.cell(2, 12).value == 0.2
+    assert (
+        ws_codigos.cell(2, 13).value
+        == "Precio diferente - Observación de prueba"
+    )
     assert ws_codigos.cell(25, 2).value == "TOTAL"
     wb_codigos.close()
 
@@ -265,6 +272,66 @@ def test_codigos_incorrectos_inserta_filas(tmp_path):
     assert ws_codigos.cell(26, 2).value == "TOTAL"
     wb_codigos.close()
 
+
+def test_codigos_incorrectos_fecha_por_mtime(tmp_path):
+    codigos_tpl, cobros_tpl = _create_templates(tmp_path)
+    informes_dir = tmp_path / "Informes" / "Abril"
+    informes_dir.mkdir(parents=True, exist_ok=True)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "ABRIL 00"
+    for _ in range(2):
+        ws.append([None] * 12)
+    ws.append(
+        [
+            "NIT",
+            "CLIENTE",
+            "DESCRIPCION",
+            "VENDEDOR",
+            "CANTIDAD",
+            "VENTAS",
+            "COSTOS",
+            "RENTA",
+            "UTILIDAD",
+            "PRECIO",
+            "DESCUENTO",
+            "RAZON",
+        ]
+    )
+    start_row = ws.max_row + 1
+    ws.cell(start_row, 1, "900100200")
+    ws.cell(start_row, 2, "CLIENTE TEST")
+    ws.cell(start_row, 3, "Producto X")
+    ws.cell(start_row, 4, "Vendedor X").fill = ORANGE
+    ws.cell(start_row, 6, 5)
+    ws.cell(start_row, 7, 5000)
+    ws.cell(start_row, 8, 3000)
+    ws.cell(start_row, 12, "Detalle")
+    ws.cell(start_row, 12).fill = ORANGE
+    wb_path = informes_dir / "INFORME_SIN_FECHA.xlsx"
+    wb.save(wb_path)
+    wb.close()
+
+    target_date = datetime(2023, 4, 15, 10, 30, 0)
+    timestamp = target_date.timestamp()
+    wb_path.touch()
+    os.utime(wb_path, (timestamp, timestamp))
+
+    config = MonthlyReportConfig(
+        informes_dir=informes_dir.parent,
+        plantilla_codigos=codigos_tpl,
+        plantilla_malos_cobros=cobros_tpl,
+        consolidados_codigos_dir=tmp_path / "Consolidados" / "Codigos",
+        consolidados_cobros_dir=tmp_path / "Consolidados" / "Cobros",
+    )
+    service = MonthlyReportService(config)
+
+    codigos_path = service.generar_codigos_incorrectos("Abril", bus=None)
+    wb_codigos = load_workbook(codigos_path)
+    ws_codigos = wb_codigos.active
+    assert ws_codigos.cell(2, 1).value == "2023-04-15"
+    wb_codigos.close()
 
 def test_month_directory_missing(tmp_path):
     codigos_tpl, cobros_tpl = _create_templates(tmp_path)
