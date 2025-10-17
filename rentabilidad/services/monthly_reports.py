@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 import unicodedata
 from collections import defaultdict
@@ -242,6 +243,8 @@ class MonthlyReportService:
                         lista_cliente_precio = precios_producto.get(
                             f"{int(lista_cliente):02d}"
                         )
+                if values.get("precio") in (None, "") and lista_12:
+                    values["precio"] = lista_12
                 values.update({
                     "lista_cliente": lista_cliente_precio,
                     "lista_12": lista_12,
@@ -445,14 +448,26 @@ class MonthlyReportService:
                 factura, observacion = _parse_comment(row.comment)
                 lista_cliente = _as_float(values.get("lista_cliente"))
                 lista_12 = _as_float(values.get("lista_12"))
-                autorizado = 0.0
-                if lista_cliente and lista_12:
-                    autorizado = 1 - (lista_cliente / lista_12)
-                facturado = _as_float(values.get("descuento"))
+                precio_unitario = _as_float(values.get("precio"))
+                precio_base = next(
+                    (
+                        candidate
+                        for candidate in (lista_12, precio_unitario, lista_cliente)
+                        if candidate
+                    ),
+                    0.0,
+                )
+                autorizado = _calculate_authorized_discount(
+                    lista_cliente, lista_12
+                )
+                facturado = _calculate_facturado_discount(
+                    values, precio_base, lista_12
+                )
                 cantidad = _as_float(values.get("cantidad"))
-                precio_base = lista_12 or _as_float(values.get("precio"))
                 diferencia = facturado - autorizado
-                valor_error = diferencia * precio_base * cantidad
+                valor_error = (
+                    diferencia * precio_base * cantidad if precio_base and cantidad else 0.0
+                )
                 target_row = start_row + offset
                 ws.cell(target_row, 1).value = (
                     row.workbook_date.strftime("%Y-%m-%d")
@@ -498,6 +513,50 @@ class MonthlyReportService:
                     continue
                 cell.value = None
                 cell.comment = None
+
+
+def _calculate_authorized_discount(
+    lista_cliente: float, lista_12: float
+) -> float:
+    if not lista_cliente or not lista_12:
+        return 0.0
+    if not math.isfinite(lista_cliente) or not math.isfinite(lista_12):
+        return 0.0
+    if not lista_12:
+        return 0.0
+    ratio = 1 - (lista_cliente / lista_12)
+    return _clamp_percentage(ratio)
+
+
+def _calculate_facturado_discount(
+    values: Mapping[str, object], precio_base: float, lista_12: float
+) -> float:
+    raw = values.get("descuento")
+    if raw not in (None, ""):
+        discount = _as_float(raw)
+        return discount
+    ventas = _as_float(values.get("ventas"))
+    cantidad = _as_float(values.get("cantidad"))
+    if not cantidad:
+        return 0.0
+    base = precio_base or lista_12 or _as_float(values.get("precio"))
+    if not base:
+        return 0.0
+    total_base = base * cantidad
+    if not total_base:
+        return 0.0
+    discount = 1 - (ventas / total_base)
+    return _clamp_percentage(discount)
+
+
+def _clamp_percentage(value: float) -> float:
+    if not math.isfinite(value):
+        return 0.0
+    if value > 1:
+        return 1.0
+    if value < -1:
+        return -1.0
+    return value
 
 
 __all__ = [
