@@ -464,27 +464,21 @@ class MonthlyReportService:
             for offset, row in enumerate(rows):
                 values = row.values
                 factura, observacion = _parse_comment(row.comment)
-                lista_cliente = _as_float(values.get("lista_cliente"))
-                lista_12 = _as_float(values.get("lista_12"))
-                precio_unitario = _as_float(values.get("precio"))
-                precio_base = next(
-                    (
-                        candidate
-                        for candidate in (lista_12, precio_unitario, lista_cliente)
-                        if candidate
-                    ),
-                    0.0,
-                )
+                lista_cliente = values.get("lista_cliente")
+                lista_12 = values.get("lista_12")
+                lista_12_val = _as_float(lista_12)
                 autorizado = _calculate_authorized_discount(
                     lista_cliente, lista_12
                 )
                 facturado = _calculate_facturado_discount(
-                    values, precio_base, lista_12
+                    values, lista_12
                 )
                 cantidad = _as_float(values.get("cantidad"))
                 diferencia = facturado - autorizado
                 valor_error = (
-                    diferencia * precio_base * cantidad if precio_base and cantidad else 0.0
+                    diferencia * lista_12_val * cantidad
+                    if lista_12_val and cantidad
+                    else 0.0
                 )
                 target_row = start_row + offset
                 ws.cell(target_row, 1).value = (
@@ -553,37 +547,42 @@ class MonthlyReportService:
 
 
 def _calculate_authorized_discount(
-    lista_cliente: float, lista_12: float
+    lista_cliente: object, lista_12: object
 ) -> float:
-    if not lista_cliente or not lista_12:
+    lista_cliente_val = _as_float(lista_cliente)
+    lista_12_val = _as_float(lista_12)
+    if not lista_cliente_val or not lista_12_val:
         return 0.0
-    if not math.isfinite(lista_cliente) or not math.isfinite(lista_12):
+    if not math.isfinite(lista_cliente_val) or not math.isfinite(lista_12_val):
         return 0.0
-    if not lista_12:
+    if not lista_12_val:
         return 0.0
-    ratio = 1 - (lista_cliente / lista_12)
+    ratio = 1 - (lista_cliente_val / lista_12_val)
     return _clamp_percentage(ratio)
 
 
 def _calculate_facturado_discount(
-    values: Mapping[str, object], precio_base: float, lista_12: float
+    values: Mapping[str, object], lista_12: object
 ) -> float:
+    lista_12_val = _as_float(lista_12)
+    if not lista_12_val or not math.isfinite(lista_12_val):
+        return 0.0
     raw = values.get("descuento")
     if raw not in (None, ""):
         discount = _as_float(raw)
-        return discount
-    ventas = _as_float(values.get("ventas"))
-    cantidad = _as_float(values.get("cantidad"))
-    if not cantidad:
+        return _clamp_percentage(discount)
+    unit_price = _as_float(values.get("precio"))
+    if not unit_price or not math.isfinite(unit_price):
+        ventas = _as_float(values.get("ventas"))
+        cantidad = _as_float(values.get("cantidad"))
+        if not cantidad:
+            return 0.0
+        unit_price = ventas / cantidad
+    if not math.isfinite(unit_price) or not unit_price:
         return 0.0
-    base = precio_base or lista_12 or _as_float(values.get("precio"))
-    if not base:
-        return 0.0
-    total_base = base * cantidad
-    if not total_base:
-        return 0.0
-    discount = 1 - (ventas / total_base)
-    return _clamp_percentage(discount)
+    precio_con_iva = unit_price * 1.19
+    ratio = 1 - (precio_con_iva / lista_12_val)
+    return _clamp_percentage(ratio)
 
 
 def _clamp_percentage(value: float) -> float:

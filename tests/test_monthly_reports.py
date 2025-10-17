@@ -123,11 +123,11 @@ def _create_informe(base_dir: Path) -> Path:
         "Producto B",
         "Vendedor Dos",
         5,
-        5000,
+        5500,
         3200,
         0.18,
         0.27,
-        2000,
+        1100,
         None,
         "Doc",
     ]
@@ -189,7 +189,7 @@ def test_monthly_reports_generation(tmp_path):
     autorizado = ws_cobros.cell(2, 6).value
     facturado = ws_cobros.cell(2, 7).value
     assert round(autorizado, 4) == 0.25
-    assert facturado == pytest.approx(0.5)
+    assert facturado == pytest.approx(0.3455, rel=1e-3)
     assert ws_cobros.cell(2, 8).value == "Observación de prueba"
     valor_error = ws_cobros.cell(2, 10).value
     assert valor_error == pytest.approx((facturado - autorizado) * 2000 * 5)
