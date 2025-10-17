@@ -120,6 +120,26 @@ def _create_informe(base_dir: Path) -> Path:
             cell.fill = ORANGE
     ws.cell(start_row, 12).fill = ORANGE
     ws.cell(start_row, 12).comment = Comment("Observación de prueba", "QA")
+    row_codigos_2 = [
+        "789",
+        "000789-000-CLIENTE TRES",
+        "Producto C",
+        "Vendedor Tres",
+        3,
+        3600,
+        2000,
+        0.30,
+        0.40,
+        1200,
+        0.15,
+        "Diferencia de lista",
+    ]
+    start_row += 1
+    for col_idx, value in enumerate(row_codigos_2, start=1):
+        cell = ws.cell(start_row, col_idx, value)
+        if col_idx == 5:
+            cell.fill = ORANGE
+    ws.cell(start_row, 12).fill = ORANGE
     row_cobros = [
         "456",
         "000456-000-CLIENTE DOS",
@@ -178,11 +198,16 @@ def test_monthly_reports_generation(tmp_path):
     assert ws_codigos.cell(2, 1).value == "2023-03-01"
     assert ws_codigos.cell(2, 2).value == "123"
     assert ws_codigos.cell(2, 4).value == "Producto A"
+    assert ws_codigos.cell(2, 10).value == 0.35
     assert ws_codigos.cell(2, 12).value == 0.2
     assert (
         ws_codigos.cell(2, 13).value
         == "Precio diferente - Observación de prueba"
     )
+    assert ws_codigos.cell(3, 2).value == "789"
+    assert ws_codigos.cell(3, 10).value == 0.4
+    assert ws_codigos.cell(2, 1).fill.patternType is None
+    assert ws_codigos.cell(3, 1).fill.patternType == "solid"
     assert ws_codigos.cell(25, 2).value == "TOTAL"
     wb_codigos.close()
 
