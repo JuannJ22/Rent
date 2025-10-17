@@ -408,29 +408,47 @@ class MonthlyReportService:
         return lookup
 
     def _write_codigos_template(self, rows: Iterable[HighlightedRow], destino: Path) -> None:
+        rows = list(rows)
         template = load_workbook(self._config.plantilla_codigos)
         try:
             ws = template.active
             start_row = self._find_data_row(ws, {"nit"})
-            self._clear_from(ws, start_row)
+            total_row = self._find_total_row(ws)
+            if rows:
+                last_data_row = start_row + len(rows) - 1
+                if total_row and last_data_row >= total_row:
+                    insert_count = last_data_row - total_row + 1
+                    ws.insert_rows(total_row, amount=insert_count)
+                    total_row += insert_count
+            if not total_row:
+                total_row = start_row + len(rows) + 1
+
+            self._clear_data_rows(ws, start_row, total_row - 1)
+
+            columns = [
+                "nit",
+                "cliente",
+                "descripcion",
+                "vendedor",
+                "cantidad",
+                "ventas",
+                "costos",
+                "renta",
+                "utilidad",
+                "precio",
+                "descuento",
+                "razon",
+            ]
+
             for offset, row in enumerate(rows):
                 values = row.values
                 target_row = start_row + offset
-                columns = [
-                    "nit",
-                    "cliente",
-                    "descripcion",
-                    "vendedor",
-                    "cantidad",
-                    "ventas",
-                    "costos",
-                    "renta",
-                    "utilidad",
-                    "precio",
-                    "descuento",
-                    "razon",
-                ]
-                for col_idx, key in enumerate(columns, start=1):
+                ws.cell(target_row, 1).value = (
+                    row.workbook_date.strftime("%Y-%m-%d")
+                    if row.workbook_date
+                    else None
+                )
+                for col_idx, key in enumerate(columns, start=2):
                     ws.cell(target_row, col_idx).value = values.get(key)
             destino.parent.mkdir(parents=True, exist_ok=True)
             template.save(destino)
@@ -498,6 +516,25 @@ class MonthlyReportService:
                 header_row = idx
                 break
         return header_row + 1
+
+    def _find_total_row(self, ws) -> int | None:
+        for idx in range(1, ws.max_row + 1):
+            for col in range(1, ws.max_column + 1):
+                value = ws.cell(idx, col).value
+                if isinstance(value, str) and _normalize_header(value) == "total":
+                    return idx
+        return None
+
+    def _clear_data_rows(self, ws, start_row: int, end_row: int) -> None:
+        if end_row < start_row:
+            return
+        max_col = ws.max_column or 1
+        for row in ws.iter_rows(min_row=start_row, max_row=end_row, max_col=max_col):
+            for cell in row:
+                if isinstance(cell, MergedCell):
+                    continue
+                cell.value = None
+                cell.comment = None
 
     @staticmethod
     def _clear_from(ws, start_row: int) -> None:
