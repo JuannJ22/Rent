@@ -200,6 +200,13 @@ class MonthlyReportService:
             if workbook_path.name.startswith("~$"):
                 continue
             workbook_date = _parse_date_from_filename(workbook_path)
+            if workbook_date is None:
+                try:
+                    workbook_date = datetime.fromtimestamp(
+                        workbook_path.stat().st_mtime
+                    ).date()
+                except OSError:
+                    workbook_date = None
             yield from self._extract_from_workbook(workbook_path, colors, workbook_date)
 
     def _extract_from_workbook(
@@ -437,19 +444,27 @@ class MonthlyReportService:
                 "utilidad",
                 "precio",
                 "descuento",
-                "razon",
             ]
 
             for offset, row in enumerate(rows):
                 values = row.values
                 target_row = start_row + offset
-                ws.cell(target_row, 1).value = (
-                    row.workbook_date.strftime("%Y-%m-%d")
-                    if row.workbook_date
-                    else None
+                ws.cell(target_row, 1).value = self._format_report_date(
+                    row.workbook_date
                 )
                 for col_idx, key in enumerate(columns, start=2):
                     ws.cell(target_row, col_idx).value = values.get(key)
+                reason = _strip_text(values.get("razon"))
+                comment_text = None
+                if row.comment:
+                    _, observation = _parse_comment(row.comment)
+                    comment_text = observation or row.comment.text
+                comment_text = _strip_text(comment_text)
+                if reason and comment_text:
+                    combined_reason = f"{reason} - {comment_text}"
+                else:
+                    combined_reason = comment_text or reason or None
+                ws.cell(target_row, 13).value = combined_reason
             destino.parent.mkdir(parents=True, exist_ok=True)
             template.save(destino)
         finally:
@@ -507,6 +522,16 @@ class MonthlyReportService:
             template.save(destino)
         finally:
             template.close()
+
+    @staticmethod
+    def _format_report_date(value: date | datetime | str | None) -> str | None:
+        if isinstance(value, datetime):
+            value = value.date()
+        if isinstance(value, date):
+            return value.isoformat()
+        if value is None:
+            return None
+        return str(value)
 
     def _find_data_row(self, ws, keywords: set[str]) -> int:
         header_row = 1
