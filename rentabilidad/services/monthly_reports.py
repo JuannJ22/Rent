@@ -33,6 +33,14 @@ def _normalize_color(value: object | None) -> str | None:
         return text[-6:]
     if len(text) == 6:
         return text
+    # Intentar convertir valores indexados comunes a sus equivalentes RGB
+    if text.isdigit():
+        idx = int(text)
+        # Mapa de índices comunes de Excel a colores RGB
+        if idx == 22:  # Naranja claro (similar a FCD5B4)
+            return "FCD5B4"
+        elif idx == 6:  # Amarillo (similar a FFFF00)
+            return "FFFF00"
     return None
 
 
@@ -232,9 +240,30 @@ class MonthlyReportService:
                 if not self._row_has_data(values):
                     continue
                 row_colors = self._row_colors(ws_styles, row_idx)
-                matched_color = next(
-                    (color for color in row_colors if color in colors), None
-                )
+                
+                # Verificar si hay celdas con colores similares a los buscados
+                matched_color = None
+                for color in row_colors:
+                    # Verificar coincidencia exacta
+                    if color in colors:
+                        matched_color = color
+                        break
+                    
+                    # Verificar naranja claro específico (RGB: 252, 213, 180 - FCD5B4)
+                    if self.CODIGOS_COLOR in colors:
+                        # Color exacto FCD5B4 o variaciones cercanas
+                        if color and (color == "FCD5B4" or 
+                                     (color.startswith("FC") and "D5" in color) or
+                                     (color.upper() == "FFCEB4") or  # Variación común
+                                     (color.upper() in ["FFCCCC", "FFCC99", "FFD8B1", "FFCCB4", "FFCCB3"])):
+                            matched_color = self.CODIGOS_COLOR
+                            break
+                    
+                    # Verificar similitud con amarillo (malos cobros)
+                    if self.COBROS_COLOR in colors and color and color.startswith("FF") and "F" in color[2:]:
+                        matched_color = self.COBROS_COLOR
+                        break
+                
                 if not matched_color:
                     continue
                 nit = _strip_text(values.get("nit"))
