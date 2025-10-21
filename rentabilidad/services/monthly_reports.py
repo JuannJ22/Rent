@@ -29,9 +29,11 @@ def _normalize_color(value: object | None) -> str | None:
     if text.startswith("0x"):
         text = text[2:]
     text = text.upper()
+    if len(text) == 8:
+        return text[-6:]
     if len(text) == 6:
-        text = "FF" + text
-    return text
+        return text
+    return None
 
 
 def _strip_text(value: object | None) -> str:
@@ -128,8 +130,8 @@ class MonthlyReportConfig:
 
 
 class MonthlyReportService:
-    CODIGOS_COLOR = "FFFCD5B4"
-    COBROS_COLOR = "FFFFFF00"
+    CODIGOS_COLOR = "FCD5B4"
+    COBROS_COLOR = "FFFF00"
 
     def __init__(self, config: MonthlyReportConfig):
         self._config = config
