@@ -116,7 +116,9 @@ def _create_informe(base_dir: Path) -> Path:
     start_row = ws.max_row + 1
     for col_idx, value in enumerate(row_codigos, start=1):
         cell = ws.cell(start_row, col_idx, value)
-        if col_idx == 4:
+        if col_idx == 1:
+            cell.fill = ORANGE
+        elif col_idx == 4:
             cell.fill = ORANGE
     ws.cell(start_row, 12).fill = ORANGE
     ws.cell(start_row, 12).comment = Comment("Observación de prueba", "QA")
@@ -137,7 +139,9 @@ def _create_informe(base_dir: Path) -> Path:
     start_row += 1
     for col_idx, value in enumerate(row_codigos_2, start=1):
         cell = ws.cell(start_row, col_idx, value)
-        if col_idx == 5:
+        if col_idx == 1:
+            cell.fill = ORANGE
+        elif col_idx == 5:
             cell.fill = ORANGE
     ws.cell(start_row, 12).fill = ORANGE
     row_cobros = [
@@ -157,7 +161,9 @@ def _create_informe(base_dir: Path) -> Path:
     start_row += 1
     for col_idx, value in enumerate(row_cobros, start=1):
         cell = ws.cell(start_row, col_idx, value)
-        if col_idx == 12:
+        if col_idx == 1:
+            cell.fill = YELLOW
+        elif col_idx == 12:
             cell.fill = YELLOW
             cell.comment = Comment("Doc: FV-123 Observación de prueba", "QA")
     ws.cell(start_row, 6).fill = YELLOW
@@ -206,6 +212,12 @@ def test_monthly_reports_generation(tmp_path):
     )
     assert ws_codigos.cell(3, 2).value == "789"
     assert ws_codigos.cell(3, 10).value == 0.4
+    assert ws_codigos.cell(1, 14).value == "NIT - SUCURSAL - CLIENTE"
+    assert ws_codigos.cell(2, 14).value == "000123-000-CLIENTE UNO"
+    assert ws_codigos.cell(3, 14).value == "000789-000-CLIENTE TRES"
+    assert ws_codigos.cell(1, 15).value == "COD. VENDEDOR"
+    assert ws_codigos.cell(2, 15).value == "Vendedor Uno"
+    assert ws_codigos.cell(3, 15).value == "Vendedor Tres"
     assert ws_codigos.cell(2, 1).fill.patternType is None
     assert ws_codigos.cell(3, 1).fill.patternType == "solid"
     assert ws_codigos.cell(25, 2).value == "TOTAL"
@@ -272,7 +284,9 @@ def test_codigos_incorrectos_inserta_filas(tmp_path):
         ]
         for col_idx, value in enumerate(values, start=1):
             cell = ws.cell(start_row, col_idx, value)
-            if col_idx in (4, 12):
+            if col_idx == 1:
+                cell.fill = ORANGE
+            elif col_idx in (4, 12):
                 cell.fill = ORANGE
 
     informe_path = informes_dir / "INFORME_20230401.xlsx"
@@ -326,6 +340,7 @@ def test_codigos_incorrectos_fecha_por_mtime(tmp_path):
     )
     start_row = ws.max_row + 1
     ws.cell(start_row, 1, "900100200")
+    ws.cell(start_row, 1).fill = ORANGE
     ws.cell(start_row, 2, "CLIENTE TEST")
     ws.cell(start_row, 3, "Producto X")
     ws.cell(start_row, 4, "Vendedor X").fill = ORANGE
