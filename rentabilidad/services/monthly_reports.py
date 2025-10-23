@@ -231,10 +231,16 @@ class MonthlyReportService:
                 return
             ws_values = wb_values[sheet_name]
             ws_styles = wb_styles[sheet_name]
+            header_values = [
+                ws_styles.cell(header_row, col_idx).value
+                for col_idx in range(1, ws_styles.max_column + 1)
+            ]
             price_lookup = self._load_price_lookup(wb_values)
             terceros_lookup = self._load_terceros_lookup(wb_values)
             for row_idx in range(header_row + 1, ws_styles.max_row + 1):
-                values = self._collect_row_values(ws_values, mapping, row_idx)
+                values = self._collect_row_values(
+                    ws_values, mapping, row_idx, header_values
+                )
                 if not values:
                     continue
                 if not self._row_has_data(values):
@@ -334,17 +340,33 @@ class MonthlyReportService:
         return sheet_name, header_row, header_mapping
 
     def _collect_row_values(
-        self, ws, mapping: Mapping[str, int], row_idx: int
+        self,
+        ws,
+        mapping: Mapping[str, int],
+        row_idx: int,
+        headers: list[object | None],
     ) -> dict[str, object]:
         values: dict[str, object] = {}
-        empty = True
+        all_columns: list[tuple[str, object]] = []
+        has_data = False
+        max_col = max(ws.max_column or 0, len(headers))
+        for col_idx in range(1, max_col + 1):
+            header_value = headers[col_idx - 1] if col_idx - 1 < len(headers) else None
+            header_text = _strip_text(header_value) or f"Columna {col_idx}"
+            cell = ws.cell(row_idx, col_idx)
+            cell_value = cell.value
+            if cell_value not in (None, ""):
+                has_data = True
+            values[header_text] = cell_value
+            all_columns.append((header_text, cell_value))
         for key, col_idx in mapping.items():
             cell = ws.cell(row_idx, col_idx)
-            value = cell.value
-            if value not in (None, ""):
-                empty = False
-            values[key] = value
-        return {} if empty else values
+            cell_value = cell.value
+            if cell_value not in (None, ""):
+                has_data = True
+            values[key] = cell_value
+        values["__all_columns__"] = tuple(all_columns)
+        return {} if not has_data else values
 
     @staticmethod
     def _row_has_data(values: Mapping[str, object]) -> bool:
@@ -357,33 +379,32 @@ class MonthlyReportService:
     def _row_colors(self, ws, row_idx: int) -> list[str]:
         colors: list[str] = []
         seen: set[str] = set()
-        for col_idx in range(1, ws.max_column + 1):
-            cell = ws.cell(row_idx, col_idx)
-            fill = getattr(cell, "fill", None)
-            if fill is None:
-                continue
-            pattern = getattr(fill, "patternType", None)
-            if pattern != "solid":
-                continue
-            start = getattr(fill, "start_color", None)
-            color = None
-            if start is not None:
+        cell = ws.cell(row_idx, 1)
+        fill = getattr(cell, "fill", None)
+        if fill is None:
+            return colors
+        pattern = getattr(fill, "patternType", None)
+        if pattern != "solid":
+            return colors
+        start = getattr(fill, "start_color", None)
+        color = None
+        if start is not None:
+            color = (
+                _normalize_color(getattr(start, "rgb", None))
+                or _normalize_color(getattr(start, "indexed", None))
+                or _normalize_color(getattr(start, "theme", None))
+            )
+        if not color:
+            fg = getattr(fill, "fgColor", None)
+            if fg is not None:
                 color = (
-                    _normalize_color(getattr(start, "rgb", None))
-                    or _normalize_color(getattr(start, "indexed", None))
-                    or _normalize_color(getattr(start, "theme", None))
+                    _normalize_color(getattr(fg, "rgb", None))
+                    or _normalize_color(getattr(fg, "indexed", None))
+                    or _normalize_color(getattr(fg, "theme", None))
                 )
-            if not color:
-                fg = getattr(fill, "fgColor", None)
-                if fg is not None:
-                    color = (
-                        _normalize_color(getattr(fg, "rgb", None))
-                        or _normalize_color(getattr(fg, "indexed", None))
-                        or _normalize_color(getattr(fg, "theme", None))
-                    )
-            if color and color not in seen:
-                seen.add(color)
-                colors.append(color)
+        if color and color not in seen:
+            seen.add(color)
+            colors.append(color)
         return colors
 
     def _load_price_lookup(self, wb: Workbook) -> Mapping[str, Mapping[str, float]]:
@@ -479,6 +500,41 @@ class MonthlyReportService:
                 "descuento",
             ]
 
+            handled_headers = {
+                _normalize_header(name)
+                for name in (
+                    "fecha",
+                    "nit",
+                    "cliente",
+                    "descripcion",
+                    "vendedor",
+                    "cantidad",
+                    "ventas",
+                    "costos",
+                    "renta",
+                    "utilidad",
+                    "precio",
+                    "descuento",
+                    "razon",
+                )
+            }
+            extra_headers: list[str] = []
+            for row in rows:
+                all_columns = row.values.get("__all_columns__")
+                if not all_columns:
+                    continue
+                for header, _ in all_columns:
+                    normalized = _normalize_header(header)
+                    if not normalized or normalized in handled_headers:
+                        continue
+                    if header not in extra_headers:
+                        extra_headers.append(header)
+
+            header_row_idx = start_row - 1
+            extra_start_col = 14
+            for offset, header in enumerate(extra_headers):
+                ws.cell(header_row_idx, extra_start_col + offset).value = header
+
             for offset, row in enumerate(rows):
                 values = row.values
                 target_row = start_row + offset
@@ -499,6 +555,11 @@ class MonthlyReportService:
                 else:
                     combined_reason = comment_text or reason or None
                 ws.cell(target_row, 13).value = combined_reason
+
+                all_columns = dict(values.get("__all_columns__", ()))
+                for col_offset, header in enumerate(extra_headers):
+                    target_col = extra_start_col + col_offset
+                    ws.cell(target_row, target_col).value = all_columns.get(header)
             self._apply_table_zebra_format(ws, start_row, len(rows))
             destino.parent.mkdir(parents=True, exist_ok=True)
             template.save(destino)
