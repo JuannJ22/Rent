@@ -379,32 +379,37 @@ class MonthlyReportService:
     def _row_colors(self, ws, row_idx: int) -> list[str]:
         colors: list[str] = []
         seen: set[str] = set()
-        cell = ws.cell(row_idx, 1)
-        fill = getattr(cell, "fill", None)
-        if fill is None:
-            return colors
-        pattern = getattr(fill, "patternType", None)
-        if pattern != "solid":
-            return colors
-        start = getattr(fill, "start_color", None)
-        color = None
-        if start is not None:
-            color = (
-                _normalize_color(getattr(start, "rgb", None))
-                or _normalize_color(getattr(start, "indexed", None))
-                or _normalize_color(getattr(start, "theme", None))
+
+        def _extract_color(fill) -> str | None:
+            if fill is None:
+                return None
+            pattern = getattr(fill, "patternType", None) or getattr(
+                fill, "fill_type", None
             )
-        if not color:
-            fg = getattr(fill, "fgColor", None)
-            if fg is not None:
-                color = (
-                    _normalize_color(getattr(fg, "rgb", None))
-                    or _normalize_color(getattr(fg, "indexed", None))
-                    or _normalize_color(getattr(fg, "theme", None))
+            if pattern not in (None, "solid"):
+                # Algunos resaltados guardan el color aunque el patrón no sea "solid"
+                # pero ignoramos patrones como rayado para evitar falsos positivos.
+                if not str(pattern).lower().startswith("solid"):
+                    return None
+            for attr in ("start_color", "fgColor", "bgColor", "end_color"):
+                color = getattr(fill, attr, None)
+                if color is None:
+                    continue
+                normalized = (
+                    _normalize_color(getattr(color, "rgb", None))
+                    or _normalize_color(getattr(color, "indexed", None))
+                    or _normalize_color(getattr(color, "theme", None))
                 )
-        if color and color not in seen:
-            seen.add(color)
-            colors.append(color)
+                if normalized and normalized not in {"FFFFFF", "000000"}:
+                    return normalized
+            return None
+
+        for col_idx in range(1, ws.max_column + 1):
+            cell = ws.cell(row_idx, col_idx)
+            color = _extract_color(getattr(cell, "fill", None))
+            if color and color not in seen:
+                seen.add(color)
+                colors.append(color)
         return colors
 
     def _load_price_lookup(self, wb: Workbook) -> Mapping[str, Mapping[str, float]]:
