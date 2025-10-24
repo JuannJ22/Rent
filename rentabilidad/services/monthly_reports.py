@@ -512,18 +512,6 @@ class MonthlyReportService:
         try:
             ws = template.active
             start_row = self._find_data_row(ws, {"nit"})
-            total_row = self._find_total_row(ws)
-            if rows:
-                last_data_row = start_row + len(rows) - 1
-                if total_row and last_data_row >= total_row:
-                    insert_count = last_data_row - total_row + 1
-                    ws.insert_rows(total_row, amount=insert_count)
-                    total_row += insert_count
-            if not total_row:
-                total_row = start_row + len(rows) + 1
-
-            self._clear_data_rows(ws, start_row, total_row - 1)
-
             columns = [
                 "nit",
                 "cliente",
@@ -537,6 +525,26 @@ class MonthlyReportService:
                 "precio",
                 "descuento",
             ]
+            header_row_idx = max(start_row - 1, 1)
+            header_map: dict[str, int] = {}
+            max_col = ws.max_column or len(columns) + 1
+            for col_idx in range(1, max_col + 1):
+                header_value = ws.cell(header_row_idx, col_idx).value
+                normalized = _normalize_header(header_value)
+                if not normalized:
+                    continue
+                header_map.setdefault(normalized, col_idx)
+            total_row = self._find_total_row(ws)
+            if rows:
+                last_data_row = start_row + len(rows) - 1
+                if total_row and last_data_row >= total_row:
+                    insert_count = last_data_row - total_row + 1
+                    ws.insert_rows(total_row, amount=insert_count)
+                    total_row += insert_count
+            if not total_row:
+                total_row = start_row + len(rows) + 1
+
+            self._clear_data_rows(ws, start_row, total_row - 1)
 
             thin = Side(style="thin")
             border = Border(left=thin, right=thin, top=thin, bottom=thin)
