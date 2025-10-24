@@ -337,6 +337,18 @@ class MonthlyReportService:
             "utilidad": ("util", "utilidad", "utili"),
             "precio": ("precio",),
             "descuento": ("descuento",),
+            "codigo_errado": (
+                "codigo errado",
+                "codigo incorrecto",
+                "codigo errado cliente",
+            ),
+            "codigo_creado": (
+                "codigo creado",
+                "codigo correcto",
+                "codigo nuevo",
+                "codigo generado",
+                "codigo final",
+            ),
             "razon": ("razon", "observacion", "detalle", "comentario"),
             "fecha": ("fecha",),
         }
@@ -512,83 +524,80 @@ class MonthlyReportService:
 
             self._clear_data_rows(ws, start_row, total_row - 1)
 
-            columns = [
-                "nit",
-                "cliente",
-                "descripcion",
-                "vendedor",
-                "cantidad",
-                "ventas",
-                "costos",
-                "renta",
-                "utilidad",
-                "precio",
-                "descuento",
-            ]
-
-            handled_headers = {
-                _normalize_header(name)
-                for name in (
-                    "fecha",
-                    "nit",
-                    "cliente",
-                    "descripcion",
-                    "vendedor",
-                    "cantidad",
-                    "ventas",
-                    "costos",
-                    "renta",
-                    "utilidad",
-                    "utili",
-                    "precio",
-                    "descuento",
-                    "razon",
-                )
-            }
-            extra_headers: list[str] = []
-            for row in rows:
-                all_columns = row.values.get("__all_columns__")
-                if not all_columns:
-                    continue
-                for header, _ in all_columns:
-                    normalized = _normalize_header(header)
-                    if not normalized or normalized in handled_headers:
-                        continue
-                    if header not in extra_headers:
-                        extra_headers.append(header)
-
-            if extra_headers:
-                extra_headers = extra_headers[-1:]
-
             header_row_idx = start_row - 1
-            extra_start_col = 14
-            for offset, header in enumerate(extra_headers):
-                ws.cell(header_row_idx, extra_start_col + offset).value = header
+            header_map: dict[str, int] = {}
+            for col_idx in range(1, ws.max_column + 1):
+                header_value = ws.cell(header_row_idx, col_idx).value
+                normalized = _normalize_header(header_value)
+                if normalized:
+                    header_map.setdefault(normalized, col_idx)
 
             thin = Side(style="thin")
             border = Border(left=thin, right=thin, top=thin, bottom=thin)
             currency_format = "$#,##0.00"
             percent_format = "0.00%"
 
+            column_specs: list[tuple[str, str, str | None]] = [
+                ("nit", "nit", None),
+                ("cliente", "cliente", None),
+                ("descripcion", "descripcion", None),
+                ("vendedor", "vendedor", None),
+                ("cantidad", "cantidad", None),
+                ("ventas", "ventas", currency_format),
+                ("costos", "costos", currency_format),
+                ("renta", "renta", None),
+                ("utilidad", "utilidad", None),
+                ("precio", "precio", None),
+                ("descuento", "descuento", percent_format),
+                ("codigo_errado", "codigo errado", None),
+                ("codigo_creado", "codigo creado", None),
+                ("razon", "razon", None),
+            ]
+
+            def _first_non_empty(*candidates: object | None) -> object | None:
+                for candidate in candidates:
+                    if candidate not in (None, ""):
+                        return candidate
+                return None
+
             for offset, row in enumerate(rows):
-                values = row.values
+                values = dict(row.values)
                 target_row = start_row + offset
                 fecha_valor = values.get("fecha")
                 fecha_fuente = fecha_valor if fecha_valor not in (None, "") else None
                 if fecha_fuente in (None, ""):
-                    fecha_fuente = row.report_label or row.workbook_date
+                    fecha_fuente = row.workbook_date or row.report_label
                 fecha_formateada = self._format_report_date(fecha_fuente)
-                fecha_cell = ws.cell(target_row, 1)
+                fecha_col = header_map.get("fecha", 1)
+                fecha_cell = ws.cell(target_row, fecha_col)
                 fecha_cell.value = fecha_formateada
                 fecha_cell.border = border
-                for col_idx, key in enumerate(columns, start=2):
-                    cell = ws.cell(target_row, col_idx)
-                    cell.value = values.get(key)
-                    cell.border = border
-                    if key in {"ventas", "costos"}:
-                        cell.number_format = currency_format
-                    elif key == "descuento":
-                        cell.number_format = percent_format
+                all_columns = values.get("__all_columns__", ())
+                normalized_all = {
+                    _normalize_header(header): value
+                    for header, value in all_columns
+                    if header
+                }
+                values.pop("__all_columns__", None)
+
+                codigo_errado = _first_non_empty(
+                    values.get("codigo_errado"),
+                    normalized_all.get("codigo errado"),
+                    normalized_all.get("codigo incorrecto"),
+                )
+                codigo_creado = _first_non_empty(
+                    values.get("codigo_creado"),
+                    normalized_all.get("codigo creado"),
+                    normalized_all.get("codigo correcto"),
+                    normalized_all.get("codigo nuevo"),
+                    normalized_all.get("codigo generado"),
+                    normalized_all.get("codigo final"),
+                )
+                if codigo_errado not in (None, ""):
+                    values["codigo_errado"] = codigo_errado
+                if codigo_creado not in (None, ""):
+                    values["codigo_creado"] = codigo_creado
+
                 reason = _strip_text(values.get("razon"))
                 comment_text = None
                 if row.comment:
@@ -599,16 +608,21 @@ class MonthlyReportService:
                     combined_reason = f"{reason} - {comment_text}"
                 else:
                     combined_reason = comment_text or reason or None
-                reason_cell = ws.cell(target_row, 13)
-                reason_cell.value = combined_reason
-                reason_cell.border = border
+                values["razon"] = combined_reason
 
-                all_columns = dict(values.get("__all_columns__", ()))
-                for col_offset, header in enumerate(extra_headers):
-                    target_col = extra_start_col + col_offset
-                    extra_cell = ws.cell(target_row, target_col)
-                    extra_cell.value = all_columns.get(header)
-                    extra_cell.border = border
+                for key, normalized_header, number_format in column_specs:
+                    col_idx = header_map.get(normalized_header)
+                    if not col_idx:
+                        continue
+                    cell = ws.cell(target_row, col_idx)
+                    cell.value = values.get(key)
+                    cell.border = border
+                    if number_format:
+                        cell.number_format = number_format
+                    elif key in {"ventas", "costos"}:
+                        cell.number_format = currency_format
+                    elif key == "descuento":
+                        cell.number_format = percent_format
             self._apply_table_zebra_format(ws, start_row, len(rows))
             destino.parent.mkdir(parents=True, exist_ok=True)
             template.save(destino)
@@ -669,7 +683,7 @@ class MonthlyReportService:
         if isinstance(value, datetime):
             value = value.date()
         if isinstance(value, date):
-            return value.isoformat()
+            return value.strftime("%d/%m/%Y")
         if value is None:
             return None
         return str(value)

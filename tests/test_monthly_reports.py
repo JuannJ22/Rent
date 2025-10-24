@@ -27,7 +27,7 @@ def _create_templates(base_dir: Path) -> tuple[Path, Path]:
     ws_codigos = wb_codigos.active
     ws_codigos.append(
         [
-            None,
+            "FECHA",
             "NIT",
             "CLIENTE",
             "DESCRIPCION",
@@ -39,12 +39,13 @@ def _create_templates(base_dir: Path) -> tuple[Path, Path]:
             "UTILIDAD",
             "PRECIO",
             "DESCUENTO",
+            "CODIGO CREADO",
             "RAZON",
         ]
     )
     for _ in range(23):
-        ws_codigos.append([None] * 13)
-    ws_codigos.append([None] * 13)
+        ws_codigos.append([None] * 14)
+    ws_codigos.append([None] * 14)
     total_row = ws_codigos.max_row
     ws_codigos.cell(total_row, 2).value = "TOTAL"
     ws_codigos.cell(total_row, 6).value = "=SUM(F2:F24)"
@@ -82,7 +83,7 @@ def _create_informe(base_dir: Path) -> Path:
     ws = wb.active
     ws.title = "MARZO 00"
     for _ in range(5):
-        ws.append([None] * 12)
+        ws.append([None] * 13)
     ws.append(
         [
             "NIT",
@@ -96,6 +97,7 @@ def _create_informe(base_dir: Path) -> Path:
             "% UTILI.",
             "PRECIO",
             "DESCUENTO",
+            "CODIGO CREADO",
             "RAZON",
         ]
     )
@@ -111,6 +113,7 @@ def _create_informe(base_dir: Path) -> Path:
         0.35,
         1200,
         0.20,
+        "CRE-001",
         "Precio diferente",
     ]
     start_row = ws.max_row + 1
@@ -120,8 +123,8 @@ def _create_informe(base_dir: Path) -> Path:
             cell.fill = ORANGE
         elif col_idx == 4:
             cell.fill = ORANGE
-    ws.cell(start_row, 12).fill = ORANGE
-    ws.cell(start_row, 12).comment = Comment("Observación de prueba", "QA")
+    ws.cell(start_row, 13).fill = ORANGE
+    ws.cell(start_row, 13).comment = Comment("Observación de prueba", "QA")
     row_codigos_2 = [
         "789",
         "000789-000-CLIENTE TRES",
@@ -134,6 +137,7 @@ def _create_informe(base_dir: Path) -> Path:
         0.40,
         1200,
         0.15,
+        "CRE-002",
         "Diferencia de lista",
     ]
     start_row += 1
@@ -143,7 +147,7 @@ def _create_informe(base_dir: Path) -> Path:
             cell.fill = ORANGE
         elif col_idx == 5:
             cell.fill = ORANGE
-    ws.cell(start_row, 12).fill = ORANGE
+    ws.cell(start_row, 13).fill = ORANGE
     row_cobros = [
         "456",
         "000456-000-CLIENTE DOS",
@@ -156,6 +160,7 @@ def _create_informe(base_dir: Path) -> Path:
         0.27,
         1100,
         None,
+        "CRE-003",
         "Doc",
     ]
     start_row += 1
@@ -163,7 +168,7 @@ def _create_informe(base_dir: Path) -> Path:
         cell = ws.cell(start_row, col_idx, value)
         if col_idx == 1:
             cell.fill = YELLOW
-        elif col_idx == 12:
+        elif col_idx == 13:
             cell.fill = YELLOW
             cell.comment = Comment("Doc: FV-123 Observación de prueba", "QA")
     ws.cell(start_row, 6).fill = YELLOW
@@ -201,7 +206,7 @@ def test_monthly_reports_generation(tmp_path):
     codigos_path = service.generar_codigos_incorrectos("Marzo", bus=None)
     wb_codigos = load_workbook(codigos_path)
     ws_codigos = wb_codigos.active
-    assert ws_codigos.cell(2, 1).value == "MARZO 00"
+    assert ws_codigos.cell(2, 1).value == "01/03/2023"
     assert ws_codigos.cell(2, 2).value == "123"
     assert ws_codigos.cell(2, 4).value == "Producto A"
     assert ws_codigos.cell(2, 10).value == 0.35
@@ -209,17 +214,17 @@ def test_monthly_reports_generation(tmp_path):
     assert ws_codigos.cell(2, 7).number_format == "$#,##0.00"
     assert ws_codigos.cell(2, 8).number_format == "$#,##0.00"
     assert ws_codigos.cell(2, 12).number_format == "0.00%"
+    assert ws_codigos.cell(2, 13).value == "CRE-001"
     assert (
-        ws_codigos.cell(2, 13).value
+        ws_codigos.cell(2, 14).value
         == "Precio diferente - Observación de prueba"
     )
     assert ws_codigos.cell(3, 2).value == "789"
     assert ws_codigos.cell(3, 10).value == 0.4
-    assert ws_codigos.cell(1, 14).value == "COD. VENDEDOR"
-    assert ws_codigos.cell(2, 14).value == "Vendedor Uno"
-    assert ws_codigos.cell(3, 14).value == "Vendedor Tres"
-    assert ws_codigos.cell(1, 15).value is None
-    assert ws_codigos.cell(2, 15).value is None
+    assert ws_codigos.cell(1, 13).value == "CODIGO CREADO"
+    assert ws_codigos.cell(1, 14).value == "RAZON"
+    assert ws_codigos.cell(3, 13).value == "CRE-002"
+    assert ws_codigos.max_column == 14
     assert ws_codigos.cell(2, 1).fill.patternType is None
     assert ws_codigos.cell(3, 1).fill.patternType == "solid"
     assert ws_codigos.cell(25, 2).value == "TOTAL"
@@ -292,7 +297,7 @@ def test_codigos_incorrectos_inserta_filas(tmp_path):
     ws = wb.active
     ws.title = "ABRIL 00"
     for _ in range(5):
-        ws.append([None] * 12)
+        ws.append([None] * 13)
     ws.append(
         [
             "NIT",
@@ -306,6 +311,7 @@ def test_codigos_incorrectos_inserta_filas(tmp_path):
             "UTILIDAD",
             "PRECIO",
             "DESCUENTO",
+            "CODIGO CREADO",
             "RAZON",
         ]
     )
@@ -323,13 +329,14 @@ def test_codigos_incorrectos_inserta_filas(tmp_path):
             0.3,
             1200,
             0.1,
+            f"CRE-{idx:03d}",
             f"Observacion {idx}",
         ]
         for col_idx, value in enumerate(values, start=1):
             cell = ws.cell(start_row, col_idx, value)
             if col_idx == 1:
                 cell.fill = ORANGE
-            elif col_idx in (4, 12):
+            elif col_idx in (4, 13):
                 cell.fill = ORANGE
 
     informe_path = informes_dir / "INFORME_20230401.xlsx"
@@ -364,7 +371,7 @@ def test_codigos_incorrectos_fecha_por_mtime(tmp_path):
     ws = wb.active
     ws.title = "ABRIL 00"
     for _ in range(2):
-        ws.append([None] * 12)
+        ws.append([None] * 13)
     ws.append(
         [
             "NIT",
@@ -378,6 +385,7 @@ def test_codigos_incorrectos_fecha_por_mtime(tmp_path):
             "UTILIDAD",
             "PRECIO",
             "DESCUENTO",
+            "CODIGO CREADO",
             "RAZON",
         ]
     )
@@ -390,8 +398,9 @@ def test_codigos_incorrectos_fecha_por_mtime(tmp_path):
     ws.cell(start_row, 6, 5)
     ws.cell(start_row, 7, 5000)
     ws.cell(start_row, 8, 3000)
-    ws.cell(start_row, 12, "Detalle")
-    ws.cell(start_row, 12).fill = ORANGE
+    ws.cell(start_row, 12, "CRE-999")
+    ws.cell(start_row, 13, "Detalle")
+    ws.cell(start_row, 13).fill = ORANGE
     wb_path = informes_dir / "INFORME_SIN_FECHA.xlsx"
     wb.save(wb_path)
     wb.close()
@@ -413,7 +422,7 @@ def test_codigos_incorrectos_fecha_por_mtime(tmp_path):
     codigos_path = service.generar_codigos_incorrectos("Abril", bus=None)
     wb_codigos = load_workbook(codigos_path)
     ws_codigos = wb_codigos.active
-    assert ws_codigos.cell(2, 1).value == "ABRIL 00"
+    assert ws_codigos.cell(2, 1).value == "15/04/2023"
     wb_codigos.close()
 
 def test_month_directory_missing(tmp_path):
