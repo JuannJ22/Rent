@@ -240,6 +240,47 @@ def test_monthly_reports_generation(tmp_path):
     wb_cobros.close()
 
 
+def test_monthly_reports_detects_highlight_without_first_column_fill(tmp_path):
+    codigos_tpl, cobros_tpl = _create_templates(tmp_path)
+    informes_dir = _create_informe(tmp_path)
+    informe_path = next(informes_dir.glob("*.xlsx"))
+
+    wb = load_workbook(informe_path)
+    ws = wb.active
+    # Quitar el color de la columna A para simular informes donde solo se resalta
+    # otra columna.
+    for row_idx in (7, 8, 9):
+        ws.cell(row_idx, 1).fill = PatternFill()
+    wb.save(informe_path)
+    wb.close()
+
+    consolidados_dir = tmp_path / "Consolidados"
+    config = MonthlyReportConfig(
+        informes_dir=informes_dir.parent,
+        plantilla_codigos=codigos_tpl,
+        plantilla_malos_cobros=cobros_tpl,
+        consolidados_codigos_dir=consolidados_dir / "Codigos",
+        consolidados_cobros_dir=consolidados_dir / "Cobros",
+    )
+    service = MonthlyReportService(config)
+
+    codigos_path = service.generar_codigos_incorrectos("Marzo", bus=None)
+    wb_codigos = load_workbook(codigos_path)
+    ws_codigos = wb_codigos.active
+
+    # Deben existir las filas resaltadas aunque la columna A no tenga color.
+    assert ws_codigos.cell(2, 2).value == "123"
+    assert ws_codigos.cell(3, 2).value == "789"
+
+    wb_codigos.close()
+
+    cobros_path = service.generar_malos_cobros("Marzo", bus=None)
+    wb_cobros = load_workbook(cobros_path)
+    ws_cobros = wb_cobros.active
+    assert ws_cobros.cell(2, 3).value == "FV-123"
+    wb_cobros.close()
+
+
 def test_codigos_incorrectos_inserta_filas(tmp_path):
     codigos_tpl, cobros_tpl = _create_templates(tmp_path)
     informes_dir = tmp_path / "Informes" / "Abril"
