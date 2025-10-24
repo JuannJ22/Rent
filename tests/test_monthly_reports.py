@@ -201,23 +201,25 @@ def test_monthly_reports_generation(tmp_path):
     codigos_path = service.generar_codigos_incorrectos("Marzo", bus=None)
     wb_codigos = load_workbook(codigos_path)
     ws_codigos = wb_codigos.active
-    assert ws_codigos.cell(2, 1).value == "2023-03-01"
+    assert ws_codigos.cell(2, 1).value == "MARZO 00"
     assert ws_codigos.cell(2, 2).value == "123"
     assert ws_codigos.cell(2, 4).value == "Producto A"
     assert ws_codigos.cell(2, 10).value == 0.35
     assert ws_codigos.cell(2, 12).value == 0.2
+    assert ws_codigos.cell(2, 7).number_format == "$#,##0.00"
+    assert ws_codigos.cell(2, 8).number_format == "$#,##0.00"
+    assert ws_codigos.cell(2, 12).number_format == "0.00%"
     assert (
         ws_codigos.cell(2, 13).value
         == "Precio diferente - Observación de prueba"
     )
     assert ws_codigos.cell(3, 2).value == "789"
     assert ws_codigos.cell(3, 10).value == 0.4
-    assert ws_codigos.cell(1, 14).value == "NIT - SUCURSAL - CLIENTE"
-    assert ws_codigos.cell(2, 14).value == "000123-000-CLIENTE UNO"
-    assert ws_codigos.cell(3, 14).value == "000789-000-CLIENTE TRES"
-    assert ws_codigos.cell(1, 15).value == "COD. VENDEDOR"
-    assert ws_codigos.cell(2, 15).value == "Vendedor Uno"
-    assert ws_codigos.cell(3, 15).value == "Vendedor Tres"
+    assert ws_codigos.cell(1, 14).value == "COD. VENDEDOR"
+    assert ws_codigos.cell(2, 14).value == "Vendedor Uno"
+    assert ws_codigos.cell(3, 14).value == "Vendedor Tres"
+    assert ws_codigos.cell(1, 15).value is None
+    assert ws_codigos.cell(2, 15).value is None
     assert ws_codigos.cell(2, 1).fill.patternType is None
     assert ws_codigos.cell(3, 1).fill.patternType == "solid"
     assert ws_codigos.cell(25, 2).value == "TOTAL"
@@ -226,7 +228,7 @@ def test_monthly_reports_generation(tmp_path):
     cobros_path = service.generar_malos_cobros("Marzo", bus=None)
     wb_cobros = load_workbook(cobros_path)
     ws_cobros = wb_cobros.active
-    assert ws_cobros.cell(2, 1).value == "2023-03-01"
+    assert ws_cobros.cell(2, 1).value == "MARZO 00"
     assert ws_cobros.cell(2, 2).value == "Vendedor Dos"
     assert ws_cobros.cell(2, 3).value == "FV-123"
     assert ws_cobros.cell(2, 5).value == "Producto B"
@@ -411,7 +413,7 @@ def test_codigos_incorrectos_fecha_por_mtime(tmp_path):
     codigos_path = service.generar_codigos_incorrectos("Abril", bus=None)
     wb_codigos = load_workbook(codigos_path)
     ws_codigos = wb_codigos.active
-    assert ws_codigos.cell(2, 1).value == "2023-04-15"
+    assert ws_codigos.cell(2, 1).value == "ABRIL 00"
     wb_codigos.close()
 
 def test_month_directory_missing(tmp_path):
