@@ -12,7 +12,7 @@ from typing import Iterable, Iterator, Mapping
 from openpyxl import Workbook, load_workbook
 from openpyxl.cell.cell import MergedCell
 from openpyxl.comments import Comment
-from openpyxl.styles import PatternFill
+from openpyxl.styles import Border, PatternFill, Side
 
 
 def _normalize_color(value: object | None) -> str | None:
@@ -121,6 +121,7 @@ class HighlightedRow:
     color: str
     comment: Comment | None
     workbook_date: date | None
+    report_label: str | None
 
 
 @dataclass(slots=True)
@@ -231,6 +232,7 @@ class MonthlyReportService:
                 return
             ws_values = wb_values[sheet_name]
             ws_styles = wb_styles[sheet_name]
+            report_label = self._extract_report_label(ws_styles) or sheet_name
             header_values = [
                 ws_styles.cell(header_row, col_idx).value
                 for col_idx in range(1, ws_styles.max_column + 1)
@@ -295,10 +297,29 @@ class MonthlyReportService:
                     "lista_12": lista_12,
                 })
                 comment = ws_styles.cell(row_idx, mapping.get("razon", 12)).comment
-                yield HighlightedRow(values, matched_color, comment, workbook_date)
+                yield HighlightedRow(
+                    values,
+                    matched_color,
+                    comment,
+                    workbook_date,
+                    report_label,
+                )
         finally:
             wb_values.close()
             wb_styles.close()
+
+    def _extract_report_label(self, ws) -> str | None:
+        """Obtiene una etiqueta representativa de la fecha del informe."""
+
+        candidate = _strip_text(ws.cell(3, 1).value)
+        if candidate and ":" in candidate:
+            parts = candidate.split(":", 1)
+            candidate = parts[-1].strip() if parts[-1] else candidate
+            if candidate:
+                return candidate
+
+        title = _strip_text(ws.title)
+        return title or None
 
     def _locate_main_sheet(self, wb: Workbook) -> tuple[str | None, int | None, Mapping[str, int]]:
         header_mapping: dict[str, int] = {}
@@ -518,6 +539,7 @@ class MonthlyReportService:
                     "costos",
                     "renta",
                     "utilidad",
+                    "utili",
                     "precio",
                     "descuento",
                     "razon",
@@ -535,20 +557,38 @@ class MonthlyReportService:
                     if header not in extra_headers:
                         extra_headers.append(header)
 
+            if extra_headers:
+                extra_headers = extra_headers[-1:]
+
             header_row_idx = start_row - 1
             extra_start_col = 14
             for offset, header in enumerate(extra_headers):
                 ws.cell(header_row_idx, extra_start_col + offset).value = header
 
+            thin = Side(style="thin")
+            border = Border(left=thin, right=thin, top=thin, bottom=thin)
+            currency_format = "$#,##0.00"
+            percent_format = "0.00%"
+
             for offset, row in enumerate(rows):
                 values = row.values
                 target_row = start_row + offset
                 fecha_valor = values.get("fecha")
-                ws.cell(target_row, 1).value = self._format_report_date(
-                    fecha_valor if fecha_valor not in (None, "") else row.workbook_date
-                )
+                fecha_fuente = fecha_valor if fecha_valor not in (None, "") else None
+                if fecha_fuente in (None, ""):
+                    fecha_fuente = row.report_label or row.workbook_date
+                fecha_formateada = self._format_report_date(fecha_fuente)
+                fecha_cell = ws.cell(target_row, 1)
+                fecha_cell.value = fecha_formateada
+                fecha_cell.border = border
                 for col_idx, key in enumerate(columns, start=2):
-                    ws.cell(target_row, col_idx).value = values.get(key)
+                    cell = ws.cell(target_row, col_idx)
+                    cell.value = values.get(key)
+                    cell.border = border
+                    if key in {"ventas", "costos"}:
+                        cell.number_format = currency_format
+                    elif key == "descuento":
+                        cell.number_format = percent_format
                 reason = _strip_text(values.get("razon"))
                 comment_text = None
                 if row.comment:
@@ -559,12 +599,16 @@ class MonthlyReportService:
                     combined_reason = f"{reason} - {comment_text}"
                 else:
                     combined_reason = comment_text or reason or None
-                ws.cell(target_row, 13).value = combined_reason
+                reason_cell = ws.cell(target_row, 13)
+                reason_cell.value = combined_reason
+                reason_cell.border = border
 
                 all_columns = dict(values.get("__all_columns__", ()))
                 for col_offset, header in enumerate(extra_headers):
                     target_col = extra_start_col + col_offset
-                    ws.cell(target_row, target_col).value = all_columns.get(header)
+                    extra_cell = ws.cell(target_row, target_col)
+                    extra_cell.value = all_columns.get(header)
+                    extra_cell.border = border
             self._apply_table_zebra_format(ws, start_row, len(rows))
             destino.parent.mkdir(parents=True, exist_ok=True)
             template.save(destino)
@@ -598,9 +642,10 @@ class MonthlyReportService:
                 )
                 target_row = start_row + offset
                 fecha_valor = values.get("fecha")
-                fecha_formateada = self._format_report_date(
-                    fecha_valor if fecha_valor not in (None, "") else row.workbook_date
-                )
+                fecha_fuente = fecha_valor if fecha_valor not in (None, "") else None
+                if fecha_fuente in (None, ""):
+                    fecha_fuente = row.report_label or row.workbook_date
+                fecha_formateada = self._format_report_date(fecha_fuente)
                 ws.cell(target_row, 1).value = fecha_formateada
                 vendedor = values.get("vendedor") or values.get("cliente")
                 ws.cell(target_row, 2).value = vendedor
