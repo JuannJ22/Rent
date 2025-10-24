@@ -337,6 +337,18 @@ class MonthlyReportService:
             "utilidad": ("util", "utilidad", "utili"),
             "precio": ("precio",),
             "descuento": ("descuento",),
+            "codigo_errado": (
+                "codigo errado",
+                "codigo incorrecto",
+                "codigo errado cliente",
+            ),
+            "codigo_creado": (
+                "codigo creado",
+                "codigo correcto",
+                "codigo nuevo",
+                "codigo generado",
+                "codigo final",
+            ),
             "razon": ("razon", "observacion", "detalle", "comentario"),
             "fecha": ("fecha",),
         }
@@ -531,15 +543,39 @@ class MonthlyReportService:
             currency_format = "$#,##0.00"
             percent_format = "0.00%"
 
+            column_specs: list[tuple[str, str, str | None]] = [
+                ("nit", "nit", None),
+                ("cliente", "cliente", None),
+                ("descripcion", "descripcion", None),
+                ("vendedor", "vendedor", None),
+                ("cantidad", "cantidad", None),
+                ("ventas", "ventas", currency_format),
+                ("costos", "costos", currency_format),
+                ("renta", "renta", None),
+                ("utilidad", "utilidad", None),
+                ("precio", "precio", None),
+                ("descuento", "descuento", percent_format),
+                ("codigo_errado", "codigo errado", None),
+                ("codigo_creado", "codigo creado", None),
+                ("razon", "razon", None),
+            ]
+
+            def _first_non_empty(*candidates: object | None) -> object | None:
+                for candidate in candidates:
+                    if candidate not in (None, ""):
+                        return candidate
+                return None
+
             for offset, row in enumerate(rows):
-                values = row.values
+                values = dict(row.values)
                 target_row = start_row + offset
                 fecha_valor = values.get("fecha")
                 fecha_fuente = fecha_valor if fecha_valor not in (None, "") else None
                 if fecha_fuente in (None, ""):
                     fecha_fuente = row.workbook_date or row.report_label
                 fecha_formateada = self._format_report_date(fecha_fuente)
-                fecha_cell = ws.cell(target_row, 1)
+                fecha_col = header_map.get("fecha", 1)
+                fecha_cell = ws.cell(target_row, fecha_col)
                 fecha_cell.value = fecha_formateada
                 fecha_cell.border = border
                 codigo_creado = self._extract_codigo_creado(values)

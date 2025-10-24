@@ -27,7 +27,7 @@ def _create_templates(base_dir: Path) -> tuple[Path, Path]:
     ws_codigos = wb_codigos.active
     ws_codigos.append(
         [
-            None,
+            "FECHA",
             "NIT",
             "CLIENTE",
             "DESCRIPCION",
@@ -43,8 +43,8 @@ def _create_templates(base_dir: Path) -> tuple[Path, Path]:
         ]
     )
     for _ in range(23):
-        ws_codigos.append([None] * 13)
-    ws_codigos.append([None] * 13)
+        ws_codigos.append([None] * 14)
+    ws_codigos.append([None] * 14)
     total_row = ws_codigos.max_row
     ws_codigos.cell(total_row, 2).value = "TOTAL"
     ws_codigos.cell(total_row, 6).value = "=SUM(F2:F24)"
@@ -82,7 +82,7 @@ def _create_informe(base_dir: Path) -> Path:
     ws = wb.active
     ws.title = "MARZO 00"
     for _ in range(5):
-        ws.append([None] * 12)
+        ws.append([None] * 13)
     ws.append(
         [
             "FECHA",
@@ -297,7 +297,7 @@ def test_codigos_incorrectos_inserta_filas(tmp_path):
     ws = wb.active
     ws.title = "ABRIL 00"
     for _ in range(5):
-        ws.append([None] * 12)
+        ws.append([None] * 13)
     ws.append(
         [
             "FECHA",
@@ -373,7 +373,7 @@ def test_codigos_incorrectos_fecha_por_mtime(tmp_path):
     ws = wb.active
     ws.title = "ABRIL 00"
     for _ in range(2):
-        ws.append([None] * 12)
+        ws.append([None] * 13)
     ws.append(
         [
             "FECHA",
