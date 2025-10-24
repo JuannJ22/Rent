@@ -551,23 +551,10 @@ class MonthlyReportService:
                         cell.number_format = currency_format
                     elif key == "descuento":
                         cell.number_format = percent_format
-                reason = _strip_text(values.get("razon"))
-                comment_text = None
-                if row.comment:
-                    _, observation = _parse_comment(row.comment)
-                    comment_text = observation or row.comment.text
-                comment_text = _strip_text(comment_text)
-                if reason and comment_text:
-                    combined_reason = f"{reason} - {comment_text}"
-                else:
-                    combined_reason = comment_text or reason or None
                 codigo_cell = ws.cell(target_row, 13)
-                codigo_cell.value = codigo_creado or combined_reason
+                codigo_cell.value = codigo_creado
                 codigo_cell.border = border
-                if combined_reason and combined_reason != codigo_cell.value:
-                    codigo_cell.comment = Comment(combined_reason, "Sistema")
-                else:
-                    codigo_cell.comment = None
+                codigo_cell.comment = None
             self._apply_table_zebra_format(ws, start_row, len(rows))
             destino.parent.mkdir(parents=True, exist_ok=True)
             template.save(destino)

@@ -218,14 +218,11 @@ def test_monthly_reports_generation(tmp_path):
     assert ws_codigos.cell(2, 8).number_format == "$#,##0.00"
     assert ws_codigos.cell(2, 12).number_format == "0.00%"
     assert ws_codigos.cell(2, 13).value == "COD-UNO"
-    assert (
-        ws_codigos.cell(2, 13).comment.text
-        == "Precio diferente - Observación de prueba"
-    )
+    assert ws_codigos.cell(2, 13).comment is None
     assert ws_codigos.cell(3, 2).value == "789"
     assert ws_codigos.cell(3, 10).value == 0.4
     assert ws_codigos.cell(3, 13).value == "COD-TRES"
-    assert ws_codigos.cell(3, 13).comment.text == "Diferencia de lista"
+    assert ws_codigos.cell(3, 13).comment is None
     assert ws_codigos.cell(1, 14).value is None
     assert ws_codigos.cell(2, 14).value is None
     assert ws_codigos.cell(2, 1).fill.patternType is None
