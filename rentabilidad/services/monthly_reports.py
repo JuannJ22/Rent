@@ -524,13 +524,19 @@ class MonthlyReportService:
 
             self._clear_data_rows(ws, start_row, total_row - 1)
 
-            header_row_idx = start_row - 1
-            header_map: dict[str, int] = {}
-            for col_idx in range(1, ws.max_column + 1):
-                header_value = ws.cell(header_row_idx, col_idx).value
-                normalized = _normalize_header(header_value)
-                if normalized:
-                    header_map.setdefault(normalized, col_idx)
+            columns = [
+                "nit",
+                "cliente",
+                "descripcion",
+                "vendedor",
+                "cantidad",
+                "ventas",
+                "costos",
+                "renta",
+                "utilidad",
+                "precio",
+                "descuento",
+            ]
 
             thin = Side(style="thin")
             border = Border(left=thin, right=thin, top=thin, bottom=thin)
@@ -572,57 +578,19 @@ class MonthlyReportService:
                 fecha_cell = ws.cell(target_row, fecha_col)
                 fecha_cell.value = fecha_formateada
                 fecha_cell.border = border
-                all_columns = values.get("__all_columns__", ())
-                normalized_all = {
-                    _normalize_header(header): value
-                    for header, value in all_columns
-                    if header
-                }
-                values.pop("__all_columns__", None)
-
-                codigo_errado = _first_non_empty(
-                    values.get("codigo_errado"),
-                    normalized_all.get("codigo errado"),
-                    normalized_all.get("codigo incorrecto"),
-                )
-                codigo_creado = _first_non_empty(
-                    values.get("codigo_creado"),
-                    normalized_all.get("codigo creado"),
-                    normalized_all.get("codigo correcto"),
-                    normalized_all.get("codigo nuevo"),
-                    normalized_all.get("codigo generado"),
-                    normalized_all.get("codigo final"),
-                )
-                if codigo_errado not in (None, ""):
-                    values["codigo_errado"] = codigo_errado
-                if codigo_creado not in (None, ""):
-                    values["codigo_creado"] = codigo_creado
-
-                reason = _strip_text(values.get("razon"))
-                comment_text = None
-                if row.comment:
-                    _, observation = _parse_comment(row.comment)
-                    comment_text = observation or row.comment.text
-                comment_text = _strip_text(comment_text)
-                if reason and comment_text:
-                    combined_reason = f"{reason} - {comment_text}"
-                else:
-                    combined_reason = comment_text or reason or None
-                values["razon"] = combined_reason
-
-                for key, normalized_header, number_format in column_specs:
-                    col_idx = header_map.get(normalized_header)
-                    if not col_idx:
-                        continue
+                codigo_creado = self._extract_codigo_creado(values)
+                for col_idx, key in enumerate(columns, start=2):
                     cell = ws.cell(target_row, col_idx)
                     cell.value = values.get(key)
                     cell.border = border
-                    if number_format:
-                        cell.number_format = number_format
-                    elif key in {"ventas", "costos"}:
+                    if key in {"ventas", "costos"}:
                         cell.number_format = currency_format
                     elif key == "descuento":
                         cell.number_format = percent_format
+                codigo_cell = ws.cell(target_row, 13)
+                codigo_cell.value = codigo_creado
+                codigo_cell.border = border
+                codigo_cell.comment = None
             self._apply_table_zebra_format(ws, start_row, len(rows))
             destino.parent.mkdir(parents=True, exist_ok=True)
             template.save(destino)
@@ -658,7 +626,7 @@ class MonthlyReportService:
                 fecha_valor = values.get("fecha")
                 fecha_fuente = fecha_valor if fecha_valor not in (None, "") else None
                 if fecha_fuente in (None, ""):
-                    fecha_fuente = row.report_label or row.workbook_date
+                    fecha_fuente = row.workbook_date or row.report_label
                 fecha_formateada = self._format_report_date(fecha_fuente)
                 ws.cell(target_row, 1).value = fecha_formateada
                 vendedor = values.get("vendedor") or values.get("cliente")
@@ -686,7 +654,44 @@ class MonthlyReportService:
             return value.strftime("%d/%m/%Y")
         if value is None:
             return None
-        return str(value)
+        text = str(value).strip()
+        if not text:
+            return None
+        known_formats = (
+            "%d/%m/%Y",
+            "%Y-%m-%d",
+            "%m/%d/%Y",
+            "%d-%m-%Y",
+            "%m-%d-%Y",
+        )
+        for fmt in known_formats:
+            try:
+                parsed = datetime.strptime(text, fmt)
+            except ValueError:
+                continue
+            return parsed.strftime("%d/%m/%Y")
+        return text
+
+    @staticmethod
+    def _extract_codigo_creado(values: Mapping[str, object]) -> object | None:
+        direct = values.get("codigo_creado")
+        if direct not in (None, ""):
+            return direct
+        all_columns = values.get("__all_columns__")
+        if not all_columns:
+            return None
+        candidates = {
+            "codigo creado",
+            "codigo correcto",
+            "codigo final",
+            "codigo generado",
+            "codigo nuevo",
+        }
+        for header, cell_value in all_columns:
+            normalized = _normalize_header(header)
+            if normalized in candidates and cell_value not in (None, ""):
+                return cell_value
+        return None
 
     def _find_data_row(self, ws, keywords: set[str]) -> int:
         header_row = 1
