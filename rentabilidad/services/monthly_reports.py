@@ -526,45 +526,6 @@ class MonthlyReportService:
                 "descuento",
             ]
 
-            handled_headers = {
-                _normalize_header(name)
-                for name in (
-                    "fecha",
-                    "nit",
-                    "cliente",
-                    "descripcion",
-                    "vendedor",
-                    "cantidad",
-                    "ventas",
-                    "costos",
-                    "renta",
-                    "utilidad",
-                    "utili",
-                    "precio",
-                    "descuento",
-                    "razon",
-                )
-            }
-            extra_headers: list[str] = []
-            for row in rows:
-                all_columns = row.values.get("__all_columns__")
-                if not all_columns:
-                    continue
-                for header, _ in all_columns:
-                    normalized = _normalize_header(header)
-                    if not normalized or normalized in handled_headers:
-                        continue
-                    if header not in extra_headers:
-                        extra_headers.append(header)
-
-            if extra_headers:
-                extra_headers = extra_headers[-1:]
-
-            header_row_idx = start_row - 1
-            extra_start_col = 14
-            for offset, header in enumerate(extra_headers):
-                ws.cell(header_row_idx, extra_start_col + offset).value = header
-
             thin = Side(style="thin")
             border = Border(left=thin, right=thin, top=thin, bottom=thin)
             currency_format = "$#,##0.00"
@@ -576,11 +537,12 @@ class MonthlyReportService:
                 fecha_valor = values.get("fecha")
                 fecha_fuente = fecha_valor if fecha_valor not in (None, "") else None
                 if fecha_fuente in (None, ""):
-                    fecha_fuente = row.report_label or row.workbook_date
+                    fecha_fuente = row.workbook_date or row.report_label
                 fecha_formateada = self._format_report_date(fecha_fuente)
                 fecha_cell = ws.cell(target_row, 1)
                 fecha_cell.value = fecha_formateada
                 fecha_cell.border = border
+                codigo_creado = self._extract_codigo_creado(values)
                 for col_idx, key in enumerate(columns, start=2):
                     cell = ws.cell(target_row, col_idx)
                     cell.value = values.get(key)
@@ -599,16 +561,13 @@ class MonthlyReportService:
                     combined_reason = f"{reason} - {comment_text}"
                 else:
                     combined_reason = comment_text or reason or None
-                reason_cell = ws.cell(target_row, 13)
-                reason_cell.value = combined_reason
-                reason_cell.border = border
-
-                all_columns = dict(values.get("__all_columns__", ()))
-                for col_offset, header in enumerate(extra_headers):
-                    target_col = extra_start_col + col_offset
-                    extra_cell = ws.cell(target_row, target_col)
-                    extra_cell.value = all_columns.get(header)
-                    extra_cell.border = border
+                codigo_cell = ws.cell(target_row, 13)
+                codigo_cell.value = codigo_creado or combined_reason
+                codigo_cell.border = border
+                if combined_reason and combined_reason != codigo_cell.value:
+                    codigo_cell.comment = Comment(combined_reason, "Sistema")
+                else:
+                    codigo_cell.comment = None
             self._apply_table_zebra_format(ws, start_row, len(rows))
             destino.parent.mkdir(parents=True, exist_ok=True)
             template.save(destino)
@@ -644,7 +603,7 @@ class MonthlyReportService:
                 fecha_valor = values.get("fecha")
                 fecha_fuente = fecha_valor if fecha_valor not in (None, "") else None
                 if fecha_fuente in (None, ""):
-                    fecha_fuente = row.report_label or row.workbook_date
+                    fecha_fuente = row.workbook_date or row.report_label
                 fecha_formateada = self._format_report_date(fecha_fuente)
                 ws.cell(target_row, 1).value = fecha_formateada
                 vendedor = values.get("vendedor") or values.get("cliente")
@@ -669,10 +628,47 @@ class MonthlyReportService:
         if isinstance(value, datetime):
             value = value.date()
         if isinstance(value, date):
-            return value.isoformat()
+            return value.strftime("%d/%m/%Y")
         if value is None:
             return None
-        return str(value)
+        text = str(value).strip()
+        if not text:
+            return None
+        known_formats = (
+            "%d/%m/%Y",
+            "%Y-%m-%d",
+            "%m/%d/%Y",
+            "%d-%m-%Y",
+            "%m-%d-%Y",
+        )
+        for fmt in known_formats:
+            try:
+                parsed = datetime.strptime(text, fmt)
+            except ValueError:
+                continue
+            return parsed.strftime("%d/%m/%Y")
+        return text
+
+    @staticmethod
+    def _extract_codigo_creado(values: Mapping[str, object]) -> object | None:
+        direct = values.get("codigo_creado")
+        if direct not in (None, ""):
+            return direct
+        all_columns = values.get("__all_columns__")
+        if not all_columns:
+            return None
+        candidates = {
+            "codigo creado",
+            "codigo correcto",
+            "codigo final",
+            "codigo generado",
+            "codigo nuevo",
+        }
+        for header, cell_value in all_columns:
+            normalized = _normalize_header(header)
+            if normalized in candidates and cell_value not in (None, ""):
+                return cell_value
+        return None
 
     def _find_data_row(self, ws, keywords: set[str]) -> int:
         header_row = 1
