@@ -547,9 +547,18 @@ class ProductListingService:
         interval = max(self._wait_interval, 0.01)
         while time.monotonic() < deadline:
             if path.exists():
-                return True
+                try:
+                    if path.stat().st_size > 0:
+                        return True
+                except OSError:
+                    pass
             time.sleep(interval)
-        return path.exists()
+        if path.exists():
+            try:
+                return path.stat().st_size > 0
+            except OSError:
+                return True
+        return False
 
 
 __all__ = [

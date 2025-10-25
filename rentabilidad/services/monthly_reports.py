@@ -99,6 +99,77 @@ def _parse_date_from_filename(path: Path) -> date | None:
         return None
 
 
+SPANISH_MONTHS = {
+    "enero": 1,
+    "febrero": 2,
+    "marzo": 3,
+    "abril": 4,
+    "mayo": 5,
+    "junio": 6,
+    "julio": 7,
+    "agosto": 8,
+    "septiembre": 9,
+    "setiembre": 9,
+    "octubre": 10,
+    "noviembre": 11,
+    "diciembre": 12,
+}
+
+
+def _extract_date_from_text(text: str | None) -> date | None:
+    if not text:
+        return None
+    cleaned = _strip_text(text)
+    if not cleaned:
+        return None
+
+    # Buscar un patrón de fecha numérico común dentro del texto.
+    patterns: list[tuple[str, re.Pattern[str]]] = [
+        ("ymd", re.compile(r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})")),
+        ("dmy", re.compile(r"(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})")),
+    ]
+    for fmt, pattern in patterns:
+        match = pattern.search(cleaned)
+        if not match:
+            continue
+        groups = [int(group) for group in match.groups()]
+        if fmt == "ymd":
+            year, month, day = groups
+        else:
+            day, month, year = groups
+        if year < 100:
+            year += 2000
+        try:
+            return date(year, month, day)
+        except ValueError:
+            continue
+
+    contiguous = re.search(r"(20\d{2})(\d{2})(\d{2})", cleaned)
+    if contiguous:
+        year, month, day = map(int, contiguous.groups())
+        try:
+            return date(year, month, day)
+        except ValueError:
+            pass
+
+    month_pattern = (
+        r"(\d{1,2})\s*(?:de\s+)?(" + "|".join(SPANISH_MONTHS.keys()) + r")\s*(?:de\s*)?(\d{4})"
+    )
+    match = re.search(month_pattern, cleaned, re.IGNORECASE)
+    if match:
+        day = int(match.group(1))
+        month_name = match.group(2).lower()
+        year = int(match.group(3))
+        month = SPANISH_MONTHS.get(month_name)
+        if month:
+            try:
+                return date(year, month, day)
+            except ValueError:
+                pass
+
+    return None
+
+
 def _parse_comment(comment: Comment | None) -> tuple[str | None, str | None]:
     if not comment:
         return None, None
@@ -122,6 +193,7 @@ class HighlightedRow:
     comment: Comment | None
     workbook_date: date | None
     report_label: str | None
+    sheet_label: str | None
 
 
 @dataclass(slots=True)
@@ -276,7 +348,8 @@ class MonthlyReportService:
                     continue
                 nit = _strip_text(values.get("nit"))
                 product_key = _normalize_product_key(values.get("descripcion"))
-                lista_cliente = terceros_lookup.get(nit, {}).get("lista")
+                tercero_data = terceros_lookup.get(nit, {})
+                lista_cliente = tercero_data.get("lista") if tercero_data else None
                 precios_producto = price_lookup.get(product_key, {})
                 lista_12 = precios_producto.get("12")
                 lista_cliente_precio = None
@@ -295,6 +368,9 @@ class MonthlyReportService:
                 values.update({
                     "lista_cliente": lista_cliente_precio,
                     "lista_12": lista_12,
+                    "codigo_tercero": (
+                        tercero_data.get("codigo") if tercero_data else None
+                    ),
                 })
                 comment = ws_styles.cell(row_idx, mapping.get("razon", 12)).comment
                 yield HighlightedRow(
@@ -303,6 +379,7 @@ class MonthlyReportService:
                     comment,
                     workbook_date,
                     report_label,
+                    sheet_name,
                 )
         finally:
             wb_values.close()
@@ -488,13 +565,18 @@ class MonthlyReportService:
         headers = [_normalize_header(value) for value in header_row]
         nit_col = None
         lista_col = None
+        codigo_col = None
         for idx, header in enumerate(headers, start=1):
             if "nit" in header:
                 nit_col = idx
             if lista_col is None and "lista" in header:
                 lista_col = idx
+            if codigo_col is None and "codigo" in header:
+                codigo_col = idx
         if nit_col is None:
             return {}
+        if codigo_col is None and len(header_row) >= 3:
+            codigo_col = 3
         lookup: dict[str, dict[str, object]] = {}
         for row in ws.iter_rows(min_row=2, values_only=True):
             nit = _strip_text(row[nit_col - 1])
@@ -503,6 +585,8 @@ class MonthlyReportService:
             data: dict[str, object] = {}
             if lista_col and lista_col <= len(row):
                 data["lista"] = row[lista_col - 1]
+            if codigo_col and codigo_col <= len(row):
+                data["codigo"] = row[codigo_col - 1]
             lookup[nit] = data
         return lookup
 
@@ -577,9 +661,14 @@ class MonthlyReportService:
             for offset, row in enumerate(rows):
                 values = dict(row.values)
                 target_row = start_row + offset
+                sheet_date = _extract_date_from_text(row.sheet_label)
+                if sheet_date is None:
+                    sheet_date = _extract_date_from_text(row.report_label)
                 fecha_valor = values.get("fecha")
                 fecha_fuente = fecha_valor if fecha_valor not in (None, "") else None
-                if fecha_fuente in (None, ""):
+                if sheet_date is not None:
+                    fecha_fuente = sheet_date
+                elif fecha_fuente in (None, ""):
                     fecha_fuente = row.workbook_date or row.report_label
                 fecha_formateada = self._format_report_date(fecha_fuente)
                 fecha_col = header_map.get("fecha", 1)
@@ -595,8 +684,9 @@ class MonthlyReportService:
                         cell.number_format = currency_format
                     elif key == "descuento":
                         cell.number_format = percent_format
+                codigo_tercero = values.get("codigo_tercero")
                 codigo_cell = ws.cell(target_row, 13)
-                codigo_cell.value = codigo_creado
+                codigo_cell.value = _first_non_empty(codigo_tercero, codigo_creado)
                 codigo_cell.border = border
                 codigo_cell.comment = None
             self._apply_table_zebra_format(ws, start_row, len(rows))
@@ -665,6 +755,9 @@ class MonthlyReportService:
         text = str(value).strip()
         if not text:
             return None
+        parsed = _extract_date_from_text(text)
+        if parsed:
+            return parsed.strftime("%d/%m/%Y")
         known_formats = (
             "%d/%m/%Y",
             "%Y-%m-%d",
