@@ -177,10 +177,10 @@ def _create_informe(base_dir: Path) -> Path:
     ws.cell(start_row, 7).fill = YELLOW
 
     ws_ter = wb.create_sheet("TERCEROS")
-    ws_ter.append(["NIT", "Codigo", "Lista"])
-    ws_ter.append(["456", "CLI-456", 10])
-    ws_ter.append(["123", "CLI-123", 12])
-    ws_ter.append(["789", "CLI-789", None])
+    ws_ter.append(["NIT", "Lista", "Codigo"])
+    ws_ter.append(["456", 10, "CLI-456"])
+    ws_ter.append(["123", 12, "CLI-123"])
+    ws_ter.append(["789", None, "CLI-789"])
 
     ws_prec = wb.create_sheet("PRECIOS")
     ws_prec.append(["PRODUCTO", "LISTA 12", "LISTA 10"])
@@ -219,11 +219,11 @@ def test_monthly_reports_generation(tmp_path):
     assert ws_codigos.cell(2, 7).number_format == "$#,##0.00"
     assert ws_codigos.cell(2, 8).number_format == "$#,##0.00"
     assert ws_codigos.cell(2, 12).number_format == "0.00%"
-    assert ws_codigos.cell(2, 13).value == 12
+    assert ws_codigos.cell(2, 13).value == "CLI-123"
     assert ws_codigos.cell(2, 13).comment is None
     assert ws_codigos.cell(3, 2).value == "789"
     assert ws_codigos.cell(3, 10).value == 0.4
-    assert ws_codigos.cell(3, 13).value is None
+    assert ws_codigos.cell(3, 13).value == "CLI-789"
     assert ws_codigos.cell(3, 13).comment is None
     assert ws_codigos.cell(1, 14).value is None
     assert ws_codigos.cell(2, 14).value is None
