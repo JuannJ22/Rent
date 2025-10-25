@@ -371,6 +371,7 @@ class MonthlyReportService:
                 if values.get("precio") in (None, "") and lista_12:
                     values["precio"] = lista_12
                 values.update({
+                    "lista_tercero": lista_cliente,
                     "lista_cliente": lista_cliente_precio,
                     "lista_12": lista_12,
                     "codigo_tercero": (
@@ -682,8 +683,8 @@ class MonthlyReportService:
                 target_row = start_row + offset
                 fecha_valor = values.get("fecha")
                 fecha_fuente = fecha_valor if fecha_valor not in (None, "") else None
-                # Prioridad: fecha de la hoja (A3:I3) → campo 'fecha' → nombre archivo/etiqueta
-                if row.sheet_date is not None:
+                # Prioridad: fecha propia de la fila → fecha de la hoja (A3:I3) → nombre archivo/etiqueta
+                if fecha_fuente in (None, "") and row.sheet_date is not None:
                     fecha_fuente = row.sheet_date
                 if fecha_fuente in (None, ""):
                     fecha_fuente = row.workbook_date or row.report_label
@@ -707,9 +708,11 @@ class MonthlyReportService:
                         cell.number_format = currency_format
                     elif key == "descuento":
                         cell.number_format = percent_format
-                codigo_tercero = values.get("codigo_tercero")
                 codigo_cell = ws.cell(target_row, 13)
-                codigo_cell.value = _first_non_empty(codigo_tercero, codigo_creado)
+                lista_tercero = values.get("lista_tercero")
+                codigo_cell.value = (
+                    lista_tercero if lista_tercero not in (None, "") else None
+                )
                 codigo_cell.border = border
                 codigo_cell.comment = None
             self._apply_table_zebra_format(ws, start_row, len(rows))
@@ -746,8 +749,8 @@ class MonthlyReportService:
                 target_row = start_row + offset
                 fecha_valor = values.get("fecha")
                 fecha_fuente = fecha_valor if fecha_valor not in (None, "") else None
-                # Prioridad: fecha de la hoja (A3:I3) → campo 'fecha' → nombre archivo/etiqueta
-                if row.sheet_date is not None:
+                # Prioridad: fecha propia de la fila → fecha de la hoja (A3:I3) → nombre archivo/etiqueta
+                if fecha_fuente in (None, "") and row.sheet_date is not None:
                     fecha_fuente = row.sheet_date
                 if fecha_fuente in (None, ""):
                     fecha_fuente = row.workbook_date or row.report_label

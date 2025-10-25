@@ -558,7 +558,7 @@ def _load_terceros_lookup(wb):
         return {}
     ws = wb[sheet_name]
     lookup = {}
-    for nit, lista, vendedor in ws.iter_rows(
+    for nit, vendedor, lista in ws.iter_rows(
         min_row=1, max_row=ws.max_row, max_col=3, values_only=True
     ):
         nit_norm = _normalize_nit_value(nit)
@@ -1123,13 +1123,13 @@ def _update_terceros_sheet(
     rows_written = 0
     max_used_cols = 0
 
-    for nit, lista_precio, vendedor in rows:
+    for nit, vendedor, lista_precio in rows:
         if (nit, lista_precio, vendedor) == (None, None, None):
             continue
         rows_written += 1
         ws.cell(row=rows_written, column=1, value=nit)
-        ws.cell(row=rows_written, column=2, value=lista_precio)
-        ws.cell(row=rows_written, column=3, value=vendedor)
+        ws.cell(row=rows_written, column=2, value=vendedor)
+        ws.cell(row=rows_written, column=3, value=lista_precio)
 
     if rows_written:
         max_used_cols = 3
@@ -2313,6 +2313,7 @@ def main():
     col_precio = idx("precio")
     col_descuento = idx("descuento")
     col_excz = idx("excz")
+    col_codigo_creado = idx("codigo creado")
 
     start_row = header_row + 1
 
@@ -2481,6 +2482,12 @@ def main():
         if args.safe_fill and not row_has_data:
             _clear_reason_cell(reason_cell)
             continue
+        codigo_creado_cell = (
+            ws.cell(r, col_codigo_creado) if col_codigo_creado else None
+        )
+        if codigo_creado_cell:
+            codigo_creado_cell.border = border
+            codigo_creado_cell.value = None
         if L_vend and L_nit:
             c = ws[f"{L_vend}{r}"]
             c.value = f"=VLOOKUP({L_nit}{r},VENDEDORES!{vend_range},2,0)"
@@ -2511,6 +2518,11 @@ def main():
         nit_value = ws.cell(r, col_nit).value if col_nit else None
         nit_norm = _normalize_nit_value(nit_value) if col_nit else None
         tercero_info = terceros_lookup.get(nit_norm) if nit_norm is not None else None
+        lista_precio_from_terceros = (
+            tercero_info.get("lista") if tercero_info else None
+        )
+        if codigo_creado_cell:
+            codigo_creado_cell.value = lista_precio_from_terceros
         assigned_vendor = (
             tercero_info.get("vendedor") if tercero_info else None
         )
@@ -2541,10 +2553,8 @@ def main():
         price_mismatch = False
         price_checked = False
         price_diff_details: tuple[float, float, float | None, float] | None = None
-        lista_precio = None
-        if tercero_info:
-            lista_precio = tercero_info.get("lista")
-        elif nit_norm is not None:
+        lista_precio = lista_precio_from_terceros
+        if lista_precio is None and nit_norm is not None:
             lista_precio = 1
         product_key = None
         if (
