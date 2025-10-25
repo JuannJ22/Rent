@@ -7,9 +7,7 @@ from hojas.hoja01_loader import (
     _build_sika_customer_message,
     _build_vendor_mismatch_message,
     _combine_reason_messages,
-    _load_terceros_lookup,
     _load_vendedores_document_lookup,
-    _normalize_nit_value,
     _normalize_product_key,
     _drop_full_rentability_rows,
 )
@@ -40,19 +38,6 @@ def test_build_sika_customer_message_for_valid_lists() -> None:
     assert _build_sika_customer_message(7) == "CLIENTE CONSTRUCTORA SIKA TIPO A"
     assert _build_sika_customer_message(9) == "CLIENTE CONSTRUCTORA SIKA TIPO B"
     assert _build_sika_customer_message(1) is None
-
-
-def test_load_terceros_lookup_uses_third_column_for_lista() -> None:
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "TERCEROS"
-    ws.append(["123", "A1", 7])
-
-    lookup = _load_terceros_lookup(wb)
-    nit_key = _normalize_nit_value("123")
-
-    assert lookup[nit_key]["vendedor"] == "A1"
-    assert lookup[nit_key]["lista"] == 7
 
 
 def test_load_vendedores_document_lookup_uses_quantity_column() -> None:
