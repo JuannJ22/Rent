@@ -123,10 +123,11 @@ def _extract_date_from_text(text: str | None) -> date | None:
     if not cleaned:
         return None
 
-    # Buscar un patrón de fecha numérico común dentro del texto.
+    # Patrones comunes: priorizar YMD y MDY; DMY al final.
     patterns: list[tuple[str, re.Pattern[str]]] = [
-        ("ymd", re.compile(r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})")),
-        ("dmy", re.compile(r"(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})")),
+        ("ymd", re.compile(r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})")),   # 2025/10/20
+        ("mdy", re.compile(r"(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})")), # 10/20/2025
+        ("dmy", re.compile(r"(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})")), # 20/10/2025
     ]
     for fmt, pattern in patterns:
         match = pattern.search(cleaned)
@@ -135,6 +136,8 @@ def _extract_date_from_text(text: str | None) -> date | None:
         groups = [int(group) for group in match.groups()]
         if fmt == "ymd":
             year, month, day = groups
+        elif fmt == "mdy":
+            month, day, year = groups
         else:
             day, month, year = groups
         if year < 100:
@@ -194,6 +197,7 @@ class HighlightedRow:
     workbook_date: date | None
     report_label: str | None
     sheet_label: str | None
+    sheet_date: date | None  # Fecha deducida de A3:I3 o del título
 
 
 @dataclass(slots=True)
@@ -305,6 +309,7 @@ class MonthlyReportService:
             ws_values = wb_values[sheet_name]
             ws_styles = wb_styles[sheet_name]
             report_label = self._extract_report_label(ws_styles) or sheet_name
+            deduced_sheet_date = self._extract_sheet_date(ws_styles)
             header_values = [
                 ws_styles.cell(header_row, col_idx).value
                 for col_idx in range(1, ws_styles.max_column + 1)
@@ -380,6 +385,7 @@ class MonthlyReportService:
                     workbook_date,
                     report_label,
                     sheet_name,
+                    deduced_sheet_date,
                 )
         finally:
             wb_values.close()
@@ -397,6 +403,19 @@ class MonthlyReportService:
 
         title = _strip_text(ws.title)
         return title or None
+
+    def _extract_sheet_date(self, ws) -> date | None:
+        """
+        Extrae la fecha de la fila 3 (A3:I3) donde viene tipo 'De :  10/20/2025'.
+        Si no aparece, intenta con el título de la hoja.
+        """
+        for col in range(1, 10):  # A..I
+            val = _strip_text(getattr(ws.cell(3, col), "value", None))
+            if val:
+                d = _extract_date_from_text(val)
+                if d is not None:
+                    return d
+        return _extract_date_from_text(_strip_text(ws.title))
 
     def _locate_main_sheet(self, wb: Workbook) -> tuple[str | None, int | None, Mapping[str, int]]:
         header_mapping: dict[str, int] = {}
@@ -661,18 +680,22 @@ class MonthlyReportService:
             for offset, row in enumerate(rows):
                 values = dict(row.values)
                 target_row = start_row + offset
-                sheet_date = _extract_date_from_text(row.sheet_label)
-                if sheet_date is None:
-                    sheet_date = _extract_date_from_text(row.report_label)
                 fecha_valor = values.get("fecha")
                 fecha_fuente = fecha_valor if fecha_valor not in (None, "") else None
-                if sheet_date is not None:
-                    fecha_fuente = sheet_date
-                elif fecha_fuente in (None, ""):
+                # Prioridad: fecha de la hoja (A3:I3) → campo 'fecha' → nombre archivo/etiqueta
+                if row.sheet_date is not None:
+                    fecha_fuente = row.sheet_date
+                if fecha_fuente in (None, ""):
                     fecha_fuente = row.workbook_date or row.report_label
                 fecha_formateada = self._format_report_date(fecha_fuente)
                 fecha_col = header_map.get("fecha", 1)
                 fecha_cell = ws.cell(target_row, fecha_col)
+                # Si quieres forzar formato de fecha real en Excel, descomenta:
+                # from datetime import datetime, date as _date
+                # if isinstance(fecha_fuente, (datetime, _date)):
+                #     fecha_cell.value = fecha_fuente if isinstance(fecha_fuente, _date) else fecha_fuente.date()
+                #     fecha_cell.number_format = "dd/mm/yyyy"
+                # else:
                 fecha_cell.value = fecha_formateada
                 fecha_cell.border = border
                 codigo_creado = self._extract_codigo_creado(values)
@@ -723,10 +746,15 @@ class MonthlyReportService:
                 target_row = start_row + offset
                 fecha_valor = values.get("fecha")
                 fecha_fuente = fecha_valor if fecha_valor not in (None, "") else None
+                # Prioridad: fecha de la hoja (A3:I3) → campo 'fecha' → nombre archivo/etiqueta
+                if row.sheet_date is not None:
+                    fecha_fuente = row.sheet_date
                 if fecha_fuente in (None, ""):
                     fecha_fuente = row.workbook_date or row.report_label
                 fecha_formateada = self._format_report_date(fecha_fuente)
-                ws.cell(target_row, 1).value = fecha_formateada
+                cell_fecha = ws.cell(target_row, 1)
+                # Forzar como texto dd/mm/YYYY; si prefieres fecha real, usa el bloque comentado de arriba.
+                cell_fecha.value = fecha_formateada
                 vendedor = values.get("vendedor") or values.get("cliente")
                 ws.cell(target_row, 2).value = vendedor
                 ws.cell(target_row, 3).value = factura
