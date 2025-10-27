@@ -75,6 +75,18 @@ def _create_templates(base_dir: Path) -> tuple[Path, Path]:
     return codigos_path, cobros_path
 
 
+def _create_terceros_lookup(base_dir: Path) -> Path:
+    base_dir.mkdir(parents=True, exist_ok=True)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "TERCEROS"
+    ws.append(["NIT", "NOMBRE", "COD"])
+    ws.append(["123", "Cliente Uno", "COD-EXTERNO-123"])
+    wb.save(base_dir / "Terceros.xlsx")
+    wb.close()
+    return base_dir / "Terceros.xlsx"
+
+
 def _create_informe(base_dir: Path) -> Path:
     informes_dir = base_dir / "Informes" / "Marzo"
     informes_dir.mkdir(parents=True, exist_ok=True)
@@ -193,9 +205,11 @@ def _create_informe(base_dir: Path) -> Path:
     return informes_dir
 
 
-def test_monthly_reports_generation(tmp_path):
+def test_monthly_reports_generation(tmp_path, monkeypatch):
     codigos_tpl, cobros_tpl = _create_templates(tmp_path)
     informes_dir = _create_informe(tmp_path)
+    terceros_path = _create_terceros_lookup(tmp_path / "Rentabilidad" / "Terceros")
+    monkeypatch.setenv("TERCEROS_LOOKUP_PATH", str(terceros_path))
     consolidados_dir = tmp_path / "Consolidados"
     config = MonthlyReportConfig(
         informes_dir=informes_dir.parent,
@@ -219,7 +233,7 @@ def test_monthly_reports_generation(tmp_path):
     assert ws_codigos.cell(2, 7).number_format == "$#,##0.00"
     assert ws_codigos.cell(2, 8).number_format == "$#,##0.00"
     assert ws_codigos.cell(2, 12).number_format == "0.00%"
-    assert ws_codigos.cell(2, 13).value == "VEN-123"
+    assert ws_codigos.cell(2, 13).value == "COD-EXTERNO-123"
     assert ws_codigos.cell(2, 13).comment is None
     assert ws_codigos.cell(3, 2).value == "789"
     assert ws_codigos.cell(3, 10).value == 0.4
@@ -249,7 +263,7 @@ def test_monthly_reports_generation(tmp_path):
     wb_cobros.close()
 
 
-def test_monthly_reports_detects_highlight_without_first_column_fill(tmp_path):
+def test_monthly_reports_detects_highlight_without_first_column_fill(tmp_path, monkeypatch):
     codigos_tpl, cobros_tpl = _create_templates(tmp_path)
     informes_dir = _create_informe(tmp_path)
     informe_path = next(informes_dir.glob("*.xlsx"))
@@ -262,6 +276,9 @@ def test_monthly_reports_detects_highlight_without_first_column_fill(tmp_path):
         ws.cell(row_idx, 1).fill = PatternFill()
     wb.save(informe_path)
     wb.close()
+
+    terceros_path = _create_terceros_lookup(tmp_path / "Rentabilidad" / "Terceros")
+    monkeypatch.setenv("TERCEROS_LOOKUP_PATH", str(terceros_path))
 
     consolidados_dir = tmp_path / "Consolidados"
     config = MonthlyReportConfig(

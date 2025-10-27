@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 import re
 import unicodedata
 from collections import defaultdict
@@ -49,6 +50,22 @@ def _strip_text(value: object | None) -> str:
         return ""
     text = str(value).strip()
     return re.sub(r"\s+", " ", text)
+
+
+def _normalize_nit(value: object | None) -> str:
+    if isinstance(value, float):
+        if value.is_integer():
+            return str(int(value))
+        value = str(value)
+    if isinstance(value, int):
+        return str(value)
+    text = _strip_text(value)
+    if not text:
+        return ""
+    if text.endswith(".0") and text[:-2].isdigit():
+        text = text[:-2]
+    cleaned = re.sub(r"[\s.-]", "", text)
+    return cleaned
 
 
 def _normalize_header(value: object | None) -> str:
@@ -612,6 +629,33 @@ class MonthlyReportService:
             lookup[nit] = data
         return lookup
 
+    def _load_external_terceros_codigos(self) -> Mapping[str, str]:
+        override = os.environ.get("TERCEROS_LOOKUP_PATH")
+        if override:
+            terceros_path = Path(override)
+        else:
+            terceros_path = Path("C:/Rentabilidad/Terceros/Terceros.xlsx")
+        if not terceros_path.exists():
+            return {}
+        wb = load_workbook(terceros_path, data_only=True, read_only=True)
+        try:
+            ws = wb.active
+            lookup: dict[str, str] = {}
+            for row in ws.iter_rows(values_only=True):
+                if not row:
+                    continue
+                nit = _normalize_nit(row[0] if len(row) >= 1 else None)
+                if not nit:
+                    continue
+                cod_value = row[2] if len(row) >= 3 else None
+                cod = _strip_text(cod_value) or None
+                if cod is None:
+                    continue
+                lookup[nit] = cod
+            return lookup
+        finally:
+            wb.close()
+
     def _write_codigos_template(self, rows: Iterable[HighlightedRow], destino: Path) -> None:
         rows = list(rows)
         template = load_workbook(self._config.plantilla_codigos)
@@ -680,6 +724,8 @@ class MonthlyReportService:
                         return candidate
                 return None
 
+            terceros_codigos_lookup = self._load_external_terceros_codigos()
+
             for offset, row in enumerate(rows):
                 values = dict(row.values)
                 target_row = start_row + offset
@@ -711,11 +757,10 @@ class MonthlyReportService:
                     elif key == "descuento":
                         cell.number_format = percent_format
                 codigo_cell = ws.cell(target_row, 13)
-                codigo_creado_valor = values.get("codigo_tercero")
+                nit_lookup = _normalize_nit(values.get("nit"))
+                codigo_creado_valor = terceros_codigos_lookup.get(nit_lookup)
                 codigo_cell.value = (
-                    codigo_creado_valor
-                    if codigo_creado_valor not in (None, "")
-                    else None
+                    codigo_creado_valor if codigo_creado_valor not in (None, "") else None
                 )
                 codigo_cell.border = border
                 codigo_cell.comment = None
