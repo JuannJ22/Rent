@@ -738,7 +738,7 @@ class MonthlyReportService:
                     fecha_fuente = row.workbook_date or row.report_label
                 fecha_formateada = self._format_report_date(fecha_fuente)
                 fecha_col = header_map.get("fecha", 1)
-                fecha_cell = ws.cell(target_row, fecha_col)
+                fecha_cell = self._get_writable_cell(ws, target_row, fecha_col)
                 # Si quieres forzar formato de fecha real en Excel, descomenta:
                 # from datetime import datetime, date as _date
                 # if isinstance(fecha_fuente, (datetime, _date)):
@@ -749,14 +749,14 @@ class MonthlyReportService:
                 fecha_cell.border = border
                 codigo_creado = self._extract_codigo_creado(values)
                 for col_idx, key in enumerate(columns, start=2):
-                    cell = ws.cell(target_row, col_idx)
+                    cell = self._get_writable_cell(ws, target_row, col_idx)
                     cell.value = values.get(key)
                     cell.border = border
                     if key in {"ventas", "costos"}:
                         cell.number_format = currency_format
                     elif key == "descuento":
                         cell.number_format = percent_format
-                codigo_cell = ws.cell(target_row, 13)
+                codigo_cell = self._get_writable_cell(ws, target_row, 13)
                 nit_lookup = _normalize_nit(values.get("nit"))
                 codigo_creado_valor = terceros_codigos_lookup.get(nit_lookup)
                 codigo_cell.value = (
@@ -804,20 +804,20 @@ class MonthlyReportService:
                 if fecha_fuente in (None, ""):
                     fecha_fuente = row.workbook_date or row.report_label
                 fecha_formateada = self._format_report_date(fecha_fuente)
-                cell_fecha = ws.cell(target_row, 1)
+                cell_fecha = self._get_writable_cell(ws, target_row, 1)
                 # Forzar como texto dd/mm/YYYY; si prefieres fecha real, usa el bloque comentado de arriba.
                 cell_fecha.value = fecha_formateada
                 vendedor = values.get("vendedor") or values.get("cliente")
-                ws.cell(target_row, 2).value = vendedor
-                ws.cell(target_row, 3).value = factura
-                ws.cell(target_row, 4).value = cantidad
-                ws.cell(target_row, 5).value = values.get("descripcion")
-                ws.cell(target_row, 6).value = autorizado
-                ws.cell(target_row, 7).value = facturado
-                ws.cell(target_row, 8).value = observacion
-                ws.cell(target_row, 9).value = None
-                ws.cell(target_row, 10).value = valor_error
-                ws.cell(target_row, 11).value = None
+                self._get_writable_cell(ws, target_row, 2).value = vendedor
+                self._get_writable_cell(ws, target_row, 3).value = factura
+                self._get_writable_cell(ws, target_row, 4).value = cantidad
+                self._get_writable_cell(ws, target_row, 5).value = values.get("descripcion")
+                self._get_writable_cell(ws, target_row, 6).value = autorizado
+                self._get_writable_cell(ws, target_row, 7).value = facturado
+                self._get_writable_cell(ws, target_row, 8).value = observacion
+                self._get_writable_cell(ws, target_row, 9).value = None
+                self._get_writable_cell(ws, target_row, 10).value = valor_error
+                self._get_writable_cell(ws, target_row, 11).value = None
             self._apply_table_zebra_format(ws, start_row, len(rows))
             destino.parent.mkdir(parents=True, exist_ok=True)
             template.save(destino)
@@ -916,6 +916,19 @@ class MonthlyReportService:
                     continue
                 cell.value = None
                 cell.comment = None
+
+    @staticmethod
+    def _get_writable_cell(ws, row: int, column: int):
+        cell = ws.cell(row, column)
+        if isinstance(cell, MergedCell):
+            for merged_range in ws.merged_cells.ranges:
+                if (
+                    merged_range.min_row <= row <= merged_range.max_row
+                    and merged_range.min_col <= column <= merged_range.max_col
+                ):
+                    cell = ws.cell(merged_range.min_row, merged_range.min_col)
+                    break
+        return cell
 
     @staticmethod
     def _apply_table_zebra_format(ws, start_row: int, count: int) -> None:
