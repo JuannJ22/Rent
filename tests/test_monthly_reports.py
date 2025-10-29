@@ -300,11 +300,9 @@ def test_monthly_reports_detects_highlight_without_first_column_fill(tmp_path, m
 
     wb_codigos.close()
 
-    cobros_path = service.generar_malos_cobros("Marzo", bus=None)
-    wb_cobros = load_workbook(cobros_path)
-    ws_cobros = wb_cobros.active
-    assert ws_cobros.cell(2, 3).value == "FV-123"
-    wb_cobros.close()
+    # Para malos cobros ahora se requiere el color puro en la columna A.
+    with pytest.raises(ValueError):
+        service.generar_malos_cobros("Marzo", bus=None)
 
 
 def test_codigos_incorrectos_inserta_filas(tmp_path):
