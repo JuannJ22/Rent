@@ -341,33 +341,45 @@ class MonthlyReportService:
                     continue
                 if not self._row_has_data(values):
                     continue
-                row_colors = self._row_colors(ws_styles, row_idx)
+                if self.COBROS_COLOR in colors:
+                    column_a_color = self._cell_color(ws_styles, row_idx, 1)
+                    if column_a_color != self.COBROS_COLOR:
+                        continue
+                    matched_color = self.COBROS_COLOR
+                else:
+                    row_colors = self._row_colors(ws_styles, row_idx)
                 
-                # Verificar si hay celdas con colores similares a los buscados
-                matched_color = None
-                for color in row_colors:
-                    # Verificar coincidencia exacta
-                    if color in colors:
-                        matched_color = color
-                        break
-                    
-                    # Verificar naranja claro específico (RGB: 252, 213, 180 - FCD5B4)
-                    if self.CODIGOS_COLOR in colors:
-                        # Color exacto FCD5B4 o variaciones cercanas
-                        if color and (color == "FCD5B4" or 
-                                     (color.startswith("FC") and "D5" in color) or
-                                     (color.upper() == "FFCEB4") or  # Variación común
-                                     (color.upper() in ["FFCCCC", "FFCC99", "FFD8B1", "FFCCB4", "FFCCB3"])):
-                            matched_color = self.CODIGOS_COLOR
+                    # Verificar si hay celdas con colores similares a los buscados
+                    matched_color = None
+                    for color in row_colors:
+                        # Verificar coincidencia exacta
+                        if color in colors:
+                            matched_color = color
                             break
-                    
-                    # Verificar similitud con amarillo (malos cobros)
-                    if self.COBROS_COLOR in colors and color and color.startswith("FF") and "F" in color[2:]:
-                        matched_color = self.COBROS_COLOR
-                        break
                 
-                if not matched_color:
-                    continue
+                        # Verificar naranja claro específico (RGB: 252, 213, 180 - FCD5B4)
+                        if self.CODIGOS_COLOR in colors:
+                            # Color exacto FCD5B4 o variaciones cercanas
+                            if color and (
+                                color == "FCD5B4"
+                                or (color.startswith("FC") and "D5" in color)
+                                or (color.upper() == "FFCEB4")
+                                or (
+                                    color.upper()
+                                    in [
+                                        "FFCCCC",
+                                        "FFCC99",
+                                        "FFD8B1",
+                                        "FFCCB4",
+                                        "FFCCB3",
+                                    ]
+                                )
+                            ):
+                                matched_color = self.CODIGOS_COLOR
+                                break
+                
+                    if not matched_color:
+                        continue
                 nit = _strip_text(values.get("nit"))
                 product_key = _normalize_product_key(values.get("descripcion"))
                 tercero_data = terceros_lookup.get(nit, {})
@@ -523,37 +535,40 @@ class MonthlyReportService:
                 return True
         return False
 
+    @staticmethod
+    def _extract_color(fill) -> str | None:
+        if fill is None:
+            return None
+        pattern = getattr(fill, "patternType", None) or getattr(fill, "fill_type", None)
+        if pattern not in (None, "solid"):
+            # Algunos resaltados guardan el color aunque el patrón no sea "solid"
+            # pero ignoramos patrones como rayado para evitar falsos positivos.
+            if not str(pattern).lower().startswith("solid"):
+                return None
+        for attr in ("start_color", "fgColor", "bgColor", "end_color"):
+            color = getattr(fill, attr, None)
+            if color is None:
+                continue
+            normalized = (
+                _normalize_color(getattr(color, "rgb", None))
+                or _normalize_color(getattr(color, "indexed", None))
+                or _normalize_color(getattr(color, "theme", None))
+            )
+            if normalized and normalized not in {"FFFFFF", "000000"}:
+                return normalized
+        return None
+
+    def _cell_color(self, ws, row_idx: int, col_idx: int) -> str | None:
+        cell = ws.cell(row_idx, col_idx)
+        return self._extract_color(getattr(cell, "fill", None))
+
     def _row_colors(self, ws, row_idx: int) -> list[str]:
         colors: list[str] = []
         seen: set[str] = set()
 
-        def _extract_color(fill) -> str | None:
-            if fill is None:
-                return None
-            pattern = getattr(fill, "patternType", None) or getattr(
-                fill, "fill_type", None
-            )
-            if pattern not in (None, "solid"):
-                # Algunos resaltados guardan el color aunque el patrón no sea "solid"
-                # pero ignoramos patrones como rayado para evitar falsos positivos.
-                if not str(pattern).lower().startswith("solid"):
-                    return None
-            for attr in ("start_color", "fgColor", "bgColor", "end_color"):
-                color = getattr(fill, attr, None)
-                if color is None:
-                    continue
-                normalized = (
-                    _normalize_color(getattr(color, "rgb", None))
-                    or _normalize_color(getattr(color, "indexed", None))
-                    or _normalize_color(getattr(color, "theme", None))
-                )
-                if normalized and normalized not in {"FFFFFF", "000000"}:
-                    return normalized
-            return None
-
         for col_idx in range(1, ws.max_column + 1):
             cell = ws.cell(row_idx, col_idx)
-            color = _extract_color(getattr(cell, "fill", None))
+            color = self._extract_color(getattr(cell, "fill", None))
             if color and color not in seen:
                 seen.add(color)
                 colors.append(color)
