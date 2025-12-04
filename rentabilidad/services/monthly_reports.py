@@ -508,7 +508,15 @@ class MonthlyReportService:
         values: dict[str, object] = {}
         all_columns: list[tuple[str, object]] = []
         has_data = False
-        max_col = max(ws.max_column or 0, len(headers))
+        last_header_col = max(
+            (
+                idx
+                for idx, header in enumerate(headers, start=1)
+                if _strip_text(header)
+            ),
+            default=0,
+        )
+        max_col = max(last_header_col, max(mapping.values(), default=0))
         for col_idx in range(1, max_col + 1):
             header_value = headers[col_idx - 1] if col_idx - 1 < len(headers) else None
             header_text = _strip_text(header_value) or f"Columna {col_idx}"
