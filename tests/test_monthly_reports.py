@@ -446,6 +446,37 @@ def test_codigos_incorrectos_fecha_por_mtime(tmp_path):
     assert ws_codigos.cell(2, 1).value == "15/04/2023"
     wb_codigos.close()
 
+
+def test_collect_row_values_ignores_trailing_empty_columns(tmp_path):
+    codigos_tpl, cobros_tpl = _create_templates(tmp_path)
+    config = MonthlyReportConfig(
+        informes_dir=tmp_path / "Informes",
+        plantilla_codigos=codigos_tpl,
+        plantilla_malos_cobros=cobros_tpl,
+        consolidados_codigos_dir=tmp_path / "Codigos",
+        consolidados_cobros_dir=tmp_path / "Cobros",
+    )
+    service = MonthlyReportService(config)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["NIT", "DESCRIPCION", "VENTAS"])
+    ws.append(["123", "Producto X", 1000])
+    # Crear una columna muy lejana para simular formatos que expanden max_column.
+    ws["GR1"] = ""
+
+    headers = [cell.value for cell in ws[1]]
+    mapping = {"nit": 1, "descripcion": 2, "ventas": 3}
+
+    values = service._collect_row_values(ws, mapping, 2, headers)
+
+    assert values["__all_columns__"] == (
+        ("NIT", "123"),
+        ("DESCRIPCION", "Producto X"),
+        ("VENTAS", 1000),
+    )
+
+
 def test_month_directory_missing(tmp_path):
     codigos_tpl, cobros_tpl = _create_templates(tmp_path)
     config = MonthlyReportConfig(
