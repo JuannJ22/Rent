@@ -2867,6 +2867,11 @@ def main():
         action="store_true",
         help="Usar SQL Server como fuente de datos para el informe.",
     )
+    p.add_argument(
+        "--no-sql",
+        action="store_true",
+        help="Forzar el uso de EXCZ/Excel aunque SQL esté habilitado.",
+    )
     p.add_argument("--sql-server", default=os.environ.get("SQL_SERVER"))
     p.add_argument("--sql-database", default=os.environ.get("SQL_DATABASE"))
     p.add_argument("--sql-user", default=os.environ.get("SQL_USER"))
@@ -2957,7 +2962,9 @@ def main():
     resolver = DateResolver(YesterdayStrategy())
     report_date = resolver.resolve(args.fecha)
 
-    use_sql = args.sql or normalize_sql_flag(os.environ.get("SQL_ENABLED"))
+    use_sql = (not args.no_sql) and (
+        args.sql or normalize_sql_flag(os.environ.get("SQL_ENABLED"))
+    )
     sql_config = None
     sql_movimientos_df = None
     sql_precios_df = None

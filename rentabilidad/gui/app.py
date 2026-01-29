@@ -1285,20 +1285,25 @@ def build_ui() -> None:
                             with ui.column().classes("gap-1"):
                                 ui.label("Informe automático").classes("section-title")
                                 ui.label(
-                                    "Genera el informe del día anterior usando los EXCZ más recientes disponible."
+                                    "Genera el informe del día anterior desde SQL Server con respaldo EXCZ."
                                 ).classes("action-note")
 
-                        async def ejecutar_auto() -> None:
-                            update_status("running", "Generando informe automático…")
+                        async def ejecutar_auto(usar_sql: bool | None) -> None:
+                            modo = "SQL" if usar_sql else "EXCZ"
+                            update_status(
+                                "running",
+                                f"Generando informe automático ({modo})…",
+                            )
                             agregar_log(
-                                "Iniciando generación automática del informe.",
+                                f"Iniciando generación automática del informe ({modo}).",
                                 "info",
                             )
                             try:
                                 resultado = await asyncio.to_thread(
                                     uc_auto,
                                     GenerarInformeRequest(
-                                        ruta_plantilla=str(settings.ruta_plantilla)
+                                        ruta_plantilla=str(settings.ruta_plantilla),
+                                        usar_sql=usar_sql,
                                     ),
                                     bus,
                                 )
@@ -1322,13 +1327,19 @@ def build_ui() -> None:
                                 )
                                 update_status("error", "Revisa los registros")
 
-                        ui.button(
-                            "Generar informe diario",
-                            icon="play_arrow",
-                            on_click=ejecutar_auto,
-                        ).classes("action-primary w-full sm:w-auto")
+                        with ui.row().classes("flex-wrap gap-3 w-full"):
+                            ui.button(
+                                "Generar informe diario (SQL)",
+                                icon="database",
+                                on_click=lambda: ejecutar_auto(True),
+                            ).classes("action-primary w-full sm:w-auto")
+                            ui.button(
+                                "Generar informe diario (EXCZ respaldo)",
+                                icon="history",
+                                on_click=lambda: ejecutar_auto(False),
+                            ).classes("action-secondary w-full sm:w-auto")
                         ui.label(
-                            "Se buscará los archivos con los prefijos configurados en la carpeta de EXCZ."
+                            "El flujo principal usa SQL Server. Si no está disponible, utiliza el respaldo con EXCZ."
                         ).classes("action-note")
 
                 with ui.card().classes("panel-card flex-1 min-w-[280px]"):
@@ -1343,7 +1354,7 @@ def build_ui() -> None:
                             with ui.column().classes("gap-1"):
                                 ui.label("Informe manual").classes("section-title")
                                 ui.label(
-                                    "Selecciona una fecha y se buscará los EXCZ correspondientes para generar el informe."
+                                    "Selecciona una fecha para generar el informe desde SQL Server o EXCZ."
                                 ).classes("action-note")
 
                         manual_date = (
@@ -1355,7 +1366,7 @@ def build_ui() -> None:
                             .classes("w-full")
                         )
 
-                        async def ejecutar_manual() -> None:
+                        async def ejecutar_manual(usar_sql: bool | None) -> None:
                             fecha_texto = (manual_date.value or "").strip()
                             if not fecha_texto:
                                 safe_notify(
@@ -1374,12 +1385,16 @@ def build_ui() -> None:
                                 manual_date.focus()
                                 return
 
+                            modo = "SQL" if usar_sql else "EXCZ"
                             update_status(
                                 "running",
-                                f"Generando informe manual ({fecha_texto})…",
+                                f"Generando informe manual ({fecha_texto}, {modo})…",
                             )
                             agregar_log(
-                                f"Iniciando generación manual del informe para {fecha_texto}.",
+                                (
+                                    "Iniciando generación manual del informe "
+                                    f"para {fecha_texto} ({modo})."
+                                ),
                                 "info",
                             )
                             try:
@@ -1388,6 +1403,7 @@ def build_ui() -> None:
                                     GenerarInformeRequest(
                                         ruta_plantilla=str(settings.ruta_plantilla),
                                         fecha=fecha_texto,
+                                        usar_sql=usar_sql,
                                     ),
                                     bus,
                                 )
@@ -1411,13 +1427,19 @@ def build_ui() -> None:
                                 )
                                 update_status("error", "Revisa los registros")
 
-                        ui.button(
-                            "Generar informe manual",
-                            icon="manage_search",
-                            on_click=ejecutar_manual,
-                        ).classes("action-primary w-full sm:w-auto")
+                        with ui.row().classes("flex-wrap gap-3 w-full"):
+                            ui.button(
+                                "Generar informe manual (SQL)",
+                                icon="database",
+                                on_click=lambda: ejecutar_manual(True),
+                            ).classes("action-primary w-full sm:w-auto")
+                            ui.button(
+                                "Generar informe manual (EXCZ respaldo)",
+                                icon="history",
+                                on_click=lambda: ejecutar_manual(False),
+                            ).classes("action-secondary w-full sm:w-auto")
                         ui.label(
-                            "Se utilizará los EXCZ de la fecha seleccionada si están disponibles."
+                            "Se recomienda SQL como fuente principal. Usa EXCZ si SQL no está disponible."
                         ).classes("action-note")
 
                 with ui.card().classes("panel-card flex-1 min-w-[280px]"):

@@ -297,15 +297,19 @@ def setup_ui() -> None:
     month_select = None
     manual_date_input = None
 
-    def ejecutar_auto() -> None:
-        actualizar_estado("running", "Generando informe automático…")
-        agregar_log("Iniciando generación automática del informe.")
+    def ejecutar_auto(usar_sql: bool | None) -> None:
+        modo = "SQL" if usar_sql else "EXCZ"
+        actualizar_estado("running", f"Generando informe automático ({modo})…")
+        agregar_log(f"Iniciando generación automática del informe ({modo}).")
         uc_auto(
-            GenerarInformeRequest(ruta_plantilla=str(settings.ruta_plantilla)),
+            GenerarInformeRequest(
+                ruta_plantilla=str(settings.ruta_plantilla),
+                usar_sql=usar_sql,
+            ),
             bus,
         )
 
-    def ejecutar_manual() -> None:
+    def ejecutar_manual(usar_sql: bool | None) -> None:
         fecha_texto = (
             (manual_date_input.value or "").strip() if manual_date_input else ""
         )
@@ -319,16 +323,19 @@ def setup_ui() -> None:
             agregar_log("La fecha debe tener el formato AAAA-MM-DD.", "error")
             actualizar_estado("error", "Fecha inválida")
             return
+        modo = "SQL" if usar_sql else "EXCZ"
         actualizar_estado(
-            "running", f"Generando informe manual ({fecha_texto})…"
+            "running",
+            f"Generando informe manual ({fecha_texto}, {modo})…",
         )
         agregar_log(
-            f"Iniciando generación manual del informe para {fecha_texto}."
+            f"Iniciando generación manual del informe para {fecha_texto} ({modo})."
         )
         uc_auto(
             GenerarInformeRequest(
                 ruta_plantilla=str(settings.ruta_plantilla),
                 fecha=fecha_texto,
+                usar_sql=usar_sql,
             ),
             bus,
         )
@@ -413,15 +420,22 @@ def setup_ui() -> None:
                     ui.icon("bolt").classes("text-violet-500")
                     ui.label("Informe automático").classes("font-medium")
                 ui.label(
-                    "Genera el informe del día anterior usando el EXCZ más reciente disponible."
+                    "Genera el informe del día anterior desde SQL Server con respaldo EXCZ."
                 ).classes("px-5 pb-3 text-sm text-gray-500 leading-snug")
                 btn_auto = ui.button(
-                    "Generar informe automático", on_click=ejecutar_auto
+                    "Generar informe automático (SQL)",
+                    on_click=lambda: ejecutar_auto(True),
                 )
                 btn_auto.classes("mx-5 mb-2 w-full")
                 btn_auto.props("color=primary")
+                btn_auto_backup = ui.button(
+                    "Generar informe automático (EXCZ respaldo)",
+                    on_click=lambda: ejecutar_auto(False),
+                )
+                btn_auto_backup.classes("mx-5 mb-2 w-full")
                 nota_auto = ui.label(
-                    f"Prefijo EXCZ: {settings.excz_prefix} · Carpeta: {_shorten(settings.excz_dir)}"
+                    "Flujo principal: SQL Server. Respaldo EXCZ en: "
+                    f"{_shorten(settings.excz_dir)}"
                 ).classes("px-5 pb-5 text-xs text-gray-400")
                 with nota_auto:
                     ui.tooltip(str(settings.excz_dir))
@@ -431,7 +445,8 @@ def setup_ui() -> None:
                     ui.icon("calendar_month").classes("text-violet-500")
                     ui.label("Informe manual").classes("font-medium")
                 ui.label(
-                    "Selecciona una fecha para generar el informe utilizando el EXCZ correspondiente."
+                    "Selecciona una fecha para generar el informe desde SQL Server "
+                    "o con respaldo EXCZ."
                 ).classes("px-5 pb-3 text-sm text-gray-500 leading-snug")
                 manual_date_input = ui.input(
                     label="Fecha objetivo",
@@ -440,12 +455,18 @@ def setup_ui() -> None:
                 manual_date_input.props("type=date outlined")
                 manual_date_input.classes("mx-5 mb-2 w-full")
                 btn_manual = ui.button(
-                    "Generar informe manual", on_click=ejecutar_manual
+                    "Generar informe manual (SQL)",
+                    on_click=lambda: ejecutar_manual(True),
                 )
                 btn_manual.classes("mx-5 mb-2 w-full")
                 btn_manual.props("color=primary")
+                btn_manual_backup = ui.button(
+                    "Generar informe manual (EXCZ respaldo)",
+                    on_click=lambda: ejecutar_manual(False),
+                )
+                btn_manual_backup.classes("mx-5 mb-2 w-full")
                 ui.label(
-                    "Se utilizará el EXCZ de la fecha seleccionada si está disponible."
+                    "Se recomienda SQL como fuente principal. Usa EXCZ si SQL no está disponible."
                 ).classes("px-5 pb-5 text-xs text-gray-400")
 
             with _card_container():
