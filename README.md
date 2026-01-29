@@ -69,6 +69,12 @@ Ejemplo de uso:
 python hojas/hoja01_loader.py --excel "C:\\Rentabilidad\\Informes\\Marzo\\Marzo 15.xlsx" --sql
 ```
 
+Para forzar el uso de EXCZ/Excel aunque SQL esté habilitado:
+
+```
+python hojas/hoja01_loader.py --excel "C:\\Rentabilidad\\Informes\\Marzo\\Marzo 15.xlsx" --no-sql
+```
+
 ### 3. Scripts `.bat`
 
 - `solo_clonar.bat`: crea el informe a partir de la plantilla.

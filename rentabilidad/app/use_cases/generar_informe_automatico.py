@@ -37,7 +37,9 @@ def _clone_template(target_date: datetime, plantilla: Path, bus, *, force: bool)
     return resultado
 
 
-def _run_rentv1_loader(path: Path, fecha: datetime, bus) -> tuple[int, str]:
+def _run_rentv1_loader(
+    path: Path, fecha: datetime, bus, usar_sql: bool | None
+) -> tuple[int, str]:
     args = [
         "hoja01_loader.py",
         "--excel",
@@ -49,6 +51,10 @@ def _run_rentv1_loader(path: Path, fecha: datetime, bus) -> tuple[int, str]:
         "--excz-prefix",
         settings.excz_prefix,
     ]
+    if usar_sql is True:
+        args.append("--sql")
+    elif usar_sql is False:
+        args.append("--no-sql")
     if settings.plantilla_hoja:
         args.extend(["--hoja", settings.plantilla_hoja])
 
@@ -106,7 +112,9 @@ def run(req: GenerarInformeRequest, bus) -> GenerarInformeResponse:
         informe_path = _clone_template(objetivo, plantilla, bus, force=force_clone)
 
         bus.publish("log", "Ejecutando motor Rentv1 para actualizar el informe…")
-        exit_code, output = _run_rentv1_loader(informe_path, objetivo, bus)
+        exit_code, output = _run_rentv1_loader(
+            informe_path, objetivo, bus, req.usar_sql
+        )
         last_info, last_error = _emit_loader_output(output, bus)
 
         if exit_code != 0:

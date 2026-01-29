@@ -5,6 +5,7 @@ from typing import Optional
 class GenerarInformeRequest(BaseModel):
     ruta_plantilla: str
     fecha: Optional[str] = None  # None = día anterior
+    usar_sql: Optional[bool] = None
 
 
 class GenerarInformeResponse(BaseModel):
