@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import Sequence
 
 import pandas as pd
-import pyodbc
 
 
 @dataclass(frozen=True)
@@ -42,6 +41,14 @@ class SqlServerConfig:
 def fetch_dataframe(
     config: SqlServerConfig, query: str, params: Sequence[object] | None = None
 ) -> pd.DataFrame:
+    try:
+        import pyodbc
+    except ModuleNotFoundError as exc:
+        message = (
+            "No se encontró el módulo 'pyodbc'. Instálalo con 'pip install pyodbc' "
+            "o con 'pip install -r requirements.txt' antes de ejecutar el GUI."
+        )
+        raise ModuleNotFoundError(message) from exc
     with pyodbc.connect(config.connection_string(), timeout=config.timeout) as conn:
         return pd.read_sql_query(query, conn, params=params)
 
