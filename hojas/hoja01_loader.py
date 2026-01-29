@@ -8,7 +8,7 @@ import os
 import re
 import sys
 import unicodedata
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Tuple
 
@@ -29,6 +29,12 @@ from rentabilidad.core.dates import DateResolver, YesterdayStrategy
 from rentabilidad.core.env import load_env
 from rentabilidad.core.excz import ExczFileFinder, ExczMetadata
 from rentabilidad.core.paths import PathContext, PathContextFactory, SPANISH_MONTHS
+from rentabilidad.infra.sql_server import (
+    SqlServerConfig,
+    fetch_dataframe,
+    normalize_sql_flag,
+    normalize_sql_list,
+)
 
 
 load_env()
@@ -50,6 +56,34 @@ DEFAULT_TERCEROS_DIR = os.environ.get(
     "TERCEROS_DIR", str(PATH_CONTEXT.base_dir / "Terceros")
 )
 DEFAULT_TERCEROS_FILENAME = os.environ.get("TERCEROS_FILENAME", "Terceros.xlsx")
+DEFAULT_SQL_DRIVER = os.environ.get("SQL_DRIVER", "ODBC Driver 17 for SQL Server")
+DEFAULT_SQL_TERCEROS_TABLE = os.environ.get(
+    "SQL_TERCEROS_TABLE", "dbo.TABLA_IDENTIFICACION_CLIENTES"
+)
+DEFAULT_SQL_TERCEROS_ACTIVE_COLUMN = os.environ.get(
+    "SQL_TERCEROS_ACTIVE_COLUMN", "EstadoNit"
+)
+DEFAULT_SQL_TERCEROS_ACTIVE_VALUE = os.environ.get(
+    "SQL_TERCEROS_ACTIVE_VALUE", "A"
+)
+DEFAULT_SQL_PRECIOS_TABLE = os.environ.get(
+    "SQL_PRECIOS_TABLE", "dbo.TABLA_MAESTRO_INVENTARIOS"
+)
+DEFAULT_SQL_PRECIOS_ACTIVE_COLUMN = os.environ.get(
+    "SQL_PRECIOS_ACTIVE_COLUMN", "ActivoInv"
+)
+DEFAULT_SQL_MOVIMIENTOS_TABLE = os.environ.get(
+    "SQL_MOVIMIENTOS_TABLE", "dbo.TABLA_MOVIMIENTO_POR_COMPROBANTE"
+)
+DEFAULT_SQL_MOVIMIENTOS_DATE_COLUMN = os.environ.get(
+    "SQL_MOVIMIENTOS_DATE_COLUMN", "FactMov"
+)
+DEFAULT_SQL_MOVIMIENTOS_TIP_COLUMN = os.environ.get(
+    "SQL_MOVIMIENTOS_TIP_COLUMN", "TipMov"
+)
+DEFAULT_SQL_MOVIMIENTOS_TIP_VALUES = os.environ.get(
+    "SQL_MOVIMIENTOS_TIP_VALUES", "F,J"
+)
 ACCOUNTING_FORMAT = '_-[$$-409]* #,##0.00_-;_-[$$-409]* (#,##0.00);_-[$$-409]* "-"??_-;_-@_-'
 IVA_RATE = 0.19
 IVA_MULTIPLIER = 1 + IVA_RATE
@@ -1070,6 +1104,44 @@ def _update_vendedores_sheet(
     return summary, path
 
 
+def _update_vendedores_sheet_from_df(wb, df: pd.DataFrame):
+    """Actualiza ``VENDEDORES`` desde un DataFrame (SQL)."""
+
+    sheet_name = "VENDEDORES"
+    if sheet_name not in wb.sheetnames:
+        return {}, None
+
+    mapping = _guess_map(df.columns)
+    nit_col = mapping.get("nit")
+    vendor_col = mapping.get("vendedor") or mapping.get("centro_costo")
+    if not nit_col or not vendor_col:
+        print(
+            "ERROR: El resultado SQL de movimientos no contiene columnas de NIT y vendedor."
+        )
+        raise SystemExit(21)
+
+    data = df[[nit_col, vendor_col]].copy()
+    data.rename(columns={nit_col: "nit", vendor_col: "vendedor"}, inplace=True)
+    data = data.dropna(how="all")
+
+    ws = wb[sheet_name]
+    ws.sheet_state = "hidden"
+    ws.delete_rows(1, ws.max_row)
+
+    rows_written = 0
+    for nit, vendedor in data.itertuples(index=False):
+        nit_value = _clean_cell_value(nit)
+        cod_value = _clean_cell_value(vendedor)
+        if nit_value in (None, "") and cod_value in (None, ""):
+            continue
+        rows_written += 1
+        ws.cell(row=rows_written, column=1, value=nit_value)
+        ws.cell(row=rows_written, column=2, value=cod_value)
+
+    summary = {"rows": rows_written, "columns": 2 if rows_written else 0}
+    return summary, "SQL"
+
+
 def _update_terceros_sheet(
     wb,
     *,
@@ -1140,6 +1212,181 @@ def _update_terceros_sheet(
     }
 
     return summary, path
+
+
+def _guess_sql_terceros_columns(df_cols):
+    cols = {_norm(c): c for c in df_cols}
+
+    def pick(*keys, contains=None):
+        for k in keys:
+            nk = _norm(k)
+            if nk in cols:
+                return cols[nk]
+        if contains:
+            candidates = tuple(_norm(c) for c in contains)
+            for col_norm, original in cols.items():
+                for needle in candidates:
+                    if needle and needle in col_norm:
+                        return original
+        return None
+
+    return {
+        "nit": pick(
+            "nit",
+            "identificacion",
+            "identificación",
+            "documento",
+            contains=("nit", "ident", "doc"),
+        ),
+        "vendedor": pick(
+            "vendedor",
+            "cod vendedor",
+            "codigo vendedor",
+            "cod. vendedor",
+            "codvend",
+            "codigo_vendedor",
+            contains=("vendedor", "vend", "codvend"),
+        ),
+        "lista": pick(
+            "lista",
+            "lista precio",
+            "lista de precio",
+            "lista_precio",
+            contains=("lista", "precio"),
+        ),
+    }
+
+
+def _update_terceros_sheet_from_df(wb, df: pd.DataFrame):
+    """Sincroniza la hoja ``TERCEROS`` con datos SQL."""
+
+    sheet_name = "TERCEROS"
+    ws = wb[sheet_name] if sheet_name in wb.sheetnames else wb.create_sheet(sheet_name)
+    ws.sheet_state = "hidden"
+
+    mapping = _guess_sql_terceros_columns(df.columns)
+    nit_col = mapping.get("nit")
+    vendedor_col = mapping.get("vendedor")
+    lista_col = mapping.get("lista")
+    if not nit_col or not lista_col:
+        print(
+            "ERROR: El resultado SQL de terceros no contiene columnas de NIT y lista de precio."
+        )
+        raise SystemExit(22)
+
+    data = df[[nit_col, vendedor_col, lista_col]].copy()
+    data.rename(
+        columns={
+            nit_col: "nit",
+            vendedor_col: "vendedor",
+            lista_col: "lista",
+        },
+        inplace=True,
+    )
+    data = data.dropna(how="all")
+
+    if ws.max_row:
+        ws.delete_rows(1, ws.max_row)
+
+    rows_written = 0
+    max_used_cols = 0
+
+    for nit, vendedor, lista_precio in data.itertuples(index=False):
+        if (nit, lista_precio, vendedor) == (None, None, None):
+            continue
+        rows_written += 1
+        ws.cell(row=rows_written, column=1, value=nit)
+        ws.cell(row=rows_written, column=2, value=vendedor)
+        ws.cell(row=rows_written, column=3, value=lista_precio)
+
+    if rows_written:
+        max_used_cols = 3
+
+    summary = {
+        "rows": rows_written,
+        "columns": max_used_cols,
+    }
+
+    return summary, "SQL"
+
+
+def _guess_sql_precios_columns(df_cols):
+    cols = {_norm(c): c for c in df_cols}
+
+    def pick(*keys, contains=None):
+        for k in keys:
+            nk = _norm(k)
+            if nk in cols:
+                return cols[nk]
+        if contains:
+            candidates = tuple(_norm(c) for c in contains)
+            for col_norm, original in cols.items():
+                for needle in candidates:
+                    if needle and needle in col_norm:
+                        return original
+        return None
+
+    desc_col = pick(
+        "descripcion",
+        "descripción",
+        "descripcioninv",
+        "producto",
+        "nombre",
+        "nombre producto",
+        contains=("descr", "producto", "item"),
+    )
+
+    price_cols = []
+    for col in df_cols:
+        norm = _norm(col)
+        if "precio" not in norm:
+            continue
+        match = re.search(r"(\d+)$", norm)
+        if match:
+            price_cols.append((int(match.group(1)), col))
+    price_cols.sort(key=lambda item: item[0])
+    return desc_col, [col for _, col in price_cols]
+
+
+def _update_precios_sheet_from_df(wb, df: pd.DataFrame):
+    """Sincroniza la hoja ``PRECIOS`` con datos SQL."""
+
+    sheet_name = "PRECIOS"
+    if sheet_name not in wb.sheetnames:
+        return {}, None
+
+    desc_col, price_cols = _guess_sql_precios_columns(df.columns)
+    if not desc_col or not price_cols:
+        print(
+            "ERROR: El resultado SQL de inventarios no contiene descripción ni columnas de precio."
+        )
+        raise SystemExit(19)
+
+    data = df[[desc_col] + price_cols].copy()
+    data.rename(columns={desc_col: "descripcion"}, inplace=True)
+    data = data.dropna(how="all")
+
+    ws = wb[sheet_name]
+    ws.delete_rows(1, ws.max_row)
+
+    rows_written = 0
+    max_used_cols = 0
+
+    for row in data.itertuples(index=False):
+        descripcion = getattr(row, "descripcion")
+        if descripcion in (None, ""):
+            continue
+        rows_written += 1
+        ws.cell(row=rows_written, column=1, value=descripcion)
+        for idx, raw in enumerate(price_cols, start=1):
+            value = getattr(row, raw)
+            if value in (None, ""):
+                continue
+            ws.cell(row=rows_written, column=idx + 1, value=value)
+        max_used_cols = max(max_used_cols, len(price_cols) + 1)
+
+    summary = {"rows": rows_written, "columns": max_used_cols}
+    return summary, "SQL"
 
 
 def _guess_map(df_cols):
@@ -1610,6 +1857,191 @@ def _update_ccosto_sheets(
     return summary, latest
 
 
+def _update_ccosto_sheets_from_df(
+    wb,
+    df: pd.DataFrame,
+    accounting_fmt,
+    border,
+):
+    """Actualiza hojas CCOSTO usando datos provenientes de SQL."""
+
+    config = [
+        ("CCOSTO 1", "0001   MOST. PRINCIPAL"),
+        ("CCOSTO 2", "0002   MOST. SUCURSAL"),
+        ("CCOSTO 3", "0003   MOSTRADOR CALARCA"),
+        ("CCOSTO 4", "0007   TIENDA PINTUCO"),
+    ]
+
+    if df.empty:
+        df = pd.DataFrame()
+
+    mapping = _guess_map(df.columns)
+    centro_col = mapping.get("centro_costo")
+    if not centro_col:
+        print("ERROR: Los datos SQL no contienen columna de Centro de Costo o Zona")
+        raise SystemExit(7)
+
+    columns = {
+        key: mapping[key]
+        for key in ["centro_costo", "descripcion", "cantidad", "ventas", "costos", "renta", "utili"]
+        if mapping.get(key)
+    }
+
+    sub = df[list(columns.values())].copy() if columns else pd.DataFrame()
+    sub.rename(columns={v: k for k, v in columns.items()}, inplace=True)
+
+    for col in ["centro_costo", "descripcion", "cantidad", "ventas", "costos", "renta", "utili"]:
+        if col not in sub.columns:
+            sub[col] = pd.NA
+
+    sub = sub.dropna(how="all")
+
+    for col in ["cantidad", "ventas", "costos"]:
+        if col in sub.columns:
+            sub[col] = _parse_numeric_series(sub[col])
+    for col in ["renta", "utili"]:
+        if col in sub.columns:
+            sub[col] = _parse_numeric_series(sub[col])
+
+    sub["ccosto_norm"] = sub["centro_costo"].map(_normalize_ccosto_value)
+
+    order = ["centro_costo", "descripcion", "cantidad", "ventas", "costos", "renta", "utili"]
+    headers = [
+        "CENTRO DE COSTO",
+        "DESCRIPCION",
+        "CANTIDAD",
+        "VENTAS",
+        "COSTOS",
+        "% RENTA",
+        "% UTIL.",
+    ]
+
+    summary = {}
+    bold_font = Font(bold=True)
+
+    for sheet_name, label in config:
+        if sheet_name not in wb.sheetnames:
+            continue
+
+        ws = wb[sheet_name]
+        ws.delete_rows(1, ws.max_row)
+
+        data = _select_ccosto_rows(sub, label)
+
+        if data.empty:
+            ws["A1"] = "ESTE PUNTO DE VENTA NO ABRIÓ HOY"
+            summary[sheet_name] = 0
+            continue
+
+        data = data[order]
+
+        data = _drop_full_rentability_rows(data)
+
+        mask_valid = data[["descripcion", "cantidad", "ventas", "costos", "renta", "utili"]].notna().any(axis=1)
+        data = data[mask_valid]
+
+        if data.empty:
+            ws["A1"] = "ESTE PUNTO DE VENTA NO ABRIÓ HOY"
+            summary[sheet_name] = 0
+            continue
+
+        subtotal_mask = data["descripcion"].astype(str).str.contains("subtotal", case=False, na=False)
+        detail = data[~subtotal_mask]
+        subtotal_rows = data[subtotal_mask]
+
+        if not detail.empty and detail["renta"].notna().any():
+            detail = detail.sort_values(by="renta", ascending=True, na_position="last")
+
+        data = pd.concat([detail, subtotal_rows], ignore_index=True)
+
+        for idx, header in enumerate(headers, start=1):
+            ws.cell(row=1, column=idx, value=header)
+
+        start_row = 2
+        last_data_row = start_row - 1
+
+        for i, row in enumerate(data.itertuples(index=False), start=start_row):
+            values = [
+                getattr(row, "centro_costo"),
+                getattr(row, "descripcion"),
+                getattr(row, "cantidad"),
+                getattr(row, "ventas"),
+                getattr(row, "costos"),
+                getattr(row, "renta"),
+                getattr(row, "utili"),
+            ]
+            for col_idx, value in enumerate(values, start=1):
+                cell = ws.cell(row=i, column=col_idx)
+                cell.value = None if pd.isna(value) else value
+                if col_idx in (4, 5) and cell.value is not None:
+                    cell.number_format = accounting_fmt
+                cell.border = border
+
+            last_data_row = i
+
+        summary[sheet_name] = len(data)
+
+        if last_data_row >= start_row:
+            total_row = last_data_row + 1
+            label_col_idx = order.index("descripcion") + 1
+            label_cell = ws.cell(total_row, label_col_idx, "Total General")
+            label_cell.font = bold_font
+            label_cell.border = border
+
+            def set_sum_for(col_key, number_format=None):
+                col_idx = order.index(col_key) + 1
+                cell = ws.cell(total_row, col_idx)
+                col_letter = get_column_letter(col_idx)
+                cell.value = f"=SUM({col_letter}{start_row}:{col_letter}{last_data_row})"
+                if number_format:
+                    cell.number_format = number_format
+                cell.font = bold_font
+                cell.border = border
+                return cell
+
+            set_sum_for("cantidad")
+            total_ventas_cell = set_sum_for("ventas", accounting_fmt)
+            total_costos_cell = set_sum_for("costos", accounting_fmt)
+
+            util_col_idx = order.index("utili") + 1
+            util_cell = ws.cell(total_row, util_col_idx)
+            if total_ventas_cell and total_costos_cell:
+                ventas_ref = total_ventas_cell.coordinate
+                costos_ref = total_costos_cell.coordinate
+                util_cell.value = f"=IF({costos_ref}=0,0,({ventas_ref}/{costos_ref})-1)"
+            else:
+                util_cell.value = 0
+            util_cell.number_format = "0.00%"
+            util_cell.font = bold_font
+            util_cell.border = border
+
+            ventas_ref = f"{get_column_letter(order.index('ventas') + 1)}{total_row}"
+            costos_ref = f"{get_column_letter(order.index('costos') + 1)}{total_row}"
+
+            rent_cell = ws.cell(total_row, order.index("renta") + 1)
+            rent_cell.value = f"=IF({ventas_ref}=0,0,1-({costos_ref}/{ventas_ref}))"
+            rent_cell.number_format = "0.00%"
+            rent_cell.font = bold_font
+            rent_cell.border = border
+
+            for col_idx in range(1, len(order) + 1):
+                cell = ws.cell(total_row, col_idx)
+                cell.border = border
+
+            if sheet_name == "CCOSTO 4":
+                for row_idx in range(start_row, last_data_row + 1):
+                    cell = ws.cell(row_idx, 1)
+                    value = cell.value
+                    if value in (None, ""):
+                        continue
+                    text_value = str(value)
+                    new_value = text_value.replace("7", "4")
+                    if new_value != text_value:
+                        cell.value = new_value
+
+    return summary, "SQL"
+
+
 def _update_lineas_sheet(wb, data: pd.DataFrame, accounting_fmt: str, border):
     """Reconstruye la hoja ``LINEAS`` a partir de agregados calculados."""
 
@@ -2019,6 +2451,172 @@ def _update_cod_sheets(
     return summary, latest
 
 
+def _update_cod_sheets_from_df(
+    wb,
+    df: pd.DataFrame,
+    accounting_fmt,
+    border,
+):
+    """Rellena las hojas COD con información de vendedores proveniente de SQL."""
+
+    config = [
+        ("COD24", "0024", "CR CARLOS ALBERTO TOVAR HERRER"),
+        ("COD25", "0025", "CO CARLOS ALBERTO TOVAR HERRER"),
+        ("COD26", "0026", "CR OMAR SMITH PARRADO BELTRAN"),
+        ("COD27", "0027", "CR OMAR SMITH PARRADO BELTRAN"),
+        ("COD29", "0029", "CO BEATRIZ LONDOÑO VELASQUEZ"),
+        ("COD30", "0030", "CR BEATRIZ LONDOÑO VELASQUEZ"),
+        ("COD51", "0051", "CR MARICELY LONDOÑO"),
+        ("COD52", "0052", "CO MARICELY LONDOÑO"),
+    ]
+
+    if df.empty:
+        df = pd.DataFrame()
+
+    mapping = _guess_map(df.columns)
+    vendedor_col = mapping.get("vendedor") or mapping.get("centro_costo")
+    if not vendedor_col:
+        print("ERROR: Los datos SQL no contienen columna de Vendedor")
+        raise SystemExit(17)
+
+    columns = {}
+    for key in ["vendedor", "descripcion", "cantidad", "ventas", "costos", "renta", "utili"]:
+        if key == "vendedor":
+            columns[key] = vendedor_col
+        else:
+            col = mapping.get(key)
+            if col:
+                columns[key] = col
+
+    sub = df[list(dict.fromkeys(columns.values()))].copy() if columns else pd.DataFrame()
+    sub.rename(columns={v: k for k, v in columns.items()}, inplace=True)
+
+    for col in ["vendedor", "descripcion", "cantidad", "ventas", "costos", "renta", "utili"]:
+        if col not in sub.columns:
+            sub[col] = pd.NA
+
+    sub = sub.dropna(how="all")
+
+    for col in ["cantidad", "ventas", "costos"]:
+        if col in sub.columns:
+            sub[col] = _parse_numeric_series(sub[col])
+    for col in ["renta", "utili"]:
+        if col in sub.columns:
+            sub[col] = _parse_numeric_series(sub[col])
+
+    sub["cod_norm"] = sub["vendedor"].map(_normalize_lookup_value)
+
+    order = ["vendedor", "descripcion", "cantidad", "ventas", "costos", "renta", "utili"]
+    headers = [
+        "COD. VENDEDOR",
+        "DESCRIPCION",
+        "CANTIDAD",
+        "VENTAS",
+        "COSTOS",
+        "% RENTA",
+        "% UTIL.",
+    ]
+
+    summary = {}
+    bold_font = Font(bold=True)
+
+    for sheet_name, code, seller_name in config:
+        if sheet_name not in wb.sheetnames:
+            continue
+
+        ws = wb[sheet_name]
+        ws.delete_rows(1, ws.max_row)
+
+        data = sub[sub["cod_norm"] == code]
+        data = data[order]
+
+        data = _drop_full_rentability_rows(data)
+
+        mask_valid = data[["descripcion", "cantidad", "ventas", "costos", "renta", "utili"]].notna().any(axis=1)
+        data = data[mask_valid]
+
+        if data.empty:
+            ws["A1"] = f"{seller_name} NO TUVO VENTAS HOY"
+            summary[sheet_name] = 0
+            continue
+
+        ws.append(headers)
+        ws.append([None] * len(headers))
+
+        start_row = 2
+        last_data_row = start_row - 1
+
+        for i, row in enumerate(data.itertuples(index=False), start=start_row):
+            values = [
+                getattr(row, "vendedor"),
+                getattr(row, "descripcion"),
+                getattr(row, "cantidad"),
+                getattr(row, "ventas"),
+                getattr(row, "costos"),
+                getattr(row, "renta"),
+                getattr(row, "utili"),
+            ]
+            for col_idx, value in enumerate(values, start=1):
+                cell = ws.cell(row=i, column=col_idx)
+                cell.value = None if pd.isna(value) else value
+                if col_idx in (4, 5) and cell.value is not None:
+                    cell.number_format = accounting_fmt
+                cell.border = border
+
+            last_data_row = i
+
+        summary[sheet_name] = len(data)
+
+        if last_data_row >= start_row:
+            total_row = last_data_row + 1
+            label_col_idx = order.index("descripcion") + 1
+            label_cell = ws.cell(total_row, label_col_idx, "Total General")
+            label_cell.font = bold_font
+            label_cell.border = border
+
+            def set_sum_for(col_key, number_format=None):
+                col_idx = order.index(col_key) + 1
+                cell = ws.cell(total_row, col_idx)
+                col_letter = get_column_letter(col_idx)
+                cell.value = f"=SUM({col_letter}{start_row}:{col_letter}{last_data_row})"
+                if number_format:
+                    cell.number_format = number_format
+                cell.font = bold_font
+                cell.border = border
+                return cell
+
+            set_sum_for("cantidad")
+            total_ventas_cell = set_sum_for("ventas", accounting_fmt)
+            total_costos_cell = set_sum_for("costos", accounting_fmt)
+
+            util_col_idx = order.index("utili") + 1
+            util_cell = ws.cell(total_row, util_col_idx)
+            if total_ventas_cell and total_costos_cell:
+                ventas_ref = total_ventas_cell.coordinate
+                costos_ref = total_costos_cell.coordinate
+                util_cell.value = f"=IF({costos_ref}=0,0,({ventas_ref}/{costos_ref})-1)"
+            else:
+                util_cell.value = 0
+            util_cell.number_format = "0.00%"
+            util_cell.font = bold_font
+            util_cell.border = border
+
+            ventas_ref = f"{get_column_letter(order.index('ventas') + 1)}{total_row}"
+            costos_ref = f"{get_column_letter(order.index('costos') + 1)}{total_row}"
+
+            rent_cell = ws.cell(total_row, order.index("renta") + 1)
+            rent_cell.value = f"=IF({ventas_ref}=0,0,1-({costos_ref}/{ventas_ref}))"
+            rent_cell.number_format = "0.00%"
+            rent_cell.font = bold_font
+            rent_cell.border = border
+
+            for col_idx in range(1, len(order) + 1):
+                cell = ws.cell(total_row, col_idx)
+                cell.border = border
+
+    return summary, "SQL"
+
+
 def _update_precios_sheet(
     wb,
     *,
@@ -2105,6 +2703,86 @@ def _update_precios_sheet(
     return summary, path
 
 
+def _build_sql_config(args) -> SqlServerConfig:
+    server = args.sql_server or os.environ.get("SQL_SERVER")
+    database = args.sql_database or os.environ.get("SQL_DATABASE")
+    user = args.sql_user or os.environ.get("SQL_USER")
+    password = args.sql_password or os.environ.get("SQL_PASSWORD")
+    driver = args.sql_driver or DEFAULT_SQL_DRIVER
+    trusted = args.sql_trusted or normalize_sql_flag(os.environ.get("SQL_TRUSTED"))
+    encrypt = normalize_sql_flag(os.environ.get("SQL_ENCRYPT"))
+    trust_cert = normalize_sql_flag(os.environ.get("SQL_TRUST_CERT", "1"))
+    timeout = int(os.environ.get("SQL_TIMEOUT", "30"))
+
+    if not server or not database:
+        print("ERROR: Debes configurar SQL_SERVER y SQL_DATABASE para usar SQL.")
+        raise SystemExit(30)
+    if not trusted and not user:
+        print("ERROR: Debes configurar SQL_USER o habilitar SQL_TRUSTED=1.")
+        raise SystemExit(31)
+
+    return SqlServerConfig(
+        server=server,
+        database=database,
+        user=user,
+        password=password,
+        driver=driver,
+        trusted_connection=trusted,
+        encrypt=encrypt,
+        trust_server_certificate=trust_cert,
+        timeout=timeout,
+    )
+
+
+def _build_sql_query_from_table(table: str, columns: list[str]) -> str:
+    cols = ", ".join(columns) if columns else "*"
+    return f"SELECT {cols} FROM {table}"
+
+
+def _fetch_sql_data(config: SqlServerConfig, query: str, params=None) -> pd.DataFrame:
+    return fetch_dataframe(config, query, params=params)
+
+
+def _prepare_excz_from_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    m = _guess_map(df.columns)
+
+    cols_needed = {k: v for k, v in m.items() if v is not None}
+    if not cols_needed:
+        print("ERROR: No se pudieron mapear columnas requeridas desde SQL.")
+        raise SystemExit(32)
+
+    sub = df[list(cols_needed.values())].copy()
+    sub.rename(columns={v: k for k, v in cols_needed.items()}, inplace=True)
+
+    if "nit" not in sub.columns and "cliente_combo" in sub.columns:
+        sub["nit"] = sub["cliente_combo"].astype(str).str.extract(r"^(\d+)")[0]
+
+    for col in ["cantidad", "ventas", "costos"]:
+        if col in sub.columns:
+            sub[col] = _parse_numeric_series(sub[col])
+    for col in ["renta", "utili"]:
+        if col in sub.columns:
+            sub[col] = _parse_numeric_series(sub[col])
+
+    if "renta" in sub.columns:
+        sub = sub.sort_values(by="renta", ascending=True, na_position="last")
+
+    if "descripcion" in sub.columns:
+        sub = sub[~sub["descripcion"].astype(str).str.contains("total", case=False, na=False)]
+        sub = sub[sub["descripcion"].notna()]
+
+    sub = _drop_full_rentability_rows(sub)
+    return sub
+
+
+def _source_label(source) -> str | None:
+    if not source:
+        return None
+    if isinstance(source, Path):
+        return source.name
+    return str(source)
+
+
 def main():
     """Interfaz de línea de comandos para actualizar el informe de rentabilidad."""
 
@@ -2184,10 +2862,173 @@ def main():
         default=DEFAULT_TERCEROS_FILENAME,
         help="Nombre del archivo de terceros (Terceros.xlsx por defecto)",
     )
+    p.add_argument(
+        "--sql",
+        action="store_true",
+        help="Usar SQL Server como fuente de datos para el informe.",
+    )
+    p.add_argument("--sql-server", default=os.environ.get("SQL_SERVER"))
+    p.add_argument("--sql-database", default=os.environ.get("SQL_DATABASE"))
+    p.add_argument("--sql-user", default=os.environ.get("SQL_USER"))
+    p.add_argument("--sql-password", default=os.environ.get("SQL_PASSWORD"))
+    p.add_argument("--sql-driver", default=DEFAULT_SQL_DRIVER)
+    p.add_argument(
+        "--sql-trusted",
+        action="store_true",
+        help="Usar autenticación integrada de Windows (Trusted_Connection).",
+    )
+    p.add_argument(
+        "--sql-terceros-table",
+        default=DEFAULT_SQL_TERCEROS_TABLE,
+        help="Tabla SQL para terceros.",
+    )
+    p.add_argument(
+        "--sql-terceros-active-column",
+        default=DEFAULT_SQL_TERCEROS_ACTIVE_COLUMN,
+        help="Columna que indica terceros activos (por defecto EstadoNit).",
+    )
+    p.add_argument(
+        "--sql-terceros-active-value",
+        default=DEFAULT_SQL_TERCEROS_ACTIVE_VALUE,
+        help="Valor considerado activo en terceros (por defecto A).",
+    )
+    p.add_argument(
+        "--sql-terceros-query",
+        default=os.environ.get("SQL_TERCEROS_QUERY"),
+        help="Consulta SQL personalizada para terceros.",
+    )
+    p.add_argument(
+        "--sql-terceros-columns",
+        default=os.environ.get("SQL_TERCEROS_COLUMNS"),
+        help="Columnas (separadas por coma) a seleccionar en terceros.",
+    )
+    p.add_argument(
+        "--sql-precios-table",
+        default=DEFAULT_SQL_PRECIOS_TABLE,
+        help="Tabla SQL para precios/inventarios.",
+    )
+    p.add_argument(
+        "--sql-precios-active-column",
+        default=DEFAULT_SQL_PRECIOS_ACTIVE_COLUMN,
+        help="Columna que indica producto activo (por defecto ActivoInv).",
+    )
+    p.add_argument(
+        "--sql-precios-query",
+        default=os.environ.get("SQL_PRECIOS_QUERY"),
+        help="Consulta SQL personalizada para precios/inventarios.",
+    )
+    p.add_argument(
+        "--sql-precios-columns",
+        default=os.environ.get("SQL_PRECIOS_COLUMNS"),
+        help="Columnas (separadas por coma) a seleccionar en precios.",
+    )
+    p.add_argument(
+        "--sql-movimientos-table",
+        default=DEFAULT_SQL_MOVIMIENTOS_TABLE,
+        help="Tabla SQL para movimientos/facturación.",
+    )
+    p.add_argument(
+        "--sql-movimientos-query",
+        default=os.environ.get("SQL_MOVIMIENTOS_QUERY"),
+        help="Consulta SQL personalizada para movimientos.",
+    )
+    p.add_argument(
+        "--sql-movimientos-columns",
+        default=os.environ.get("SQL_MOVIMIENTOS_COLUMNS"),
+        help="Columnas (separadas por coma) a seleccionar en movimientos.",
+    )
+    p.add_argument(
+        "--sql-movimientos-date-column",
+        default=DEFAULT_SQL_MOVIMIENTOS_DATE_COLUMN,
+        help="Columna de fecha para filtrar movimientos.",
+    )
+    p.add_argument(
+        "--sql-movimientos-tip-column",
+        default=DEFAULT_SQL_MOVIMIENTOS_TIP_COLUMN,
+        help="Columna de tipo de movimiento (por defecto TipMov).",
+    )
+    p.add_argument(
+        "--sql-movimientos-tip-values",
+        default=DEFAULT_SQL_MOVIMIENTOS_TIP_VALUES,
+        help="Tipos de movimiento a incluir (separados por coma, por defecto F,J).",
+    )
     args = p.parse_args()
 
     resolver = DateResolver(YesterdayStrategy())
     report_date = resolver.resolve(args.fecha)
+
+    use_sql = args.sql or normalize_sql_flag(os.environ.get("SQL_ENABLED"))
+    sql_config = None
+    sql_movimientos_df = None
+    sql_precios_df = None
+    sql_terceros_df = None
+
+    if use_sql:
+        sql_config = _build_sql_config(args)
+        print(
+            f"INFO: Usando SQL Server {sql_config.server}/{sql_config.database}."
+        )
+
+        sql_terceros_query = args.sql_terceros_query
+        terceros_cols = normalize_sql_list(args.sql_terceros_columns)
+        terceros_active_col = args.sql_terceros_active_column
+        terceros_active_value = args.sql_terceros_active_value
+        terceros_params = None
+        if not sql_terceros_query:
+            sql_terceros_query = _build_sql_query_from_table(
+                args.sql_terceros_table, terceros_cols
+            )
+            if terceros_active_col:
+                sql_terceros_query += f" WHERE {terceros_active_col} = ?"
+                terceros_params = [terceros_active_value]
+        sql_terceros_df = _fetch_sql_data(
+            sql_config, sql_terceros_query, params=terceros_params
+        )
+
+        sql_precios_query = args.sql_precios_query
+        precios_cols = normalize_sql_list(args.sql_precios_columns)
+        precios_active_col = args.sql_precios_active_column
+        if not sql_precios_query:
+            sql_precios_query = _build_sql_query_from_table(
+                args.sql_precios_table, precios_cols
+            )
+            if precios_active_col:
+                sql_precios_query += f" WHERE {precios_active_col} = 'S'"
+        sql_precios_df = _fetch_sql_data(sql_config, sql_precios_query)
+
+        sql_movimientos_query = args.sql_movimientos_query
+        movimientos_cols = normalize_sql_list(args.sql_movimientos_columns)
+        movimientos_date_col = args.sql_movimientos_date_column
+        movimientos_tip_col = args.sql_movimientos_tip_column
+        movimientos_tip_values = normalize_sql_list(args.sql_movimientos_tip_values)
+        params: list[object] | None = None
+        start_date = report_date.strftime("%Y-%m-%d")
+        end_date = (report_date + timedelta(days=1)).strftime("%Y-%m-%d")
+        if sql_movimientos_query:
+            if "{" in sql_movimientos_query:
+                sql_movimientos_query = sql_movimientos_query.format(
+                    date=start_date,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+        else:
+            sql_movimientos_query = _build_sql_query_from_table(
+                args.sql_movimientos_table, movimientos_cols
+            )
+            filters = []
+            params = []
+            if movimientos_date_col:
+                filters.append(f"{movimientos_date_col} >= ? AND {movimientos_date_col} < ?")
+                params.extend([start_date, end_date])
+            if movimientos_tip_col and movimientos_tip_values:
+                placeholders = ", ".join(["?"] * len(movimientos_tip_values))
+                filters.append(f"{movimientos_tip_col} IN ({placeholders})")
+                params.extend(movimientos_tip_values)
+            if filters:
+                sql_movimientos_query += " WHERE " + " AND ".join(filters)
+        sql_movimientos_df = _fetch_sql_data(
+            sql_config, sql_movimientos_query, params=params
+        )
 
     use_latest = args.use_latest_sources
 
@@ -2252,37 +3093,52 @@ def main():
     # ---------------------------------------------------------------------
 
     if not args.skip_vendedores:
-        resumen, archivo = _update_vendedores_sheet(
-            wb,
-            report_date=report_date,
-            vendedores_file=args.vendedores_file,
-            vendedores_dir=args.vendedores_dir,
-            vendedores_prefix=args.vendedores_prefix,
-            use_latest=use_latest,
-        )
+        if use_sql:
+            resumen, archivo = _update_vendedores_sheet_from_df(
+                wb, sql_movimientos_df or pd.DataFrame()
+            )
+        else:
+            resumen, archivo = _update_vendedores_sheet(
+                wb,
+                report_date=report_date,
+                vendedores_file=args.vendedores_file,
+                vendedores_dir=args.vendedores_dir,
+                vendedores_prefix=args.vendedores_prefix,
+                use_latest=use_latest,
+            )
         if archivo:
             vendedores_summary = resumen
             vendedores_file = archivo
 
     if not args.skip_precios:
-        resumen, archivo = _update_precios_sheet(
-            wb,
-            report_date=report_date,
-            precios_file=args.precios_file,
-            precios_dir=args.precios_dir,
-            precios_prefix=args.precios_prefix,
-            use_latest=use_latest,
-        )
+        if use_sql:
+            resumen, archivo = _update_precios_sheet_from_df(
+                wb, sql_precios_df or pd.DataFrame()
+            )
+        else:
+            resumen, archivo = _update_precios_sheet(
+                wb,
+                report_date=report_date,
+                precios_file=args.precios_file,
+                precios_dir=args.precios_dir,
+                precios_prefix=args.precios_prefix,
+                use_latest=use_latest,
+            )
         if archivo:
             precios_summary = resumen
             precios_file = archivo
     if not args.skip_terceros:
-        resumen, archivo = _update_terceros_sheet(
-            wb,
-            terceros_file=args.terceros_file,
-            terceros_dir=args.terceros_dir,
-            terceros_name=args.terceros_name,
-        )
+        if use_sql:
+            resumen, archivo = _update_terceros_sheet_from_df(
+                wb, sql_terceros_df or pd.DataFrame()
+            )
+        else:
+            resumen, archivo = _update_terceros_sheet(
+                wb,
+                terceros_file=args.terceros_file,
+                terceros_dir=args.terceros_dir,
+                terceros_name=args.terceros_name,
+            )
         if archivo:
             terceros_summary = resumen
             terceros_file = archivo
@@ -2323,62 +3179,44 @@ def main():
     # Importar EXCZ más reciente
     n_rows = 0
     if not args.skip_import:
-        excz_dir = Path(args.exczdir)
-        if not excz_dir.exists():
-            print(f"ERROR: No existe la carpeta de EXCZ: {excz_dir}")
-            raise SystemExit(4)
+        excz_label = None
+        if use_sql:
+            if sql_movimientos_df is None:
+                print("ERROR: No se pudieron cargar movimientos desde SQL.")
+                raise SystemExit(33)
+            sub = _prepare_excz_from_dataframe(sql_movimientos_df)
+            excz_label = "SQL"
+        else:
+            excz_dir = Path(args.exczdir)
+            if not excz_dir.exists():
+                print(f"ERROR: No existe la carpeta de EXCZ: {excz_dir}")
+                raise SystemExit(4)
 
-        latest, matches = _pick_excz_for_date(
-            excz_dir,
-            args.excz_prefix,
-            report_date,
-            use_latest=use_latest,
-        )
-        if not latest:
-            available = ", ".join(meta.path.name for meta in matches) or "sin archivos"
-            if use_latest:
-                print(
-                    "ERROR: No se encontró un EXCZ principal más reciente "
-                    f"con prefijo {args.excz_prefix} en {excz_dir}. "
-                    f"Disponibles: {available}"
-                )
-            else:
-                print(
-                    "ERROR: No se encontró EXCZ principal "
-                    f"con prefijo {args.excz_prefix} y fecha {report_date:%Y-%m-%d} en {excz_dir}. "
-                    f"Disponibles: {available}"
-                )
-            raise SystemExit(5)
-
-        df = _read_excz_df(latest)
-        m = _guess_map(df.columns)
-
-        cols_needed = {k: v for k, v in m.items() if v is not None}
-        sub = df[list(cols_needed.values())].copy()
-        sub.rename(columns={v: k for k, v in cols_needed.items()}, inplace=True)
-
-        # Derivar NIT desde "cliente_combo" si hace falta
-        if "nit" not in sub.columns and "cliente_combo" in sub.columns:
-            sub["nit"] = (
-                sub["cliente_combo"].astype(str).str.extract(r"^(\d+)")[0]
+            latest, matches = _pick_excz_for_date(
+                excz_dir,
+                args.excz_prefix,
+                report_date,
+                use_latest=use_latest,
             )
+            if not latest:
+                available = ", ".join(meta.path.name for meta in matches) or "sin archivos"
+                if use_latest:
+                    print(
+                        "ERROR: No se encontró un EXCZ principal más reciente "
+                        f"con prefijo {args.excz_prefix} en {excz_dir}. "
+                        f"Disponibles: {available}"
+                    )
+                else:
+                    print(
+                        "ERROR: No se encontró EXCZ principal "
+                        f"con prefijo {args.excz_prefix} y fecha {report_date:%Y-%m-%d} en {excz_dir}. "
+                        f"Disponibles: {available}"
+                    )
+                raise SystemExit(5)
 
-        # Convertir datos numéricos y ordenar por rentabilidad
-        for col in ["cantidad", "ventas", "costos"]:
-            if col in sub.columns:
-                sub[col] = _parse_numeric_series(sub[col])
-        for col in ["renta", "utili"]:
-            if col in sub.columns:
-                sub[col] = _parse_numeric_series(sub[col])
-        if "renta" in sub.columns:
-            sub = sub.sort_values(by="renta", ascending=True, na_position="last")
-
-        # Eliminar filas de totales o cabeceras repetidas
-        if "descripcion" in sub.columns:
-            sub = sub[~sub["descripcion"].astype(str).str.contains("total", case=False, na=False)]
-            sub = sub[sub["descripcion"].notna()]
-
-        sub = _drop_full_rentability_rows(sub)
+            df = _read_excz_df(latest)
+            sub = _prepare_excz_from_dataframe(df)
+            excz_label = _clean_cell_value(latest.stem)
 
         lineas_summary = _update_lineas_sheet(wb, sub.copy(), accounting_fmt, border)
 
@@ -2418,34 +3256,44 @@ def main():
             if col_utili and "utili" in sub.columns:
                 c = ws.cell(i, col_utili, getattr(row, "utili"))
                 cells.append(c)
-            if col_excz:
-                cells.append(ws.cell(i, col_excz, _clean_cell_value(latest.stem)))
+            if col_excz and excz_label:
+                cells.append(ws.cell(i, col_excz, excz_label))
             for c in cells:
                 c.border = border
 
         n_rows = len(sub)
 
     if not args.skip_import and not args.skip_ccosto:
-        ccosto_summary, ccosto_file = _update_ccosto_sheets(
-            wb,
-            args.exczdir,
-            args.ccosto_excz_prefix,
-            accounting_fmt,
-            border,
-            report_date,
-            use_latest=use_latest,
-        )
+        if use_sql:
+            ccosto_summary, ccosto_file = _update_ccosto_sheets_from_df(
+                wb, sql_movimientos_df or pd.DataFrame(), accounting_fmt, border
+            )
+        else:
+            ccosto_summary, ccosto_file = _update_ccosto_sheets(
+                wb,
+                args.exczdir,
+                args.ccosto_excz_prefix,
+                accounting_fmt,
+                border,
+                report_date,
+                use_latest=use_latest,
+            )
 
     if not args.skip_import and not args.skip_cod:
-        cod_summary, cod_file = _update_cod_sheets(
-            wb,
-            args.exczdir,
-            args.cod_excz_prefix,
-            accounting_fmt,
-            border,
-            report_date,
-            use_latest=use_latest,
-        )
+        if use_sql:
+            cod_summary, cod_file = _update_cod_sheets_from_df(
+                wb, sql_movimientos_df or pd.DataFrame(), accounting_fmt, border
+            )
+        else:
+            cod_summary, cod_file = _update_cod_sheets(
+                wb,
+                args.exczdir,
+                args.cod_excz_prefix,
+                accounting_fmt,
+                border,
+                report_date,
+                use_latest=use_latest,
+            )
 
     # Aplicar fórmulas fijas
     vend_range = "A:B"   # VENDEDORES (NIT en A, COD_VENDEDOR en B)
@@ -2794,24 +3642,24 @@ def main():
     msg += f" | FECHA OBJETIVO: {report_date:%Y-%m-%d}"
     if ccosto_file:
         items = ", ".join(f"{k}={v}" for k, v in sorted(ccosto_summary.items())) or "sin datos"
-        msg += f" | CCOSTO ({ccosto_file.name}): {items}"
+        msg += f" | CCOSTO ({_source_label(ccosto_file)}): {items}"
     if cod_file:
         items = ", ".join(f"{k}={v}" for k, v in sorted(cod_summary.items())) or "sin datos"
-        msg += f" | COD ({cod_file.name}): {items}"
+        msg += f" | COD ({_source_label(cod_file)}): {items}"
     if vendedores_file:
         items = ", ".join(
             f"{k}={v}" for k, v in sorted(vendedores_summary.items())
         ) or "sin datos"
-        msg += f" | VENDEDORES ({vendedores_file.name}): {items}"
+        msg += f" | VENDEDORES ({_source_label(vendedores_file)}): {items}"
     if lineas_summary:
         items = ", ".join(f"{k}={v}" for k, v in sorted(lineas_summary.items())) or "sin datos"
         msg += f" | LINEAS: {items}"
     if precios_file:
         items = ", ".join(f"{k}={v}" for k, v in sorted(precios_summary.items())) or "sin datos"
-        msg += f" | PRECIOS ({precios_file.name}): {items}"
+        msg += f" | PRECIOS ({_source_label(precios_file)}): {items}"
     if terceros_file:
         items = ", ".join(f"{k}={v}" for k, v in sorted(terceros_summary.items())) or "sin datos"
-        msg += f" | TERCEROS ({terceros_file.name}): {items}"
+        msg += f" | TERCEROS ({_source_label(terceros_file)}): {items}"
     print(msg)
 
 if __name__ == "__main__":

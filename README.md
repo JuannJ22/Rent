@@ -30,6 +30,45 @@ de productos se guardan en la carpeta `Productos`.
 - Origen de datos: busca en `D:\SIIWI01\LISTADOS` el archivo `EXCZ***YYYYMMDDHHMMSS` cuya fecha coincida con la solicitada (por defecto el día anterior).
 - Acciones: importa el EXCZ en la Hoja 1, aplica las fórmulas necesarias y actualiza las hojas `CCOSTO` y `COD` con la misma fecha.
 
+### 2.1 Fuente SQL Server (opcional)
+
+Si deseas alimentar el informe directamente desde SQL Server (sin usar Excel/EXCZ), `hojas/hoja01_loader.py` puede conectarse a la base de datos y poblar:
+
+- Hoja principal (movimientos / facturación).
+- Hojas `PRECIOS`, `TERCEROS`, `VENDEDORES`.
+- Hojas `CCOSTO` y `COD` (usando el mismo conjunto de movimientos).
+
+Configura primero las credenciales y conexión:
+
+```
+SQL_SERVER=MI_SERVIDOR
+SQL_DATABASE=MI_BD
+SQL_USER=MI_USUARIO
+SQL_PASSWORD=MI_CLAVE
+SQL_DRIVER=ODBC Driver 17 for SQL Server
+```
+
+También puedes activar autenticación integrada con `SQL_TRUSTED=1`.
+
+Opcionalmente, define tablas/consultas específicas:
+
+- `SQL_TERCEROS_TABLE` (por defecto `dbo.TABLA_IDENTIFICACION_CLIENTES`)
+- `SQL_TERCEROS_ACTIVE_COLUMN` (por defecto `EstadoNit`, se filtra por `A`)
+- `SQL_TERCEROS_ACTIVE_VALUE` (por defecto `A`)
+- `SQL_PRECIOS_TABLE` (por defecto `dbo.TABLA_MAESTRO_INVENTARIOS`)
+- `SQL_PRECIOS_ACTIVE_COLUMN` (por defecto `ActivoInv`, se filtra por `S`)
+- `SQL_MOVIMIENTOS_TABLE` (por defecto `dbo.TABLA_MOVIMIENTO_POR_COMPROBANTE`)
+- `SQL_TERCEROS_QUERY`, `SQL_PRECIOS_QUERY`, `SQL_MOVIMIENTOS_QUERY` (consultas personalizadas)
+- `SQL_MOVIMIENTOS_DATE_COLUMN` (por defecto `FactMov`)
+- `SQL_MOVIMIENTOS_TIP_COLUMN` (por defecto `TipMov`)
+- `SQL_MOVIMIENTOS_TIP_VALUES` (por defecto `F,J`)
+
+Ejemplo de uso:
+
+```
+python hojas/hoja01_loader.py --excel "C:\\Rentabilidad\\Informes\\Marzo\\Marzo 15.xlsx" --sql
+```
+
 ### 3. Scripts `.bat`
 
 - `solo_clonar.bat`: crea el informe a partir de la plantilla.
