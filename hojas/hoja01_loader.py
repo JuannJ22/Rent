@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import numbers
 import os
 import re
@@ -2703,16 +2704,157 @@ def _update_precios_sheet(
     return summary, path
 
 
+def _load_sql_config_file(path: str | None) -> dict[str, object]:
+    if not path:
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except FileNotFoundError:
+        print(f"ERROR: No se encontró el archivo de configuración SQL: {path}")
+        raise SystemExit(33)
+    except json.JSONDecodeError as exc:
+        print(f"ERROR: JSON inválido en {path}: {exc}")
+        raise SystemExit(34)
+    if not isinstance(data, dict):
+        print(f"ERROR: El archivo {path} debe contener un objeto JSON.")
+        raise SystemExit(35)
+    return data
+
+
+def _get_sql_value(
+    arg_value: object | None,
+    config: dict[str, object],
+    *keys: str,
+    fallback: object | None = None,
+    use_env: bool = True,
+) -> object | None:
+    if arg_value is not None:
+        return arg_value
+    for key in keys:
+        if key in config:
+            return config[key]
+    if use_env:
+        env_key = keys[0] if keys else None
+        if env_key:
+            env_value = os.environ.get(env_key)
+            if env_value is not None:
+                return env_value
+    return fallback
+
+
+def _normalize_sql_flag_value(value: object | None) -> bool | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, numbers.Number):
+        return bool(value)
+    if isinstance(value, str):
+        return normalize_sql_flag(value)
+    return None
+
+
+def _normalize_sql_timeout(value: object | None) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, numbers.Number):
+        return int(value)
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
+
+
+def _arg_provided(flag: str) -> bool:
+    return flag in sys.argv
+
+
+def _apply_sql_config_overrides(args) -> None:
+    config = args.sql_config_data
+    if not config:
+        return
+    if not _arg_provided("--sql-server"):
+        args.sql_server = _get_sql_value(
+            None, config, "SQL_SERVER", "sql_server", "server", use_env=False
+        )
+    if not _arg_provided("--sql-database"):
+        args.sql_database = _get_sql_value(
+            None, config, "SQL_DATABASE", "sql_database", "database", use_env=False
+        )
+    if not _arg_provided("--sql-user"):
+        args.sql_user = _get_sql_value(
+            None, config, "SQL_USER", "sql_user", "user", use_env=False
+        )
+    if not _arg_provided("--sql-password"):
+        args.sql_password = _get_sql_value(
+            None, config, "SQL_PASSWORD", "sql_password", "password", use_env=False
+        )
+    if not _arg_provided("--sql-driver"):
+        args.sql_driver = _get_sql_value(
+            None, config, "SQL_DRIVER", "sql_driver", "driver", use_env=False
+        )
+    if not _arg_provided("--sql-trusted"):
+        trusted = _normalize_sql_flag_value(
+            _get_sql_value(
+                None, config, "SQL_TRUSTED", "sql_trusted", "trusted", use_env=False
+            )
+        )
+        if trusted is not None:
+            args.sql_trusted = trusted
+
+
 def _build_sql_config(args) -> SqlServerConfig:
-    server = args.sql_server or os.environ.get("SQL_SERVER")
-    database = args.sql_database or os.environ.get("SQL_DATABASE")
-    user = args.sql_user or os.environ.get("SQL_USER")
-    password = args.sql_password or os.environ.get("SQL_PASSWORD")
-    driver = args.sql_driver or DEFAULT_SQL_DRIVER
-    trusted = args.sql_trusted or normalize_sql_flag(os.environ.get("SQL_TRUSTED"))
-    encrypt = normalize_sql_flag(os.environ.get("SQL_ENCRYPT"))
-    trust_cert = normalize_sql_flag(os.environ.get("SQL_TRUST_CERT", "1"))
-    timeout = int(os.environ.get("SQL_TIMEOUT", "30"))
+    server = _get_sql_value(
+        args.sql_server, args.sql_config_data, "SQL_SERVER", "sql_server", "server"
+    )
+    database = _get_sql_value(
+        args.sql_database, args.sql_config_data, "SQL_DATABASE", "sql_database", "database"
+    )
+    user = _get_sql_value(
+        args.sql_user, args.sql_config_data, "SQL_USER", "sql_user", "user"
+    )
+    password = _get_sql_value(
+        args.sql_password,
+        args.sql_config_data,
+        "SQL_PASSWORD",
+        "sql_password",
+        "password",
+    )
+    driver = _get_sql_value(
+        args.sql_driver,
+        args.sql_config_data,
+        "SQL_DRIVER",
+        "sql_driver",
+        "driver",
+        fallback=DEFAULT_SQL_DRIVER,
+    )
+    trusted = args.sql_trusted or _normalize_sql_flag_value(
+        _get_sql_value(
+            None, args.sql_config_data, "SQL_TRUSTED", "sql_trusted", "trusted"
+        )
+    ) or normalize_sql_flag(os.environ.get("SQL_TRUSTED"))
+    encrypt = _normalize_sql_flag_value(
+        _get_sql_value(None, args.sql_config_data, "SQL_ENCRYPT", "sql_encrypt", "encrypt")
+    ) or normalize_sql_flag(os.environ.get("SQL_ENCRYPT"))
+    trust_cert = _normalize_sql_flag_value(
+        _get_sql_value(
+            None,
+            args.sql_config_data,
+            "SQL_TRUST_CERT",
+            "sql_trust_cert",
+            "trust_cert",
+            "trust_server_certificate",
+        )
+    )
+    if trust_cert is None:
+        trust_cert = normalize_sql_flag(os.environ.get("SQL_TRUST_CERT", "1"))
+    timeout = _normalize_sql_timeout(
+        _get_sql_value(
+            None, args.sql_config_data, "SQL_TIMEOUT", "sql_timeout", "timeout"
+        )
+    )
+    if timeout is None:
+        timeout = int(os.environ.get("SQL_TIMEOUT", "30"))
 
     if not server or not database:
         print("ERROR: Debes configurar SQL_SERVER y SQL_DATABASE para usar SQL.")
@@ -2872,6 +3014,11 @@ def main():
         action="store_true",
         help="Forzar el uso de EXCZ/Excel aunque SQL esté habilitado.",
     )
+    p.add_argument(
+        "--sql-config",
+        default=os.environ.get("SQL_CONFIG"),
+        help="Ruta a un archivo JSON con la configuración de SQL Server.",
+    )
     p.add_argument("--sql-server", default=os.environ.get("SQL_SERVER"))
     p.add_argument("--sql-database", default=os.environ.get("SQL_DATABASE"))
     p.add_argument("--sql-user", default=os.environ.get("SQL_USER"))
@@ -2958,12 +3105,24 @@ def main():
         help="Tipos de movimiento a incluir (separados por coma, por defecto F,J).",
     )
     args = p.parse_args()
+    args.sql_config_data = _load_sql_config_file(args.sql_config)
+    _apply_sql_config_overrides(args)
 
     resolver = DateResolver(YesterdayStrategy())
     report_date = resolver.resolve(args.fecha)
 
     use_sql = (not args.no_sql) and (
-        args.sql or normalize_sql_flag(os.environ.get("SQL_ENABLED"))
+        args.sql
+        or normalize_sql_flag(os.environ.get("SQL_ENABLED"))
+        or _normalize_sql_flag_value(
+            _get_sql_value(
+                None,
+                args.sql_config_data,
+                "SQL_ENABLED",
+                "sql_enabled",
+                use_env=False,
+            )
+        )
     )
     sql_config = None
     sql_movimientos_df = None
