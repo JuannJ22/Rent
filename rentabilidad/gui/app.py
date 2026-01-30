@@ -56,6 +56,7 @@ class UIState:
     status_button: Any = None
     status_path: Path | None = None
     status_kind: str = "idle"
+    run_has_error: bool = False
     latest_report: LatestResourceComponents = field(default_factory=LatestResourceComponents)
     latest_products: LatestResourceComponents = field(default_factory=LatestResourceComponents)
     progress: Any = None
@@ -173,6 +174,9 @@ class LogManager:
         if self._state.empty is None or self._state.log is None:
             return
 
+        if kind == "error":
+            self._state.run_has_error = True
+
         self._state.empty.classes(add="hidden")
         self._state.log.classes(remove="hidden")
 
@@ -213,6 +217,7 @@ class LogManager:
             self._state.empty.classes(remove="hidden")
         if self._state.last_update is not None:
             self._state.last_update.text = "Última actualización: —"
+        self._state.run_has_error = False
 
 
 class ResourceManager:
@@ -555,6 +560,7 @@ def update_status(
     previous_kind = state.status_kind
     status_manager.update(kind, text, open_path)
     if kind == "running":
+        state.run_has_error = False
         _show_progress()
     else:
         _hide_progress()
@@ -564,7 +570,7 @@ def update_status(
     if kind in {"success", "error"} and previous_kind != kind:
         if kind == "success":
             agregar_log("El proceso finalizó correctamente.", "success")
-        else:
+        elif not state.run_has_error:
             agregar_log("El proceso finalizó con errores.", "error")
 
 
@@ -1318,13 +1324,7 @@ def build_ui() -> None:
                                     open_path=resultado.ruta_salida,
                                 )
                             else:
-                                mensaje = resultado.mensaje or (
-                                    "No se pudo generar el informe automático."
-                                )
-                                agregar_log(
-                                    f"Error al generar el informe automático: {mensaje}",
-                                    "error",
-                                )
+                                state.run_has_error = True
                                 update_status("error", "Revisa los registros")
 
                         with ui.row().classes("flex-wrap gap-3 w-full"):
@@ -1418,13 +1418,7 @@ def build_ui() -> None:
                                     open_path=resultado.ruta_salida,
                                 )
                             else:
-                                mensaje = resultado.mensaje or (
-                                    "No se pudo generar el informe manual."
-                                )
-                                agregar_log(
-                                    f"Error al generar el informe manual: {mensaje}",
-                                    "error",
-                                )
+                                state.run_has_error = True
                                 update_status("error", "Revisa los registros")
 
                         with ui.row().classes("flex-wrap gap-3 w-full"):
@@ -1490,13 +1484,7 @@ def build_ui() -> None:
                             if resultado.ok:
                                 update_status("success", "Proceso completado")
                             else:
-                                mensaje = resultado.mensaje or (
-                                    "No se pudo generar el listado de productos."
-                                )
-                                agregar_log(
-                                    f"Error al generar el listado de productos: {mensaje}",
-                                    "error",
-                                )
+                                state.run_has_error = True
                                 update_status("error", "Revisa los registros")
 
                         btn_productos = ui.button(
@@ -1568,11 +1556,7 @@ def build_ui() -> None:
                                     open_path=resultado.ruta_salida,
                                 )
                             else:
-                                agregar_log(
-                                    resultado.mensaje
-                                    or "No se pudo generar el informe de códigos incorrectos.",
-                                    "error",
-                                )
+                                state.run_has_error = True
                                 update_status("error", "Revisa los registros")
 
                         async def ejecutar_cobros() -> None:
@@ -1608,11 +1592,7 @@ def build_ui() -> None:
                                     open_path=resultado.ruta_salida,
                                 )
                             else:
-                                agregar_log(
-                                    resultado.mensaje
-                                    or "No se pudo generar el consolidado de malos cobros.",
-                                    "error",
-                                )
+                                state.run_has_error = True
                                 update_status("error", "Revisa los registros")
 
                         with ui.row().classes("gap-3 flex-wrap w-full"):
