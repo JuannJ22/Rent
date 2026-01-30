@@ -4,6 +4,7 @@ from datetime import datetime
 from io import StringIO
 from pathlib import Path
 import contextlib
+import json
 import sys
 
 from excel_base.clone_from_template import TemplateCloneService
@@ -94,6 +95,26 @@ def _emit_loader_output(output: str, bus) -> tuple[str | None, str | None]:
     return last_info, last_error
 
 
+def _ensure_sql_config_template() -> Path:
+    template_path = settings.context.base_dir / "sql_config.json"
+    if template_path.exists():
+        return template_path
+
+    template = {
+        "SQL_SERVER": "",
+        "SQL_DATABASE": "",
+        "SQL_USER": "",
+        "SQL_PASSWORD": "",
+        "SQL_DRIVER": "ODBC Driver 17 for SQL Server",
+        "SQL_TRUSTED": False,
+    }
+    template_path.write_text(
+        json.dumps(template, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return template_path
+
+
 def run(req: GenerarInformeRequest, bus) -> GenerarInformeResponse:
     fecha_texto = req.fecha or ayer_str()
     objetivo = _parse_fecha(fecha_texto)
@@ -103,8 +124,10 @@ def run(req: GenerarInformeRequest, bus) -> GenerarInformeResponse:
         return GenerarInformeResponse(ok=False, mensaje=mensaje)
 
     if req.usar_sql is True and not settings.sql_config:
+        template_path = _ensure_sql_config_template()
         mensaje = (
-            "No se encontró sql_config.json. Configura SQL_CONFIG o crea el archivo "
+            "No se encontró sql_config.json. Se creó una plantilla en "
+            f"{template_path}. Configura SQL_CONFIG o completa el archivo "
             "con SQL_SERVER y SQL_DATABASE."
         )
         bus.publish("error", mensaje)
