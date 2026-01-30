@@ -64,8 +64,33 @@ class Settings:
 
         self._product_config = self._build_product_config()
         self._monthly_reports_config = self._build_monthly_reports_config()
+        self.sql_config: Path | None = self._resolve_sql_config()
         self.manual_batch_script = self._resolve_manual_batch_script()
         self.productos_batch_script = self._resolve_productos_batch_script()
+
+    def _resolve_sql_config(self) -> Path | None:
+        project_root = Path(__file__).resolve().parent.parent
+
+        config_env = os.environ.get("SQL_CONFIG")
+        if config_env:
+            candidate = Path(config_env)
+            if not candidate.is_absolute():
+                candidate_base = self.context.base_dir / candidate
+                if candidate_base.exists():
+                    return candidate_base
+                candidate = project_root / candidate
+            return candidate
+
+        default_name = Path("sql_config.json")
+        candidate_base = self.context.base_dir / default_name
+        if candidate_base.exists():
+            return candidate_base
+
+        candidate_root = project_root / default_name
+        if candidate_root.exists():
+            return candidate_root
+
+        return None
 
     def _resolve_manual_batch_script(self) -> Path | None:
         project_root = Path(__file__).resolve().parent.parent
