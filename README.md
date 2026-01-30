@@ -50,6 +50,20 @@ SQL_DRIVER=ODBC Driver 17 for SQL Server
 
 También puedes activar autenticación integrada con `SQL_TRUSTED=1`.
 
+Si prefieres un archivo de configuración, crea un JSON y pásalo con
+`--sql-config` (o define `SQL_CONFIG` con la ruta):
+
+```json
+{
+  "SQL_SERVER": "192.168.5.10,14330",
+  "SQL_DATABASE": "SiigoBI",
+  "SQL_USER": "sa",
+  "SQL_PASSWORD": "MI_CLAVE",
+  "SQL_DRIVER": "ODBC Driver 17 for SQL Server",
+  "SQL_TRUSTED": false
+}
+```
+
 Opcionalmente, define tablas/consultas específicas:
 
 - `SQL_TERCEROS_TABLE` (por defecto `dbo.TABLA_IDENTIFICACION_CLIENTES`)
