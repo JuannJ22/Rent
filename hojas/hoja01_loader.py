@@ -2722,6 +2722,10 @@ def _load_sql_config_file(path: str | None) -> dict[str, object]:
     return data
 
 
+def _is_blank_value(value: object | None) -> bool:
+    return isinstance(value, str) and not value.strip()
+
+
 def _get_sql_value(
     arg_value: object | None,
     config: dict[str, object],
@@ -2729,16 +2733,18 @@ def _get_sql_value(
     fallback: object | None = None,
     use_env: bool = True,
 ) -> object | None:
-    if arg_value is not None:
+    if arg_value is not None and not _is_blank_value(arg_value):
         return arg_value
     for key in keys:
         if key in config:
-            return config[key]
+            config_value = config[key]
+            if config_value is not None and not _is_blank_value(config_value):
+                return config_value
     if use_env:
         env_key = keys[0] if keys else None
         if env_key:
             env_value = os.environ.get(env_key)
-            if env_value is not None:
+            if env_value is not None and not _is_blank_value(env_value):
                 return env_value
     return fallback
 
