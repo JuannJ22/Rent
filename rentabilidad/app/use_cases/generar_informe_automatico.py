@@ -102,6 +102,14 @@ def run(req: GenerarInformeRequest, bus) -> GenerarInformeResponse:
         bus.publish("error", mensaje)
         return GenerarInformeResponse(ok=False, mensaje=mensaje)
 
+    if req.usar_sql is True and not settings.sql_config:
+        mensaje = (
+            "No se encontró sql_config.json. Configura SQL_CONFIG o crea el archivo "
+            "con SQL_SERVER y SQL_DATABASE."
+        )
+        bus.publish("error", mensaje)
+        return GenerarInformeResponse(ok=False, mensaje=mensaje)
+
     plantilla = Path(req.ruta_plantilla)
     if not plantilla.exists():
         mensaje = f"No existe la plantilla indicada: {plantilla}"
