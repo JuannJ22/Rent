@@ -55,6 +55,8 @@ def _run_rentv1_loader(
         args.append("--sql")
     elif usar_sql is False:
         args.append("--no-sql")
+    if usar_sql is True and settings.sql_config:
+        args.extend(["--sql-config", str(settings.sql_config)])
     if settings.plantilla_hoja:
         args.extend(["--hoja", settings.plantilla_hoja])
 
