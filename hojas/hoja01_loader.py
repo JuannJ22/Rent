@@ -2887,6 +2887,14 @@ def _build_sql_query_from_table(table: str, columns: list[str]) -> str:
     return f"SELECT {cols} FROM {table}"
 
 
+def _sql_date_expression(column: str | None) -> str | None:
+    if not column:
+        return None
+    if any(token in column for token in ("(", ")", " ")):
+        return column
+    return f"TRY_CONVERT(date, {column})"
+
+
 def _fetch_sql_data(config: SqlServerConfig, query: str, params=None) -> pd.DataFrame:
     return fetch_dataframe(config, query, params=params)
 
@@ -3189,12 +3197,15 @@ def main():
             )
             filters = []
             params = []
-            if movimientos_date_col:
-                filters.append(f"{movimientos_date_col} >= ? AND {movimientos_date_col} < ?")
+            date_expr = _sql_date_expression(movimientos_date_col)
+            if date_expr:
+                filters.append(f"{date_expr} >= ? AND {date_expr} < ?")
                 params.extend([start_date, end_date])
             if movimientos_tip_col and movimientos_tip_values:
                 placeholders = ", ".join(["?"] * len(movimientos_tip_values))
-                filters.append(f"{movimientos_tip_col} IN ({placeholders})")
+                filters.append(
+                    f"CAST({movimientos_tip_col} AS NVARCHAR(50)) IN ({placeholders})"
+                )
                 params.extend(movimientos_tip_values)
             if filters:
                 sql_movimientos_query += " WHERE " + " AND ".join(filters)
