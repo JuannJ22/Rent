@@ -1116,12 +1116,12 @@ def _update_vendedores_sheet_from_df(wb, df: pd.DataFrame):
     if sheet_name not in wb.sheetnames:
         return {}, None
 
-    mapping = _guess_map(df.columns)
+    mapping = _guess_movimientos_map(df.columns)
     nit_col = mapping.get("nit")
     vendor_col = mapping.get("vendedor") or mapping.get("centro_costo")
     if not nit_col or not vendor_col:
         print(
-            "ERROR: El resultado SQL de movimientos no contiene columnas de NIT y vendedor."
+            "ERROR: El resultado SQL de movimientos no contiene columnas NitMov y VendedorMov."
         )
         raise SystemExit(21)
 
@@ -1507,6 +1507,16 @@ def _guess_map(df_cols):
             contains=("utili", "utilid", "util"),
         ),
     }
+
+
+def _guess_movimientos_map(df_cols):
+    """Mapea columnas de movimientos usando nombres definitivos de SQL."""
+
+    cols = {_norm(c): c for c in df_cols}
+    mapping = _guess_map(df_cols)
+    mapping["nit"] = cols.get(_norm("NitMov"))
+    mapping["vendedor"] = cols.get(_norm("VendedorMov"))
+    return mapping
 
 
 def _normalize_spaces(value):
@@ -1906,7 +1916,7 @@ def _update_ccosto_sheets_from_df(
     if df.empty:
         df = pd.DataFrame()
 
-    mapping = _guess_map(df.columns)
+    mapping = _guess_movimientos_map(df.columns)
     centro_col = mapping.get("centro_costo")
     if not centro_col:
         print("ERROR: Los datos SQL no contienen columna de Centro de Costo o Zona")
@@ -2504,7 +2514,7 @@ def _update_cod_sheets_from_df(
     if df.empty:
         df = pd.DataFrame()
 
-    mapping = _guess_map(df.columns)
+    mapping = _guess_movimientos_map(df.columns)
     vendedor_col = mapping.get("vendedor") or mapping.get("centro_costo")
     if not vendedor_col:
         print("ERROR: Los datos SQL no contienen columna de Vendedor")
@@ -2935,8 +2945,12 @@ def _fetch_sql_data(config: SqlServerConfig, query: str, params=None) -> pd.Data
     return fetch_dataframe(config, query, params=params)
 
 
-def _prepare_excz_from_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    m = _guess_map(df.columns)
+def _prepare_excz_from_dataframe(
+    df: pd.DataFrame,
+    *,
+    movimientos: bool = False,
+) -> pd.DataFrame:
+    m = _guess_movimientos_map(df.columns) if movimientos else _guess_map(df.columns)
 
     cols_needed = {k: v for k, v in m.items() if v is not None}
     if not cols_needed:
@@ -3403,7 +3417,7 @@ def main():
             if sql_movimientos_df is None:
                 print("ERROR: No se pudieron cargar movimientos desde SQL.")
                 raise SystemExit(33)
-            sub = _prepare_excz_from_dataframe(sql_movimientos_df)
+            sub = _prepare_excz_from_dataframe(sql_movimientos_df, movimientos=True)
             excz_label = "SQL"
         else:
             excz_dir = Path(args.exczdir)
