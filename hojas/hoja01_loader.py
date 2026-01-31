@@ -1237,6 +1237,7 @@ def _guess_sql_terceros_columns(df_cols):
 
     return {
         "nit": pick(
+            "nitnit",
             "nit",
             "identificacion",
             "identificación",
@@ -1244,6 +1245,7 @@ def _guess_sql_terceros_columns(df_cols):
             contains=("nit", "ident", "doc"),
         ),
         "vendedor": pick(
+            "vendedornit",
             "vendedor",
             "cod vendedor",
             "codigo vendedor",
@@ -1253,6 +1255,7 @@ def _guess_sql_terceros_columns(df_cols):
             contains=("vendedor", "vend", "codvend"),
         ),
         "lista": pick(
+            "precionit",
             "lista",
             "lista precio",
             "lista de precio",
@@ -1441,11 +1444,7 @@ def _guess_map(df_cols):
             "centro de costos",
             "punto de venta",
             "pto de venta",
-            "punto",
-
-            "centro",
-            "zona"
-
+            "zona",
         ),
         "vendedor": pick(
             "cod vendedor",
@@ -1514,6 +1513,19 @@ def _guess_movimientos_map(df_cols):
 
     cols = {_norm(c): c for c in df_cols}
     mapping = _guess_map(df_cols)
+    exact_map = {
+        "centro_costo": ("CentroMov", "ZonaMov"),
+        "descripcion": ("DescrMov",),
+        "cantidad": ("CantidadMov",),
+        "ventas": ("ValorMov",),
+        "costos": ("BaseMov",),
+    }
+    for key, candidates in exact_map.items():
+        for name in candidates:
+            col = cols.get(_norm(name))
+            if col:
+                mapping[key] = col
+                break
     mapping["nit"] = cols.get(_norm("NitMov"))
     mapping["vendedor"] = cols.get(_norm("VendedorMov"))
     return mapping
@@ -1733,7 +1745,10 @@ def _update_ccosto_sheets(
     centro_col = mapping.get("centro_costo")
     if not centro_col:
 
-        print("ERROR: El EXCZ para CCOSTO no contiene columna de Centro de Costo o Zona")
+        print(
+            "ERROR: El EXCZ para CCOSTO no contiene columna de Centro de Costo, "
+            "CCOSTO, Zona o Punto de Venta"
+        )
 
         raise SystemExit(7)
 
@@ -1919,7 +1934,10 @@ def _update_ccosto_sheets_from_df(
     mapping = _guess_movimientos_map(df.columns)
     centro_col = mapping.get("centro_costo")
     if not centro_col:
-        print("ERROR: Los datos SQL no contienen columna de Centro de Costo o Zona")
+        print(
+            "ERROR: Los datos SQL no contienen columna de Centro de Costo, "
+            "CCOSTO, Zona o Punto de Venta"
+        )
         raise SystemExit(7)
 
     columns = {
