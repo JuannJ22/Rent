@@ -2896,7 +2896,7 @@ def _sql_date_expression(column: str | None) -> str | None:
         "CASE "
         f"WHEN ISNUMERIC({column}) = 1 THEN "
         f"TRY_CONVERT(date, CONVERT(varchar(8), {column}), 112) "
-        f"ELSE TRY_CONVERT(date, {column}) "
+        f"ELSE TRY_CONVERT(date, CONVERT(varchar(50), {column})) "
         "END"
     )
 
