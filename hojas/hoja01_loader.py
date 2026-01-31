@@ -123,6 +123,10 @@ def _format_currency_es(value: float) -> str:
     return formatted.replace(",", "_").replace(".", ",").replace("_", ".")
 
 
+def _ensure_dataframe(value: pd.DataFrame | None) -> pd.DataFrame:
+    return value if value is not None else pd.DataFrame()
+
+
 def _format_percent_es(value: float) -> str:
     """Devuelve ``value`` con dos decimales usando coma decimal."""
 
@@ -3284,7 +3288,7 @@ def main():
     if not args.skip_vendedores:
         if use_sql:
             resumen, archivo = _update_vendedores_sheet_from_df(
-                wb, sql_movimientos_df or pd.DataFrame()
+                wb, _ensure_dataframe(sql_movimientos_df)
             )
         else:
             resumen, archivo = _update_vendedores_sheet(
@@ -3302,7 +3306,7 @@ def main():
     if not args.skip_precios:
         if use_sql:
             resumen, archivo = _update_precios_sheet_from_df(
-                wb, sql_precios_df or pd.DataFrame()
+                wb, _ensure_dataframe(sql_precios_df)
             )
         else:
             resumen, archivo = _update_precios_sheet(
@@ -3319,7 +3323,7 @@ def main():
     if not args.skip_terceros:
         if use_sql:
             resumen, archivo = _update_terceros_sheet_from_df(
-                wb, sql_terceros_df or pd.DataFrame()
+                wb, _ensure_dataframe(sql_terceros_df)
             )
         else:
             resumen, archivo = _update_terceros_sheet(
@@ -3455,7 +3459,7 @@ def main():
     if not args.skip_import and not args.skip_ccosto:
         if use_sql:
             ccosto_summary, ccosto_file = _update_ccosto_sheets_from_df(
-                wb, sql_movimientos_df or pd.DataFrame(), accounting_fmt, border
+                wb, _ensure_dataframe(sql_movimientos_df), accounting_fmt, border
             )
         else:
             ccosto_summary, ccosto_file = _update_ccosto_sheets(
@@ -3471,7 +3475,7 @@ def main():
     if not args.skip_import and not args.skip_cod:
         if use_sql:
             cod_summary, cod_file = _update_cod_sheets_from_df(
-                wb, sql_movimientos_df or pd.DataFrame(), accounting_fmt, border
+                wb, _ensure_dataframe(sql_movimientos_df), accounting_fmt, border
             )
         else:
             cod_summary, cod_file = _update_cod_sheets(
