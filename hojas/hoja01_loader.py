@@ -2892,7 +2892,13 @@ def _sql_date_expression(column: str | None) -> str | None:
         return None
     if any(token in column for token in ("(", ")", " ")):
         return column
-    return f"TRY_CONVERT(date, {column})"
+    return (
+        "CASE "
+        f"WHEN ISNUMERIC({column}) = 1 THEN "
+        f"TRY_CONVERT(date, CONVERT(varchar(8), {column}), 112) "
+        f"ELSE TRY_CONVERT(date, {column}) "
+        "END"
+    )
 
 
 def _fetch_sql_data(config: SqlServerConfig, query: str, params=None) -> pd.DataFrame:
