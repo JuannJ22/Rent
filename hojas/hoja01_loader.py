@@ -3001,6 +3001,15 @@ def _build_sql_rentabilidad_query(view_name: str) -> str:
     )
 
 
+def _sort_sql_rentabilidad_df(dataframe: pd.DataFrame) -> pd.DataFrame:
+    """Ordena DataFrames SQL por columna de rentabilidad cuando esté disponible."""
+
+    for column_name in ("% RENTA.", "% RENTA", "RENTA", "RENTABILIDAD"):
+        if column_name in dataframe.columns:
+            return dataframe.sort_values(by=column_name, kind="stable").reset_index(drop=True)
+    return dataframe
+
+
 def _resolve_sheet_name(wb, preferred_name: str, fallback_names: tuple[str, ...] = ()) -> str | None:
     for candidate in (preferred_name, *fallback_names):
         if candidate in wb.sheetnames:
@@ -3320,20 +3329,20 @@ def main():
         sql_main_df = _fetch_sql_data(sql_config, sql_main_query, params=[date_param])
 
         for zone_view in sorted(set(SQL_ZONE_VIEW_BY_SHEET.values())):
-            query = _build_sql_rentabilidad_query(zone_view) + " ORDER BY [% RENTA.]"
-            sql_ccosto_data[zone_view] = _fetch_sql_data(
+            query = _build_sql_rentabilidad_query(zone_view)
+            sql_ccosto_data[zone_view] = _sort_sql_rentabilidad_df(_fetch_sql_data(
                 sql_config,
                 query,
                 params=[date_param],
-            )
+            ))
 
         for vendor_view in sorted(set(SQL_VENDOR_VIEW_BY_SHEET.values())):
-            query = _build_sql_rentabilidad_query(vendor_view) + " ORDER BY [% RENTA.]"
-            sql_vendor_data[vendor_view] = _fetch_sql_data(
+            query = _build_sql_rentabilidad_query(vendor_view)
+            sql_vendor_data[vendor_view] = _sort_sql_rentabilidad_df(_fetch_sql_data(
                 sql_config,
                 query,
                 params=[date_param],
-            )
+            ))
 
         sql_lineas_query = (
             "SELECT [LÍNEA  DESCRIPCIÓN], [GRUPO  DESCRIPCIÓN], "
