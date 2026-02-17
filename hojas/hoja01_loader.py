@@ -2963,6 +2963,94 @@ def _fetch_sql_data(config: SqlServerConfig, query: str, params=None) -> pd.Data
     return fetch_dataframe(config, query, params=params)
 
 
+SQL_ZONE_VIEW_BY_SHEET = {
+    "CCOSTO 1": "zona1",
+    "CCOSTO1": "zona1",
+    "CCOSTO 2": "zona2",
+    "CCOSTO2": "zona2",
+    "CCOSTO 3": "zona3",
+    "CCOSTO3": "zona3",
+    "CCOSTO 4": "zona7",
+    "CCOSTO4": "zona7",
+}
+
+SQL_VENDOR_VIEW_BY_SHEET = {
+    "COD24": "vendedor24",
+    "VENDEDOR24": "vendedor24",
+    "COD25": "vendedor25",
+    "VENDEDOR25": "vendedor25",
+    "COD26": "vendedor26",
+    "VENDEDOR26": "vendedor26",
+    "COD27": "vendedor27",
+    "VENDEDOR27": "vendedor27",
+    "COD29": "vendedor29",
+    "VENDEDOR29": "vendedor29",
+    "COD30": "vendedor30",
+    "VENDEDOR30": "vendedor30",
+    "COD51": "vendedor51",
+    "VENDEDOR51": "vendedor51",
+    "COD52": "vendedor52",
+    "VENDEDOR52": "vendedor52",
+}
+
+
+def _build_sql_rentabilidad_query(view_name: str) -> str:
+    return (
+        f"SELECT * FROM SiigoRent.dbo.vw_rentabilidad_{view_name} "
+        "WHERE FECHA = ?"
+    )
+
+
+def _resolve_sheet_name(wb, preferred_name: str, fallback_names: tuple[str, ...] = ()) -> str | None:
+    for candidate in (preferred_name, *fallback_names):
+        if candidate in wb.sheetnames:
+            return candidate
+    return None
+
+
+def _update_sheet_from_sql_view(
+    wb,
+    *,
+    sheet_name: str,
+    df: pd.DataFrame,
+    accounting_fmt: str,
+    border,
+) -> int:
+    ws = wb[sheet_name]
+    ws.delete_rows(1, ws.max_row)
+
+    if df.empty:
+        return 0
+
+    cleaned = df.copy()
+    cleaned = cleaned.dropna(how="all")
+    if cleaned.empty:
+        return 0
+
+    ws.append(list(cleaned.columns))
+    for row in cleaned.itertuples(index=False):
+        ws.append([None if pd.isna(v) else v for v in row])
+
+    numeric_like_columns = {
+        _norm("VENTAS"),
+        _norm("COSTOS"),
+        _norm("COSTO"),
+    }
+    for col_idx, header in enumerate(cleaned.columns, start=1):
+        if _norm(header) not in numeric_like_columns:
+            continue
+        for row_idx in range(2, ws.max_row + 1):
+            cell = ws.cell(row_idx, col_idx)
+            if isinstance(cell.value, (int, float)):
+                cell.number_format = accounting_fmt
+
+    for row in ws.iter_rows(min_row=1, max_row=ws.max_row, max_col=ws.max_column):
+        for cell in row:
+            cell.border = border
+
+    return int(cleaned.shape[0])
+
+
 def _prepare_excz_from_dataframe(
     df: pd.DataFrame,
     *,
@@ -3207,9 +3295,13 @@ def main():
         )
     )
     sql_config = None
-    sql_movimientos_df = None
+    sql_main_df = None
+    sql_lineas_df = None
+    sql_ccosto_data: dict[str, pd.DataFrame] = {}
+    sql_vendor_data: dict[str, pd.DataFrame] = {}
     sql_precios_df = None
     sql_terceros_df = None
+    sql_vendedores_df = None
 
     if use_sql:
         sql_config = _build_sql_config(args)
@@ -3217,68 +3309,66 @@ def main():
             f"INFO: Usando SQL Server {sql_config.server}/{sql_config.database}."
         )
 
-        sql_terceros_query = args.sql_terceros_query
-        terceros_cols = normalize_sql_list(args.sql_terceros_columns)
-        terceros_active_col = args.sql_terceros_active_column
-        terceros_active_value = args.sql_terceros_active_value
-        terceros_params = None
-        if not sql_terceros_query:
-            sql_terceros_query = _build_sql_query_from_table(
-                args.sql_terceros_table, terceros_cols
+        date_param = report_date.strftime("%Y-%m-%d")
+
+        sql_main_query = (
+            "SELECT * "
+            "FROM SiigoRent.dbo.vw_rentabilidad_cliente "
+            "WHERE FECHA = ? "
+            "ORDER BY [% RENTA.], [NIT - SUCURSAL - CLIENTE]"
+        )
+        sql_main_df = _fetch_sql_data(sql_config, sql_main_query, params=[date_param])
+
+        for zone_view in sorted(set(SQL_ZONE_VIEW_BY_SHEET.values())):
+            query = _build_sql_rentabilidad_query(zone_view) + " ORDER BY [% RENTA.]"
+            sql_ccosto_data[zone_view] = _fetch_sql_data(
+                sql_config,
+                query,
+                params=[date_param],
             )
-            if terceros_active_col:
-                sql_terceros_query += f" WHERE {terceros_active_col} = ?"
-                terceros_params = [terceros_active_value]
-        sql_terceros_df = _fetch_sql_data(
-            sql_config, sql_terceros_query, params=terceros_params
+
+        for vendor_view in sorted(set(SQL_VENDOR_VIEW_BY_SHEET.values())):
+            query = _build_sql_rentabilidad_query(vendor_view) + " ORDER BY [% RENTA.]"
+            sql_vendor_data[vendor_view] = _fetch_sql_data(
+                sql_config,
+                query,
+                params=[date_param],
+            )
+
+        sql_lineas_query = (
+            "SELECT [LÍNEA  DESCRIPCIÓN], [GRUPO  DESCRIPCIÓN], "
+            "CANTIDAD, VENTAS, COSTO, [%RENTABILIDAD], [%UTILIDAD] "
+            "FROM SiigoRent.dbo.vw_rentabilidad_lineas_ordenadas "
+            "WHERE FECHA = ? "
+            "ORDER BY _LineaOrden, _TipoFila, _GrupoOrden"
+        )
+        sql_lineas_df = _fetch_sql_data(sql_config, sql_lineas_query, params=[date_param])
+
+        sql_precios_df = _fetch_sql_data(
+            sql_config,
+            "SELECT * FROM [SiigoCat].[dbo].[TABLA_MAESTRO_INVENTARIOS]",
+        )
+        sql_vendedores_df = _fetch_sql_data(
+            sql_config,
+            "SELECT * FROM [Siigo2627].[dbo].[TABLA_MOVIMIENTO_POR_COMPROBANTE]",
         )
 
-        sql_precios_query = args.sql_precios_query
-        precios_cols = normalize_sql_list(args.sql_precios_columns)
-        precios_active_col = args.sql_precios_active_column
-        if not sql_precios_query:
-            sql_precios_query = _build_sql_query_from_table(
-                args.sql_precios_table, precios_cols
-            )
-            if precios_active_col:
-                sql_precios_query += f" WHERE {precios_active_col} = 'S'"
-        sql_precios_df = _fetch_sql_data(sql_config, sql_precios_query)
-
-        sql_movimientos_query = args.sql_movimientos_query
-        movimientos_cols = normalize_sql_list(args.sql_movimientos_columns)
-        movimientos_date_col = args.sql_movimientos_date_column
-        movimientos_tip_col = args.sql_movimientos_tip_column
-        movimientos_tip_values = normalize_sql_list(args.sql_movimientos_tip_values)
-        params: list[object] | None = None
-        start_date = report_date.strftime("%Y-%m-%d")
-        end_date = (report_date + timedelta(days=1)).strftime("%Y-%m-%d")
-        if sql_movimientos_query:
-            if "{" in sql_movimientos_query:
-                sql_movimientos_query = sql_movimientos_query.format(
-                    date=start_date,
-                    start_date=start_date,
-                    end_date=end_date,
-                )
-        else:
-            sql_movimientos_query = _build_sql_query_from_table(
-                args.sql_movimientos_table, movimientos_cols
-            )
-            filters = []
-            params = []
-            date_expr = _sql_date_expression(movimientos_date_col)
-            if date_expr:
-                filters.append(f"{date_expr} >= ? AND {date_expr} < ?")
-                params.extend([start_date, end_date])
-            if movimientos_tip_col and movimientos_tip_values:
-                placeholders = ", ".join(["?"] * len(movimientos_tip_values))
-                filters.append(
-                    f"CAST({movimientos_tip_col} AS NVARCHAR(50)) IN ({placeholders})"
-                )
-                params.extend(movimientos_tip_values)
-            if filters:
-                sql_movimientos_query += " WHERE " + " AND ".join(filters)
-        sql_movimientos_df = _fetch_sql_data(
-            sql_config, sql_movimientos_query, params=params
+        terceros_desc = _fetch_sql_data(
+            sql_config,
+            "SELECT * FROM [SiigoCat].[dbo].[TABLA_DESCRIPCION_VENDEDORES]",
+        )
+        terceros_clientes = _fetch_sql_data(
+            sql_config,
+            "SELECT * FROM [SiigoCat].[dbo].[TABLA_IDENTIFICACION_CLIENTES]",
+        )
+        terceros_terceros = _fetch_sql_data(
+            sql_config,
+            "SELECT * FROM [SiigoCat].[dbo].[TABLA_IDENTIFICACION_TERCEROS]",
+        )
+        sql_terceros_df = pd.concat(
+            [terceros_desc, terceros_clientes, terceros_terceros],
+            ignore_index=True,
+            sort=False,
         )
 
     use_latest = args.use_latest_sources
@@ -3346,7 +3436,7 @@ def main():
     if not args.skip_vendedores:
         if use_sql:
             resumen, archivo = _update_vendedores_sheet_from_df(
-                wb, _ensure_dataframe(sql_movimientos_df)
+                wb, _ensure_dataframe(sql_vendedores_df)
             )
         else:
             resumen, archivo = _update_vendedores_sheet(
@@ -3432,10 +3522,10 @@ def main():
     if not args.skip_import:
         excz_label = None
         if use_sql:
-            if sql_movimientos_df is None:
-                print("ERROR: No se pudieron cargar movimientos desde SQL.")
+            if sql_main_df is None:
+                print("ERROR: No se pudieron cargar datos principales desde SQL.")
                 raise SystemExit(33)
-            sub = _prepare_excz_from_dataframe(sql_movimientos_df, movimientos=True)
+            sub = _prepare_excz_from_dataframe(sql_main_df)
             excz_label = "SQL"
         else:
             excz_dir = Path(args.exczdir)
@@ -3469,7 +3559,19 @@ def main():
             sub = _prepare_excz_from_dataframe(df)
             excz_label = _clean_cell_value(latest.stem)
 
-        lineas_summary = _update_lineas_sheet(wb, sub.copy(), accounting_fmt, border)
+        if use_sql and sql_lineas_df is not None:
+            lineas_sheet = _resolve_sheet_name(wb, "LINEAS")
+            if lineas_sheet:
+                rows = _update_sheet_from_sql_view(
+                    wb,
+                    sheet_name=lineas_sheet,
+                    df=sql_lineas_df,
+                    accounting_fmt=accounting_fmt,
+                    border=border,
+                )
+                lineas_summary = {"lineas": rows}
+        else:
+            lineas_summary = _update_lineas_sheet(wb, sub.copy(), accounting_fmt, border)
 
         if args.max_rows and len(sub) > args.max_rows:
             sub = sub.iloc[:args.max_rows].copy()
@@ -3516,9 +3618,20 @@ def main():
 
     if not args.skip_import and not args.skip_ccosto:
         if use_sql:
-            ccosto_summary, ccosto_file = _update_ccosto_sheets_from_df(
-                wb, _ensure_dataframe(sql_movimientos_df), accounting_fmt, border
-            )
+            for configured_name, zone_view in SQL_ZONE_VIEW_BY_SHEET.items():
+                target_sheet = _resolve_sheet_name(wb, configured_name)
+                if not target_sheet:
+                    continue
+                rows = _update_sheet_from_sql_view(
+                    wb,
+                    sheet_name=target_sheet,
+                    df=_ensure_dataframe(sql_ccosto_data.get(zone_view)),
+                    accounting_fmt=accounting_fmt,
+                    border=border,
+                )
+                ccosto_summary[target_sheet] = rows
+            if ccosto_summary:
+                ccosto_file = "SQL"
         else:
             ccosto_summary, ccosto_file = _update_ccosto_sheets(
                 wb,
@@ -3532,9 +3645,20 @@ def main():
 
     if not args.skip_import and not args.skip_cod:
         if use_sql:
-            cod_summary, cod_file = _update_cod_sheets_from_df(
-                wb, _ensure_dataframe(sql_movimientos_df), accounting_fmt, border
-            )
+            for configured_name, vendor_view in SQL_VENDOR_VIEW_BY_SHEET.items():
+                target_sheet = _resolve_sheet_name(wb, configured_name)
+                if not target_sheet:
+                    continue
+                rows = _update_sheet_from_sql_view(
+                    wb,
+                    sheet_name=target_sheet,
+                    df=_ensure_dataframe(sql_vendor_data.get(vendor_view)),
+                    accounting_fmt=accounting_fmt,
+                    border=border,
+                )
+                cod_summary[target_sheet] = rows
+            if cod_summary:
+                cod_file = "SQL"
         else:
             cod_summary, cod_file = _update_cod_sheets(
                 wb,
