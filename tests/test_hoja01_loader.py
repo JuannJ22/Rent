@@ -12,6 +12,8 @@ from hojas.hoja01_loader import (
     _normalize_nit_value,
     _normalize_product_key,
     _drop_full_rentability_rows,
+    _hide_and_relocate_document_fields,
+    _sort_sql_rentabilidad_df,
 )
 
 
@@ -98,3 +100,47 @@ def test_drop_full_rentability_rows_removes_fractional_hundreds() -> None:
     result = _drop_full_rentability_rows(df)
 
     assert list(result["descripcion"]) == ["keep"]
+
+
+def test_sort_sql_rentabilidad_df_keeps_total_rows_at_bottom() -> None:
+    df = pd.DataFrame(
+        {
+            "DESCRIPCION": ["TOTAL VENDEDOR", "Prod B", "Prod A"],
+            "% RENTA.": [0.4, 0.2, 0.1],
+        }
+    )
+
+    result = _sort_sql_rentabilidad_df(df)
+
+    assert list(result["DESCRIPCION"]) == ["Prod A", "Prod B", "TOTAL VENDEDOR"]
+
+
+def test_hide_and_relocate_document_fields_hides_and_copies_columns() -> None:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "CCOSTO 1"
+    ws.append([
+        "COD. VENDEDOR",
+        "DESCRIPCION",
+        "CANTIDAD",
+        "VENTAS",
+        "COSTOS",
+        "% RENTA",
+        "% UTIL",
+        "DOCUMENTO",
+        "FECHA",
+        "VENDEDOR",
+    ])
+    ws.append(["29", "Prod X", 1, 100, 80, 0.2, 0.25, "F123", "2026-02-17", "29"])
+
+    _hide_and_relocate_document_fields(ws, ws.max_row)
+
+    assert ws.column_dimensions["H"].hidden is True
+    assert ws.column_dimensions["I"].hidden is True
+    assert ws.column_dimensions["J"].hidden is True
+    assert ws.column_dimensions["M"].hidden is True
+    assert ws.column_dimensions["N"].hidden is True
+    assert ws.cell(1, 13).value == "DOCUMENTO"
+    assert ws.cell(2, 13).value == "F123"
+    assert ws.cell(1, 14).value == "FECHA"
+    assert ws.cell(2, 14).value == "2026-02-17"
