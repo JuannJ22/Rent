@@ -1910,6 +1910,8 @@ def _update_ccosto_sheets(
                     if new_value != text_value:
                         cell.value = new_value
 
+            _hide_and_relocate_document_fields(ws, total_row)
+
     return summary, latest
 
 
@@ -2097,6 +2099,8 @@ def _update_ccosto_sheets_from_df(
                     new_value = text_value.replace("7", "4")
                     if new_value != text_value:
                         cell.value = new_value
+
+            _hide_and_relocate_document_fields(ws, total_row)
 
     return summary, "SQL"
 
@@ -2507,6 +2511,8 @@ def _update_cod_sheets(
                 cell = ws.cell(total_row, col_idx)
                 cell.border = border
 
+            _hide_and_relocate_document_fields(ws, total_row)
+
     return summary, latest
 
 
@@ -2672,6 +2678,8 @@ def _update_cod_sheets_from_df(
             for col_idx in range(1, len(order) + 1):
                 cell = ws.cell(total_row, col_idx)
                 cell.border = border
+
+            _hide_and_relocate_document_fields(ws, total_row)
 
     return summary, "SQL"
 
@@ -3004,10 +3012,72 @@ def _build_sql_rentabilidad_query(view_name: str) -> str:
 def _sort_sql_rentabilidad_df(dataframe: pd.DataFrame) -> pd.DataFrame:
     """Ordena DataFrames SQL por columna de rentabilidad cuando esté disponible."""
 
+    if dataframe.empty:
+        return dataframe
+
+    total_mask = _build_total_row_mask(dataframe)
+    details = dataframe.loc[~total_mask]
+    totals = dataframe.loc[total_mask]
+
     for column_name in ("% RENTA.", "% RENTA", "RENTA", "RENTABILIDAD"):
         if column_name in dataframe.columns:
-            return dataframe.sort_values(by=column_name, kind="stable").reset_index(drop=True)
-    return dataframe
+            sorted_details = details.sort_values(by=column_name, kind="stable")
+            return pd.concat([sorted_details, totals], ignore_index=True)
+
+    return pd.concat([details, totals], ignore_index=True)
+
+
+def _build_total_row_mask(dataframe: pd.DataFrame) -> pd.Series:
+    """Detecta filas de total/subtotal para reubicarlas al final."""
+
+    if dataframe.empty:
+        return pd.Series(False, index=dataframe.index)
+
+    text_candidates = [
+        col
+        for col in dataframe.columns
+        if not is_numeric_dtype(dataframe[col])
+    ]
+    if not text_candidates:
+        return pd.Series(False, index=dataframe.index)
+
+    mask = pd.Series(False, index=dataframe.index)
+    total_pattern = r"\b(?:sub\s*total|total(?:\s+general)?)\b"
+    for col in text_candidates:
+        values = dataframe[col]
+        mask |= values.astype(str).str.contains(total_pattern, case=False, regex=True, na=False)
+    return mask
+
+
+def _hide_and_relocate_document_fields(ws, max_data_row: int) -> None:
+    """Oculta columnas auxiliares y mueve DOCUMENTO/FECHA a M/N."""
+
+    for col in ("H", "I", "J"):
+        ws.column_dimensions[col].hidden = True
+
+    if max_data_row < 2:
+        return
+
+    header_map = {
+        _norm(ws.cell(row=1, column=col_idx).value): col_idx
+        for col_idx in range(1, ws.max_column + 1)
+    }
+    doc_col_idx = header_map.get(_norm("DOCUMENTO"))
+    date_col_idx = header_map.get(_norm("FECHA"))
+    if not doc_col_idx and not date_col_idx:
+        return
+
+    target_pairs = [
+        (doc_col_idx, 13, "DOCUMENTO", "M"),
+        (date_col_idx, 14, "FECHA", "N"),
+    ]
+    for source_col, target_col, header, target_letter in target_pairs:
+        if not source_col:
+            continue
+        ws.cell(row=1, column=target_col, value=header)
+        for row_idx in range(2, max_data_row + 1):
+            ws.cell(row=row_idx, column=target_col, value=ws.cell(row=row_idx, column=source_col).value)
+        ws.column_dimensions[target_letter].hidden = True
 
 
 def _resolve_sheet_name(wb, preferred_name: str, fallback_names: tuple[str, ...] = ()) -> str | None:
@@ -3056,6 +3126,9 @@ def _update_sheet_from_sql_view(
     for row in ws.iter_rows(min_row=1, max_row=ws.max_row, max_col=ws.max_column):
         for cell in row:
             cell.border = border
+
+    if sheet_name.upper().startswith("CCOSTO") or sheet_name.upper().startswith("VENDEDOR"):
+        _hide_and_relocate_document_fields(ws, ws.max_row)
 
     return int(cleaned.shape[0])
 
