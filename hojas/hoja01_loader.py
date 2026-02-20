@@ -68,7 +68,7 @@ DEFAULT_SQL_TERCEROS_ACTIVE_VALUE = os.environ.get(
     "SQL_TERCEROS_ACTIVE_VALUE", "A"
 )
 DEFAULT_SQL_PRECIOS_TABLE = os.environ.get(
-    "SQL_PRECIOS_TABLE", "dbo.TABLA_MAESTRO_INVENTARIOS"
+    "SQL_PRECIOS_TABLE", "dbo.vw_productos_activos"
 )
 DEFAULT_SQL_PRECIOS_ACTIVE_COLUMN = os.environ.get(
     "SQL_PRECIOS_ACTIVE_COLUMN", "ActivoInv"
@@ -3428,7 +3428,7 @@ def main():
 
         sql_precios_df = _fetch_sql_data(
             sql_config,
-            "SELECT * FROM [SiigoCat].[dbo].[TABLA_MAESTRO_INVENTARIOS]",
+            "SELECT * FROM [SiigoCat].[dbo].[vw_productos_activos]",
         )
         sql_vendedores_df = _fetch_sql_data(
             sql_config,
