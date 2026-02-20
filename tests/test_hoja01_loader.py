@@ -7,6 +7,7 @@ from hojas.hoja01_loader import (
     _build_sika_customer_message,
     _build_vendor_mismatch_message,
     _combine_reason_messages,
+    _guess_sql_precios_columns,
     _load_terceros_lookup,
     _load_vendedores_document_lookup,
     _normalize_nit_value,
@@ -144,3 +145,21 @@ def test_hide_and_relocate_document_fields_hides_and_copies_columns() -> None:
     assert ws.cell(2, 13).value == "F123"
     assert ws.cell(1, 14).value == "FECHA"
     assert ws.cell(2, 14).value == "2026-02-17"
+
+
+def test_guess_sql_precios_columns_prefers_nombre_over_codigo() -> None:
+    columns = [
+        "CODIGO",
+        "LINEA",
+        "GRUPO",
+        "PRODUCTO",
+        "NOMBRE",
+        "REFERENCIA",
+        "LISTA_PRECIO1",
+        "LISTA_PRECIO2",
+    ]
+
+    descripcion, precios = _guess_sql_precios_columns(columns)
+
+    assert descripcion == "NOMBRE"
+    assert precios == ["LISTA_PRECIO1", "LISTA_PRECIO2"]

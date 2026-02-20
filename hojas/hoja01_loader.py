@@ -1338,10 +1338,10 @@ def _guess_sql_precios_columns(df_cols):
         "descripcion",
         "descripción",
         "descripcioninv",
-        "producto",
         "nombre",
         "nombre producto",
-        contains=("descr", "producto", "item"),
+        "producto",
+        contains=("descr", "nombre", "producto", "item"),
     )
 
     price_cols = []
