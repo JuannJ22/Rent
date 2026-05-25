@@ -8,7 +8,7 @@ if exist "%PROJ_DIR%.env" (
 )
 if not defined RENT_DIR set "RENT_DIR=C:\Rentabilidad"
 if not defined TEMPLATE set "TEMPLATE=%RENT_DIR%\PLANTILLA.xlsx"
-if not defined EXCZDIR set "EXCZDIR=D:\SIIWI01\LISTADOS"
+if not defined EXCZDIR set "EXCZDIR=D:\SIIWIS\SIIWI01\LISTADOS"
 
 where python >nul 2>nul || (
   echo ERROR: Python no esta en PATH. Instala Python y reintenta.

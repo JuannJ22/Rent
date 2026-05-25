@@ -77,8 +77,8 @@ def _build_service(tmp_path: Path) -> ProductListingService:
 
     config = ProductGenerationConfig(
         siigo_dir=tmp_path,
-        base_path="D:\\SIIWI01\\",
-        log_path="D:\\SIIWI01\\LOGS\\log_catalogos.txt",
+        base_path="D:\\SIIWIS\\SIIWI01\\",
+        log_path="D:\\SIIWIS\\SIIWI01\\LOGS\\log_catalogos.txt",
         credentials=credentials,
         activo_column=1,
         keep_columns=(1,),
