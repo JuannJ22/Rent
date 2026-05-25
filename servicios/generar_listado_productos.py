@@ -59,7 +59,7 @@ def build_parser(defaults: dict[str, str | float]) -> argparse.ArgumentParser:
     parser.add_argument(
         "--siigo-base",
         default=defaults["SIIGO_BASE"],
-        help="Ruta base usada como primer argumento para ExcelSIIGO (ej. D:\\SIIWI01)",
+        help="Ruta base usada como primer argumento para ExcelSIIGO (ej. D:\\SIIWIS\\SIIWI01)",
     )
     parser.add_argument(
         "--productos-dir",
@@ -128,8 +128,8 @@ def _collect_defaults() -> dict[str, str | float]:
     context = PathContextFactory(os.environ).create()
     defaults = {
         "SIIGO_DIR": os.environ.get("SIIGO_DIR", r"C:\\Siigo"),
-        "SIIGO_BASE": os.environ.get("SIIGO_BASE", r"D:\\SIIWI01"),
-        "SIIGO_LOG": os.environ.get("SIIGO_LOG", str(Path(os.environ.get("SIIGO_BASE", r"D:\\SIIWI01")) / "LOGS" / "log_catalogos.txt")),
+        "SIIGO_BASE": os.environ.get("SIIGO_BASE", r"D:\\SIIWIS\\SIIWI01"),
+        "SIIGO_LOG": os.environ.get("SIIGO_LOG", str(Path(os.environ.get("SIIGO_BASE", r"D:\\SIIWIS\\SIIWI01")) / "LOGS" / "log_catalogos.txt")),
         "SIIGO_COMMAND": os.environ.get("SIIGO_COMMAND", "ExcelSIIGO"),
         "SIIGO_REPORTE": os.environ.get("SIIGO_REPORTE", "GETINV"),
         "SIIGO_EMPRESA": os.environ.get("SIIGO_EMPRESA", "L"),
