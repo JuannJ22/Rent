@@ -15,7 +15,7 @@ for /f %%c in ('powershell -command "(Get-Date).ToString('dd')"') do set DIA=%%c
 cd /d C:\Siigo
 
 :: ===================== PRODUCTOS ============================
-ExcelSIIGO D:\SIIWI01\ %ANO% GETINV L JUAN 0110 D:\SIIWI01\LOGS\log_catalogos.txt S 0010001000001 0400027999999 C:\Rentabilidad\Productos\Productos%MES%%DIA%.xlsx
+ExcelSIIGO Z:\SIIWI01\ %ANO% GETINV L JUAN 0110 Z:\SIIWI01\LOGS\log_catalogos.txt S 0010001000001 0400027999999 C:\Rentabilidad\Productos\Productos%MES%%DIA%.xlsx
 IF %ERRORLEVEL% NEQ 0 EXIT /B %ERRORLEVEL%
 
 echo

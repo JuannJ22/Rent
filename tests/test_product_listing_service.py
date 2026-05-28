@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from rentabilidad.core.paths import PathContext
+from rentabilidad.core.siigo_paths import DEFAULT_SIIGO_BASE, build_siigo_log_path
 from rentabilidad.config import _parse_required_files_env
 from rentabilidad.services.products import (
     ExcelSiigoFacade,
@@ -77,8 +78,8 @@ def _build_service(tmp_path: Path) -> ProductListingService:
 
     config = ProductGenerationConfig(
         siigo_dir=tmp_path,
-        base_path="D:\\SIIWI01\\",
-        log_path="D:\\SIIWI01\\LOGS\\log_catalogos.txt",
+        base_path=f"{DEFAULT_SIIGO_BASE}\\",
+        log_path=build_siigo_log_path(DEFAULT_SIIGO_BASE),
         credentials=credentials,
         activo_column=1,
         keep_columns=(1,),

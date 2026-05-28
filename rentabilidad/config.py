@@ -6,6 +6,11 @@ from pathlib import Path
 
 from rentabilidad.core.env import load_env
 from rentabilidad.core.paths import PathContext, PathContextFactory
+from rentabilidad.core.siigo_paths import (
+    DEFAULT_EXCZ_DIR,
+    DEFAULT_SIIGO_BASE,
+    build_siigo_log_path,
+)
 from rentabilidad.services.products import (
     ProductGenerationConfig,
     ProductListingService,
@@ -58,7 +63,7 @@ class Settings:
         self.ruta_plantilla: Path = self.context.template_path()
         self.plantilla_hoja: str | None = os.environ.get("PLANTILLA_HOJA")
 
-        self.excz_dir: Path = Path(os.environ.get("EXCZDIR", r"D:\\SIIWI01\\LISTADOS"))
+        self.excz_dir: Path = Path(os.environ.get("EXCZDIR", DEFAULT_EXCZ_DIR))
         self.excz_prefix: str = os.environ.get("EXCZPREFIX", "EXCZ980")
         self.excz_sheet: str = os.environ.get("EXCZ_SHEET", "Hoja1")
 
@@ -126,8 +131,10 @@ class Settings:
 
     def _build_product_config(self) -> ProductGenerationConfig:
         siigo_dir = Path(os.environ.get("SIIGO_DIR", r"C:\\Siigo"))
-        base_path = _ensure_trailing_backslash(os.environ.get("SIIGO_BASE", r"D:\\SIIWI01"))
-        log_path = os.environ.get("SIIGO_LOG", str(Path(base_path.rstrip("\\/")) / "LOGS" / "log_catalogos.txt"))
+        base_path = _ensure_trailing_backslash(
+            os.environ.get("SIIGO_BASE", DEFAULT_SIIGO_BASE)
+        )
+        log_path = os.environ.get("SIIGO_LOG", build_siigo_log_path(base_path))
 
         credenciales = SiigoCredentials(
             reporte=os.environ.get("SIIGO_REPORTE", "GETINV"),

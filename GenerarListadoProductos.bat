@@ -9,7 +9,7 @@ if exist "%PROJ_DIR%.env" (
 )
 
 if not defined SIIGO_DIR set "SIIGO_DIR=C:\Siigo"
-if not defined SIIGO_BASE set "SIIGO_BASE=D:\SIIWI01"
+if not defined SIIGO_BASE set "SIIGO_BASE=Z:\SIIWI01"
 if not defined PRODUCTOS_DIR set "PRODUCTOS_DIR=C:\Rentabilidad\Productos"
 if not defined SIIGO_LOG set "SIIGO_LOG=%SIIGO_BASE%\LOGS\log_catalogos.txt"
 
