@@ -30,6 +30,7 @@ from rentabilidad.core.dates import DateResolver, YesterdayStrategy
 from rentabilidad.core.env import load_env
 from rentabilidad.core.excz import ExczFileFinder, ExczMetadata
 from rentabilidad.core.paths import PathContext, PathContextFactory, SPANISH_MONTHS
+from rentabilidad.core.siigo_paths import DEFAULT_EXCZ_DIR
 from rentabilidad.infra.sql_server import (
     SqlServerConfig,
     fetch_dataframe,
@@ -41,7 +42,7 @@ from rentabilidad.infra.sql_server import (
 load_env()
 PATH_CONTEXT: PathContext = PathContextFactory(os.environ).create()
 DEFAULT_RENT_DIR = os.environ.get("RENT_DIR", str(PATH_CONTEXT.base_dir))
-DEFAULT_EXCZDIR = os.environ.get("EXCZDIR", r"D:\\SIIWIS\\SIIWI01\\LISTADOS")
+DEFAULT_EXCZDIR = os.environ.get("EXCZDIR", DEFAULT_EXCZ_DIR)
 DEFAULT_EXCZ_PREFIX = os.environ.get("EXCZPREFIX", "EXCZ980")
 DEFAULT_CCOSTO_EXCZ_PREFIX = os.environ.get("CCOSTO_EXCZPREFIX", "EXCZ979")
 DEFAULT_COD_EXCZ_PREFIX = os.environ.get("COD_EXCZPREFIX", "EXCZ978")

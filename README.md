@@ -27,7 +27,7 @@ de productos se guardan en la carpeta `Productos`.
 ### 2. Carga de EXCZ
 
 - Script principal: `hojas/hoja01_loader.py`.
-- Origen de datos: busca en `D:\SIIWIS\SIIWI01\LISTADOS` el archivo `EXCZ***YYYYMMDDHHMMSS` cuya fecha coincida con la solicitada (por defecto el día anterior).
+- Origen de datos: busca en `Z:\SIIWI01\LISTADOS` el archivo `EXCZ***YYYYMMDDHHMMSS` cuya fecha coincida con la solicitada (por defecto el día anterior).
 - Acciones: importa el EXCZ en la Hoja 1, aplica las fórmulas necesarias y actualiza las hojas `CCOSTO` y `COD` con la misma fecha.
 
 ### 2.1 Fuente SQL Server (opcional)
@@ -105,7 +105,7 @@ python hojas/hoja01_loader.py --excel "C:\\Rentabilidad\\Informes\\Marzo\\Marzo 
   pip install -r requirements.txt
   ```
 - Archivo `PLANTILLA.xlsx` ubicado en `C:\\Rentabilidad\\`.
-- Carpeta con los archivos EXCZ, por defecto `D:\\SIIWIS\\SIIWI01\\LISTADOS\\`. Los nombres deben seguir el patrón `EXCZ***YYYYMMDDHHMMSS` para permitir la selección por fecha (prefijo configurable con `EXCZPREFIX` o `--excz-prefix`).
+- Carpeta con los archivos EXCZ, por defecto `Z:\\SIIWI01\\LISTADOS\\`. Los nombres deben seguir el patrón `EXCZ***YYYYMMDDHHMMSS` para permitir la selección por fecha (prefijo configurable con `EXCZPREFIX` o `--excz-prefix`).
 
 ## Instalación
 
@@ -167,11 +167,11 @@ para generar un Excel de productos en `C:\\Rentabilidad\\Productos`
   - `SIIGO_DIR`: carpeta donde está instalado SIIGO (por defecto `C:\\Siigo`).
   - `SIIGO_COMMAND`: nombre del ejecutable de SIIGO (por defecto `ExcelSIIGO`).
   - `SIIGO_BASE`: ruta base pasada como primer parámetro a `ExcelSIIGO`
-    (por defecto `D:\\SIIWIS\\SIIWI01`).
+    (por defecto `Z:\\SIIWI01`).
   - `PRODUCTOS_DIR`: carpeta destino de los Excel generados
     (por defecto `C:\\Rentabilidad\\Productos`).
   - `SIIGO_LOG`: ruta del archivo de log usado por `ExcelSIIGO`
-    (por defecto `D:\\SIIWIS\\SIIWI01\\LOGS\\log_catalogos.txt`).
+    (por defecto `Z:\\SIIWI01\\LOGS\\log_catalogos.txt`).
   - `SIIGO_WAIT_TIMEOUT`: tiempo máximo para esperar a que se cree el archivo
     de SIIGO (por defecto `60`).
   - `SIIGO_WAIT_INTERVAL`: intervalo entre verificaciones del archivo generado
