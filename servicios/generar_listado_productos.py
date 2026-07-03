@@ -60,7 +60,7 @@ def build_parser(defaults: dict[str, str | float]) -> argparse.ArgumentParser:
     parser.add_argument(
         "--siigo-base",
         default=defaults["SIIGO_BASE"],
-        help="Ruta base usada como primer argumento para ExcelSIIGO (ej. Z:\\SIIWI01)",
+        help="Ruta base usada como primer argumento para ExcelSIIGO (ej. D:\\SIIWI01)",
     )
     parser.add_argument(
         "--productos-dir",

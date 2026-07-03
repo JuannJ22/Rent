@@ -6,7 +6,7 @@ replicados en varios módulos y mantiene los puntos de configuración alineados.
 
 from __future__ import annotations
 
-DEFAULT_SIIGO_BASE = r"Z:\SIIWI01"
+DEFAULT_SIIGO_BASE = r"D:\SIIWI01"
 DEFAULT_EXCZ_DIR = rf"{DEFAULT_SIIGO_BASE}\LISTADOS"
 DEFAULT_SIIGO_LOG_FILENAME = "log_catalogos.txt"
 
