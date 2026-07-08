@@ -70,6 +70,42 @@ def test_workbook_cleaner_acepta_columna_activo_numerica(tmp_path) -> None:
     libro.close()
 
 
+def test_workbook_cleaner_deja_solo_productos_con_activo_s(tmp_path) -> None:
+    destino = tmp_path / "productos.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    for idx in range(1, 6):
+        ws.append([f"Meta {idx}", None, None, None, None])
+    ws.append(["COD", "DESCRIPCIÓN", "ACTIVO", "PRECIO", "OTRA"])
+    ws.append(["P-1", "Producto activo", "S", 120.0, "IGNORAR"])
+    ws.append(["P-2", "Producto activo con espacios", " s ", 121.0, "IGNORAR"])
+    ws.append(["P-3", "Producto inactivo", "N", 30.0, "IGNORAR"])
+    ws.append(["P-4", "Producto sin estado", None, 40.0, "IGNORAR"])
+    ws.append(["P-5", "Producto con otro estado", "A", 50.0, "IGNORAR"])
+    wb.save(destino)
+    wb.close()
+
+    cleaner = WorkbookCleaner(activo_column="C", keep_columns=["B", "D"])
+    resultado = cleaner.clean(destino)
+
+    libro = load_workbook(resultado)
+    hoja = libro.active
+
+    assert hoja.max_row == 8
+    assert [hoja.cell(6, col).value for col in range(1, 4)] == [
+        "DESCRIPCIÓN",
+        "ACTIVO",
+        "PRECIO",
+    ]
+    assert [hoja.cell(row, 1).value for row in range(7, 9)] == [
+        "Producto activo",
+        "Producto activo con espacios",
+    ]
+    assert [hoja.cell(row, 2).value for row in range(7, 9)] == ["S", " s "]
+
+    libro.close()
+
+
 def _crear_libro_xls(path: Path) -> None:
     xlwt = pytest.importorskip("xlwt")
 

@@ -343,7 +343,7 @@ def setup_ui() -> None:
     def ejecutar_productos() -> None:
         actualizar_estado("running", "Generando listado de productos…")
         agregar_log(
-            "Iniciando generación del listado de productos (Productos.bat)."
+            "Iniciando generación del listado de productos."
         )
         uc_productos(bus)
 
@@ -474,13 +474,13 @@ def setup_ui() -> None:
                     ui.icon("inventory_2").classes("text-violet-500")
                     ui.label("Generar productos").classes("font-medium")
                 ui.label(
-                    "Ejecuta el script Productos.bat para actualizar el listado de productos."
+                    "Genera, valida y depura el listado de productos configurado."
                 ).classes("px-5 pb-3 text-sm text-gray-500 leading-snug")
                 productos_script = settings.productos_batch_script
                 script_text = (
                     _shorten(productos_script) if productos_script else "No configurado"
                 )
-                script_label = ui.label(f"Script: {script_text}")
+                script_label = ui.label(f"Flujo configurado: {script_text}")
                 script_label.classes("px-5 pb-3 text-xs text-gray-400")
                 if productos_script:
                     with script_label:
@@ -493,7 +493,7 @@ def setup_ui() -> None:
                 if not productos_script:
                     btn_productos.disable()
                     ui.label(
-                        "Configura la ruta del script Productos.bat antes de ejecutar esta acción."
+                        "Configura SIIGO y la carpeta de productos antes de ejecutar esta acción."
                     ).classes("px-5 pb-5 text-xs text-amber-500")
                 else:
                     ui.label(

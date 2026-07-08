@@ -1448,7 +1448,7 @@ def build_ui() -> None:
                             with ui.column().classes("gap-1"):
                                 ui.label("Generar productos").classes("section-title")
                                 ui.label(
-                                    "Ejecuta el script Productos.bat para actualizar el listado de productos actual."
+                                    "Genera, valida y depura el listado de productos actual."
                                 ).classes("action-note")
 
                         productos_script = settings.productos_batch_script
@@ -1458,7 +1458,7 @@ def build_ui() -> None:
                             else "No configurado"
                         )
                         script_label = ui.label(
-                            f"Script configurado: {script_text}"
+                            f"Flujo configurado: {script_text}"
                         ).classes("action-note")
                         if productos_script:
                             with script_label:
@@ -1469,7 +1469,7 @@ def build_ui() -> None:
                                 "running", "Generando listado de productos…"
                             )
                             agregar_log(
-                                "Iniciando generación del listado de productos (Productos.bat).",
+                                "Iniciando generación del listado de productos.",
                                 "info",
                             )
                             try:
@@ -1495,7 +1495,7 @@ def build_ui() -> None:
                         if not productos_script:
                             btn_productos.disable()
                             ui.label(
-                                "Configura la ruta del script Productos.bat antes de ejecutar esta acción."
+                                "Configura SIIGO y la carpeta de productos antes de ejecutar esta acción."
                             ).classes("action-note text-amber-600")
 
                 with ui.card().classes("panel-card flex-1 min-w-[280px]"):
