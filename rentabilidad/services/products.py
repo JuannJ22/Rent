@@ -234,8 +234,12 @@ def resolve_column_index(value: int | str) -> int:
 class WorkbookCleaner:
     """Responsable de filtrar columnas y filas en el archivo generado."""
 
-    #: Número de filas iniciales que deben preservarse sin modificaciones.
-    _RESERVED_HEADER_ROWS = 5
+    #: Número de filas de metadatos iniciales que deben preservarse sin modificaciones.
+    _RESERVED_METADATA_ROWS = 5
+    #: Fila donde ExcelSIIGO entrega los encabezados del catálogo.
+    _HEADER_ROW = _RESERVED_METADATA_ROWS + 1
+    #: Primera fila que contiene productos reales sujetos al filtro de ACTIVO.
+    _FIRST_PRODUCT_ROW = _HEADER_ROW + 1
 
     def __init__(self, activo_column: int | str, keep_columns: Iterable[int | str]):
         self._activo_idx = resolve_column_index(activo_column)
@@ -263,10 +267,9 @@ class WorkbookCleaner:
             )
 
         removed_rows = 0
-        first_data_row = self._RESERVED_HEADER_ROWS + 1
-        for row in range(ws.max_row, first_data_row - 1, -1):
+        for row in range(ws.max_row, self._FIRST_PRODUCT_ROW - 1, -1):
             value = ws.cell(row=row, column=self._activo_idx).value
-            if self._normalize(value) == "N":
+            if self._normalize(value) != "S":
                 ws.delete_rows(row, 1)
                 removed_rows += 1
 
@@ -300,10 +303,10 @@ class WorkbookCleaner:
                 "La hoja activa no tiene la columna requerida para estado del producto."
             )
 
-        header_rows = dataframe.iloc[: self._RESERVED_HEADER_ROWS]
-        data_rows = dataframe.iloc[self._RESERVED_HEADER_ROWS :].copy()
+        header_rows = dataframe.iloc[: self._HEADER_ROW]
+        data_rows = dataframe.iloc[self._HEADER_ROW :].copy()
 
-        activos_mask = data_rows.iloc[:, activo_idx_zero].apply(self._normalize) != "N"
+        activos_mask = data_rows.iloc[:, activo_idx_zero].apply(self._normalize) == "S"
         filtered_rows = data_rows[activos_mask]
         removed_rows = len(data_rows) - len(filtered_rows)
 

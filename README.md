@@ -152,9 +152,11 @@ encabezado con el logotipo de la empresa y el título del panel.
 
 `servicios/generar_listado_productos.py` ejecuta el comando `ExcelSIIGO`
 para generar un Excel de productos en `C:\\Rentabilidad\\Productos`
-(carpeta configurable) y luego deja únicamente las columnas **D**, **G** a
-**R** y **AX**, filtrando además los productos cuyo campo `ACTIVO`
-(columna AX) sea `S`. El nombre resultante sigue el formato
+(carpeta configurable) y luego deja únicamente las columnas **DESCRIPCIÓN**, **PRECIO 1** a
+**PRECIO 12** y **ACTIVO** (equivalentes a **D**, **G** a **R** y
+**AX** en el archivo original de SIIGO), filtrando además para conservar
+solo las filas cuyo campo `ACTIVO` sea exactamente `S` después de normalizar
+mayúsculas y espacios. El nombre resultante sigue el formato
 `productosMMDD.xlsx` y, por defecto, utiliza la fecha actual.
 
 - Ejecución rápida desde Windows:
