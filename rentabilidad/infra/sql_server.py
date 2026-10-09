@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextlib import contextmanager
 from typing import Sequence
 
 import pandas as pd
@@ -14,28 +15,54 @@ class SqlServerConfig:
     password: str | None = None
     driver: str = "ODBC Driver 17 for SQL Server"
     trusted_connection: bool = False
-    encrypt: bool = False
-    trust_server_certificate: bool = True
+    encrypt: bool = True
+    trust_server_certificate: bool = False
     timeout: int = 30
 
     def connection_string(self) -> str:
+        def quote(value: str) -> str:
+            return "{" + value.replace("}", "}}") + "}"
+
         parts = [
-            f"DRIVER={{{self.driver}}}",
-            f"SERVER={self.server}",
-            f"DATABASE={self.database}",
+            f"DRIVER={quote(self.driver)}",
+            f"SERVER={quote(self.server)}",
+            f"DATABASE={quote(self.database)}",
         ]
         if self.trusted_connection:
             parts.append("Trusted_Connection=yes")
         else:
             if self.user is not None:
-                parts.append(f"UID={self.user}")
+                parts.append(f"UID={quote(self.user)}")
             if self.password is not None:
-                parts.append(f"PWD={self.password}")
-        if self.encrypt:
-            parts.append("Encrypt=yes")
-        if self.trust_server_certificate:
-            parts.append("TrustServerCertificate=yes")
+                parts.append(f"PWD={quote(self.password)}")
+        parts.append(f"Encrypt={'yes' if self.encrypt else 'no'}")
+        parts.append(f"TrustServerCertificate={'yes' if self.trust_server_certificate else 'no'}")
         return ";".join(parts)
+
+
+@contextmanager
+def dataframe_reader(config: SqlServerConfig):
+    """Reutiliza una conexión y cierra explícitamente sus recursos."""
+    import pyodbc
+
+    conn = pyodbc.connect(config.connection_string(), timeout=config.timeout)
+    try:
+        conn.timeout = config.timeout
+
+        def read(query: str, params=None) -> pd.DataFrame:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(query, *([] if params is None else params))
+                columns = [column[0] for column in cursor.description]
+                return pd.DataFrame.from_records(
+                    [tuple(row) for row in cursor.fetchall()], columns=columns
+                )
+            finally:
+                cursor.close()
+
+        yield read
+    finally:
+        conn.close()
 
 
 def fetch_dataframe(
@@ -49,8 +76,8 @@ def fetch_dataframe(
             "o con 'pip install -r requirements.txt' antes de ejecutar el GUI."
         )
         raise ModuleNotFoundError(message) from exc
-    with pyodbc.connect(config.connection_string(), timeout=config.timeout) as conn:
-        return pd.read_sql_query(query, conn, params=params)
+    with dataframe_reader(config) as read:
+        return read(query, params=params)
 
 
 def normalize_sql_flag(value: str | None) -> bool:

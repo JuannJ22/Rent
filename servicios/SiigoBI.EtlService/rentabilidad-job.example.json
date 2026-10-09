@@ -1,0 +1,22 @@
+{
+  "Name": "RentabilidadDaily",
+  "Enabled": false,
+  "Kind": "Rentabilidad",
+  "AtTime": "05:00",
+  "SqlTarget": "RentReport",
+  "Rentabilidad": {
+    "PythonExe": "C:\\Rentabilidad\\Rent\\.venv-sql\\Scripts\\python.exe",
+    "Script": "C:\\Rentabilidad\\Rent\\servicios\\etl_rentabilidad.py",
+    "ProjectDir": "C:\\Rentabilidad\\Rent",
+    "BaseDir": "C:\\Rentabilidad",
+    "Template": "C:\\Rentabilidad\\PLANTILLA.xlsx",
+    "TimeoutSeconds": 1800,
+    "RetryMinutes": 15,
+    "MaxAttempts": 3,
+    "DependsOn": [
+      "Mov45Daily",
+      "CatalogosPesados",
+      "ProductosDaily"
+    ]
+  }
+}
