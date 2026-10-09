@@ -99,7 +99,7 @@ public sealed partial class Worker : BackgroundService
         {
             if (job.Kind is EtlJobKind.Rentabilidad or EtlJobKind.Productos)
             {
-                ValidateRentabilidad(job);
+                if (job.Enabled) ValidateRentabilidad(job);
                 continue;
             }
 

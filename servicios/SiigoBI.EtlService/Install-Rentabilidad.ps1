@@ -68,6 +68,8 @@ try {
     $json = $config | ConvertTo-Json -Depth 40
     [IO.File]::WriteAllText($configPath, $json, [Text.UTF8Encoding]::new($false))
     Start-Service $serviceName -ErrorAction Stop
+    Start-Sleep -Seconds 3
+    if ((Get-Service $serviceName).Status -ne 'Running') { throw 'El servicio no se mantuvo activo; se restaurara el respaldo.' }
 }
 catch {
     $failure = $_
