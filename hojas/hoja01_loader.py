@@ -3262,9 +3262,13 @@ def _load_sql_report_data(config: SqlServerConfig, report_date: date, settings: 
         require_snapshot = _normalize_sql_flag_value(_get_sql_value(
             None, settings, "SQL_REQUIRE_PRODUCT_SNAPSHOT", fallback=True
         ))
-        if not snapshot and require_snapshot and report_date < datetime.now(COLOMBIA).date():
+        legacy_prices = os.environ.get("SQL_LEGACY_PRODUCT_FILE")
+        if not snapshot and not legacy_prices and require_snapshot and report_date < datetime.now(COLOMBIA).date():
             raise RuntimeError(f"Falta la copia diaria de productos de {report_date}. No se usan precios actuales para un informe pasado.")
-        if snapshot:
+        if legacy_prices:
+            from rentabilidad.infra.product_snapshots import read_legacy_prices
+            prices = _normalize_sql_text(read_legacy_prices(Path(legacy_prices)))
+        elif snapshot:
             from rentabilidad.infra.product_snapshots import read_snapshot
             prices = _normalize_sql_text(read_snapshot(Path(snapshot), report_date))
         else:

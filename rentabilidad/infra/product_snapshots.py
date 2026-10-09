@@ -99,3 +99,18 @@ def capture_snapshot(config: SqlServerConfig, folder: Path, *, now: datetime | N
         temporary.unlink(missing_ok=True)
     prune_snapshots(folder, day)
     return destination
+
+
+def read_legacy_prices(path: Path) -> pd.DataFrame:
+    """Lee el listado manual: descripcion y doce listas, sin atribuir fecha real."""
+    from openpyxl import load_workbook
+    wb = load_workbook(path, read_only=True, data_only=True)
+    try:
+        rows = [tuple(row[:13]) for row in wb.active.iter_rows(values_only=True)
+                if row and row[0] is not None]
+    finally:
+        wb.close()
+    if not rows or not any(isinstance(value, (int, float)) for row in rows for value in row[1:]):
+        raise ValueError(f'Listado de precios vacio o sin precios numericos: {path}')
+    return pd.DataFrame([row + (None,) * (13-len(row)) for row in rows],
+                        columns=['DESCRIPCION'] + [f'PRECIO{i}' for i in range(1,13)])

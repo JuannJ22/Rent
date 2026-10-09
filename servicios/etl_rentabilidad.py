@@ -108,9 +108,15 @@ def generate(base: Path, template: Path, day: date, timeout: int, replace=False)
         from rentabilidad.infra.product_snapshots import snapshot_path, read_snapshot
         folder = base / 'Productos'
         snapshot = snapshot_path(folder, day)
-        if not snapshot.exists():
+        legacy_prices = os.environ.get("SQL_LEGACY_PRODUCT_FILE")
+        if legacy_prices:
+            from rentabilidad.infra.product_snapshots import read_legacy_prices
+            read_legacy_prices(Path(legacy_prices))
+            logging.warning("Listado manual compartido; fecha real de precios no verificada: %s", legacy_prices)
+        elif not snapshot.exists():
             raise RuntimeError(f'Falta la copia de productos de {day}: {snapshot}. No se usan precios actuales para una fecha pasada.')
-        read_snapshot(snapshot, day)
+        if not legacy_prices:
+            read_snapshot(snapshot, day)
         check_sql(day)
         destination.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix='.rent-', dir=destination.parent) as stage:
@@ -124,6 +130,17 @@ def generate(base: Path, template: Path, day: date, timeout: int, replace=False)
                 if output.strip(): logging.info('%s', output.strip())
             if result.returncode:
                 raise RuntimeError(f'El motor rentabilidad fallo (exit={result.returncode}).')
+            if legacy_prices:
+                wb = load_workbook(staged)
+                name = "ORIGEN_PRECIOS"
+                if name in wb.sheetnames:
+                    del wb[name]
+                ws = wb.create_sheet(name)
+                ws.append(["Fecha informe", day.isoformat()])
+                ws.append(["Listado utilizado", Path(legacy_prices).name])
+                ws.append(["Advertencia", "Listado manual compartido: precios historicos del dia no verificados."])
+                wb.save(staged)
+                wb.close()
             validate_report(staged, day)
             os.replace(staged, destination)
     logging.info('Informe publicado: %s', destination)
