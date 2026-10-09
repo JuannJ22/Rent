@@ -1,0 +1,14 @@
+{
+  "SQL_SERVER": "192.168.5.10,14331",
+  "SQL_DATABASE": "SiigoRent",
+  "SQL_DRIVER": "ODBC Driver 18 for SQL Server",
+  "SQL_TRUSTED": false,
+  "SQL_USER": "",
+  "SQL_PASSWORD": "",
+  "SQL_ENCRYPT": true,
+  "SQL_TRUST_CERT": false,
+  "SQL_TIMEOUT": 120,
+  "SQL_RENT_DATABASE": "SiigoRent",
+  "SQL_CAT_DATABASE": "SiigoCat",
+  "SQL_MOV_DATABASE": "Siigo2627"
+}

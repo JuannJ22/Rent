@@ -10,6 +10,7 @@ from hojas.hoja01_loader import (
     _guess_sql_precios_columns,
     _load_terceros_lookup,
     _load_vendedores_document_lookup,
+    _update_terceros_sheet_from_df,
     _normalize_nit_value,
     _normalize_product_key,
     _drop_full_rentability_rows,
@@ -56,6 +57,21 @@ def test_load_terceros_lookup_uses_second_column_for_lista() -> None:
 
     assert lookup[nit_key]["lista"] == 7
     assert lookup[nit_key]["vendedor"] == "A1"
+
+
+def test_sql_terceros_preserves_price_list_and_vendor_for_validation() -> None:
+    wb = Workbook()
+    source = pd.DataFrame([
+        {"NitNit": 901862570, "PrecioNit": 2, "VendedorNit": 24},
+        {"NitNit": 1113306068, "PrecioNit": 6, "VendedorNit": 26},
+    ])
+    _update_terceros_sheet_from_df(wb, source)
+    assert list(wb["TERCEROS"].values) == [
+        (901862570, 2, 24), (1113306068, 6, 26),
+    ]
+    lookup = _load_terceros_lookup(wb)
+    assert lookup[_normalize_nit_value(901862570)] == {"lista": 2, "vendedor": "24"}
+    assert lookup[_normalize_nit_value(1113306068)] == {"lista": 6, "vendedor": "26"}
 
 
 def test_load_vendedores_document_lookup_uses_quantity_column() -> None:

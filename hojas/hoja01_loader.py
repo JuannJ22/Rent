@@ -33,6 +33,7 @@ from rentabilidad.core.paths import PathContext, PathContextFactory, SPANISH_MON
 from rentabilidad.core.siigo_paths import DEFAULT_EXCZ_DIR
 from rentabilidad.infra.sql_server import (
     SqlServerConfig,
+    dataframe_reader,
     fetch_dataframe,
     normalize_sql_flag,
     normalize_sql_list,
@@ -1126,16 +1127,18 @@ def _update_vendedores_sheet_from_df(wb, df: pd.DataFrame):
         )
         raise SystemExit(21)
 
-    data = df[[nit_col, vendor_col]].copy()
-    data.rename(columns={nit_col: "nit", vendor_col: "vendedor"}, inplace=True)
-    data = data.dropna(how="all")
+    optional_columns = ["TipMov", "ComMov", "NroMov", "DescrMov", "CantidadMov"]
+    has_documents = all(column in df.columns for column in optional_columns)
+    columns = [nit_col, vendor_col] + (optional_columns if has_documents else [])
+    data = df[columns].copy().dropna(how="all")
 
     ws = wb[sheet_name]
     ws.sheet_state = "hidden"
     ws.delete_rows(1, ws.max_row)
 
     rows_written = 0
-    for nit, vendedor in data.itertuples(index=False):
+    for row in data.itertuples(index=False, name=None):
+        nit, vendedor = row[:2]
         nit_value = _clean_cell_value(nit)
         cod_value = _clean_cell_value(vendedor)
         if nit_value in (None, "") and cod_value in (None, ""):
@@ -1143,8 +1146,12 @@ def _update_vendedores_sheet_from_df(wb, df: pd.DataFrame):
         rows_written += 1
         ws.cell(row=rows_written, column=1, value=nit_value)
         ws.cell(row=rows_written, column=2, value=cod_value)
+        if has_documents:
+            for column, value in enumerate(row[2:], start=3):
+                ws.cell(row=rows_written, column=column,
+                        value=None if pd.isna(value) else _clean_cell_value(value))
 
-    summary = {"rows": rows_written, "columns": 2 if rows_written else 0}
+    summary = {"rows": rows_written, "columns": (7 if has_documents else 2) if rows_written else 0}
     return summary, "SQL"
 
 
@@ -1305,8 +1312,8 @@ def _update_terceros_sheet_from_df(wb, df: pd.DataFrame):
             continue
         rows_written += 1
         ws.cell(row=rows_written, column=1, value=nit)
-        ws.cell(row=rows_written, column=2, value=vendedor)
-        ws.cell(row=rows_written, column=3, value=lista_precio)
+        ws.cell(row=rows_written, column=2, value=lista_precio)
+        ws.cell(row=rows_written, column=3, value=vendedor)
 
     if rows_written:
         max_used_cols = 3
@@ -1485,6 +1492,8 @@ def _guess_map(df_cols):
             "numero id",
         ),
         "cliente_combo": pick("nit - sucursal - cliente","cliente sucursal","cliente","razon social","razón social"),
+        "vendedor": pick("COD. VENDEDOR", "COD VENDEDOR", "VendedorMov", "vendedor"),
+        "documento": pick("DOCUMENTO"),
         "linea": pick("linea", "línea"),
         "grupo": pick("grupo", "grupo descripción", contains=("grupo",)),
         "descripcion": pick("descripcion","descripción","producto","nombre producto","item"),
@@ -2901,14 +2910,14 @@ def _build_sql_config(args) -> SqlServerConfig:
         "driver",
         fallback=DEFAULT_SQL_DRIVER,
     )
-    trusted = args.sql_trusted or _normalize_sql_flag_value(
+    trusted = args.sql_trusted if _arg_provided("--sql-trusted") else _normalize_sql_flag_value(
         _get_sql_value(
             None, args.sql_config_data, "SQL_TRUSTED", "sql_trusted", "trusted"
         )
-    ) or normalize_sql_flag(os.environ.get("SQL_TRUSTED"))
+    )
     encrypt = _normalize_sql_flag_value(
-        _get_sql_value(None, args.sql_config_data, "SQL_ENCRYPT", "sql_encrypt", "encrypt")
-    ) or normalize_sql_flag(os.environ.get("SQL_ENCRYPT"))
+        _get_sql_value(None, args.sql_config_data, "SQL_ENCRYPT", "sql_encrypt", "encrypt", fallback=True)
+    )
     trust_cert = _normalize_sql_flag_value(
         _get_sql_value(
             None,
@@ -2920,7 +2929,7 @@ def _build_sql_config(args) -> SqlServerConfig:
         )
     )
     if trust_cert is None:
-        trust_cert = normalize_sql_flag(os.environ.get("SQL_TRUST_CERT", "1"))
+        trust_cert = False
     timeout = _normalize_sql_timeout(
         _get_sql_value(
             None, args.sql_config_data, "SQL_TIMEOUT", "sql_timeout", "timeout"
@@ -2942,8 +2951,8 @@ def _build_sql_config(args) -> SqlServerConfig:
         user=user,
         password=password,
         driver=driver,
-        trusted_connection=trusted,
-        encrypt=encrypt,
+        trusted_connection=bool(trusted),
+        encrypt=bool(encrypt),
         trust_server_certificate=trust_cert,
         timeout=timeout,
     )
@@ -2968,8 +2977,37 @@ def _sql_date_expression(column: str | None) -> str | None:
     )
 
 
+def _finalize_daily_sql_workbook(wb, main_sheet):
+    if "TERCEROS" in wb.sheetnames:
+        used_nits = {
+            _normalize_nit_value(row[0])
+            for row in main_sheet.iter_rows(min_row=7, max_col=1, values_only=True)
+            if row[0] is not None
+        }
+        third_parties = wb["TERCEROS"]
+        selected = {}
+        for row in third_parties.iter_rows(max_col=3, values_only=True):
+            nit = _normalize_nit_value(row[0])
+            if nit is not None and nit in used_nits:
+                selected[nit] = row
+        third_parties.delete_rows(1, third_parties.max_row)
+        for row in selected.values():
+            third_parties.append(row)
+
+
 def _fetch_sql_data(config: SqlServerConfig, query: str, params=None) -> pd.DataFrame:
-    return fetch_dataframe(config, query, params=params)
+    return _normalize_sql_text(fetch_dataframe(config, query, params=params))
+
+
+def _normalize_sql_text(df: pd.DataFrame) -> pd.DataFrame:
+    """Repara las dos representaciones de Ñ comprobadas en la carga Siigo."""
+    result = df.copy()
+    translation = {129: 209, 169: 209}
+    for column in result.select_dtypes(include=["object", "string"]).columns:
+        result[column] = result[column].map(
+            lambda value: value.translate(translation) if isinstance(value, str) else value
+        )
+    return result
 
 
 SQL_ZONE_VIEW_BY_SHEET = {
@@ -3003,9 +3041,15 @@ SQL_VENDOR_VIEW_BY_SHEET = {
 }
 
 
-def _build_sql_rentabilidad_query(view_name: str) -> str:
+def _sql_object(database: str, name: str) -> str:
+    escaped_database = database.replace("]", "]]")
+    escaped_name = name.replace("]", "]]")
+    return f"[{escaped_database}].[dbo].[{escaped_name}]"
+
+
+def _build_sql_rentabilidad_query(view_name: str, database: str = "SiigoRent") -> str:
     return (
-        f"SELECT * FROM SiigoRent.dbo.vw_rentabilidad_{view_name} "
+        f"SELECT * FROM {_sql_object(database, f'vw_rentabilidad_{view_name}')} "
         "WHERE FECHA = ?"
     )
 
@@ -3176,6 +3220,70 @@ def _source_label(source) -> str | None:
     if isinstance(source, Path):
         return source.name
     return str(source)
+
+
+def _load_sql_report_data(config: SqlServerConfig, report_date: date, settings: dict):
+    """Lee todas las fuentes SQL del informe utilizando una única conexión."""
+    rent_db = str(_get_sql_value(None, settings, "SQL_RENT_DATABASE", fallback="SiigoRent"))
+    cat_db = str(_get_sql_value(None, settings, "SQL_CAT_DATABASE", fallback="SiigoCat"))
+    mov_db = str(_get_sql_value(None, settings, "SQL_MOV_DATABASE", fallback="Siigo2627"))
+    date_param = report_date.strftime("%Y-%m-%d")
+    with dataframe_reader(config) as raw_read:
+        def read(query, params=None):
+            return _normalize_sql_text(raw_read(query, params=params))
+
+        main = read(
+            f"SELECT * FROM {_sql_object(rent_db, 'vw_rentabilidad_cliente')} "
+            "WHERE FECHA = ? ORDER BY [% RENTA.], [NIT - SUCURSAL - CLIENTE]",
+            params=[date_param],
+        )
+        zones = {
+            view: _sort_sql_rentabilidad_df(read(
+                _build_sql_rentabilidad_query(view, rent_db), params=[date_param]
+            )) for view in sorted(set(SQL_ZONE_VIEW_BY_SHEET.values()))
+        }
+        vendors = {
+            view: _sort_sql_rentabilidad_df(read(
+                _build_sql_rentabilidad_query(view, rent_db), params=[date_param]
+            )) for view in sorted(set(SQL_VENDOR_VIEW_BY_SHEET.values()))
+        }
+        lines = read(
+            "SELECT [LÍNEA  DESCRIPCIÓN], [GRUPO  DESCRIPCIÓN], "
+            "CANTIDAD, VENTAS, COSTO, [%RENTABILIDAD], [%UTILIDAD] "
+            f"FROM {_sql_object(rent_db, 'vw_rentabilidad_lineas_ordenadas')} "
+            "WHERE FECHA = ? ORDER BY _LineaOrden, _TipoFila, _GrupoOrden",
+            params=[date_param],
+        )
+        from rentabilidad.infra.product_snapshots import snapshot_path, COLOMBIA
+        snapshot = os.environ.get("SQL_PRODUCT_SNAPSHOT")
+        candidate = snapshot_path(PATH_CONTEXT.productos_dir, report_date)
+        if not snapshot and candidate.exists():
+            snapshot = str(candidate)
+        require_snapshot = _normalize_sql_flag_value(_get_sql_value(
+            None, settings, "SQL_REQUIRE_PRODUCT_SNAPSHOT", fallback=True
+        ))
+        if not snapshot and require_snapshot and report_date < datetime.now(COLOMBIA).date():
+            raise RuntimeError(f"Falta la copia diaria de productos de {report_date}. No se usan precios actuales para un informe pasado.")
+        if snapshot:
+            from rentabilidad.infra.product_snapshots import read_snapshot
+            prices = _normalize_sql_text(read_snapshot(Path(snapshot), report_date))
+        else:
+            prices = read(f"SELECT * FROM {_sql_object(cat_db, 'vw_productos_activos')}")
+        movements = read(
+            "SELECT NitMov,VendedorMov,TipMov,ComMov,NroMov,DescrMov,CantidadMov "
+            f"FROM {_sql_object(rent_db, 'vw_movimientos_vendedores_informe')} "
+            "WHERE FechaDctoMov = CONVERT(int,REPLACE(?,'-','')) "
+            "ORDER BY TipMov,ComMov,NroMov,NitMov,VendedorMov,DescrMov",
+            params=[date_param],
+        )
+        third_parties = pd.concat([
+            read(f"SELECT * FROM {_sql_object(cat_db, table)}")
+            for table in (
+                "TABLA_DESCRIPCION_VENDEDORES", "TABLA_IDENTIFICACION_CLIENTES",
+                "TABLA_IDENTIFICACION_TERCEROS",
+            )
+        ], ignore_index=True, sort=False)
+    return main, lines, zones, vendors, prices, third_parties, movements
 
 
 def main():
@@ -3357,6 +3465,8 @@ def main():
         default=DEFAULT_SQL_MOVIMIENTOS_TIP_VALUES,
         help="Tipos de movimiento a incluir (separados por coma, por defecto F,J).",
     )
+    p.add_argument("--check-sql", action="store_true", help="Comprueba todas las consultas SQL sin modificar un informe.")
+    p.add_argument("--require-sql-data", action="store_true", help="Falla si SQL no devuelve detalles para la fecha solicitada.")
     args = p.parse_args()
     args.sql_config_data = _load_sql_config_file(args.sql_config)
     _apply_sql_config_overrides(args)
@@ -3365,7 +3475,7 @@ def main():
     report_date = resolver.resolve(args.fecha)
 
     use_sql = (not args.no_sql) and (
-        args.sql
+        args.sql or args.check_sql
         or normalize_sql_flag(os.environ.get("SQL_ENABLED"))
         or _normalize_sql_flag_value(
             _get_sql_value(
@@ -3392,67 +3502,24 @@ def main():
             f"INFO: Usando SQL Server {sql_config.server}/{sql_config.database}."
         )
 
-        date_param = report_date.strftime("%Y-%m-%d")
-
-        sql_main_query = (
-            "SELECT * "
-            "FROM SiigoRent.dbo.vw_rentabilidad_cliente "
-            "WHERE FECHA = ? "
-            "ORDER BY [% RENTA.], [NIT - SUCURSAL - CLIENTE]"
-        )
-        sql_main_df = _fetch_sql_data(sql_config, sql_main_query, params=[date_param])
-
-        for zone_view in sorted(set(SQL_ZONE_VIEW_BY_SHEET.values())):
-            query = _build_sql_rentabilidad_query(zone_view)
-            sql_ccosto_data[zone_view] = _sort_sql_rentabilidad_df(_fetch_sql_data(
-                sql_config,
-                query,
-                params=[date_param],
-            ))
-
-        for vendor_view in sorted(set(SQL_VENDOR_VIEW_BY_SHEET.values())):
-            query = _build_sql_rentabilidad_query(vendor_view)
-            sql_vendor_data[vendor_view] = _sort_sql_rentabilidad_df(_fetch_sql_data(
-                sql_config,
-                query,
-                params=[date_param],
-            ))
-
-        sql_lineas_query = (
-            "SELECT [LÍNEA  DESCRIPCIÓN], [GRUPO  DESCRIPCIÓN], "
-            "CANTIDAD, VENTAS, COSTO, [%RENTABILIDAD], [%UTILIDAD] "
-            "FROM SiigoRent.dbo.vw_rentabilidad_lineas_ordenadas "
-            "WHERE FECHA = ? "
-            "ORDER BY _LineaOrden, _TipoFila, _GrupoOrden"
-        )
-        sql_lineas_df = _fetch_sql_data(sql_config, sql_lineas_query, params=[date_param])
-
-        sql_precios_df = _fetch_sql_data(
-            sql_config,
-            "SELECT * FROM [SiigoCat].[dbo].[vw_productos_activos]",
-        )
-        sql_vendedores_df = _fetch_sql_data(
-            sql_config,
-            "SELECT * FROM [Siigo2627].[dbo].[TABLA_MOVIMIENTO_POR_COMPROBANTE]",
-        )
-
-        terceros_desc = _fetch_sql_data(
-            sql_config,
-            "SELECT * FROM [SiigoCat].[dbo].[TABLA_DESCRIPCION_VENDEDORES]",
-        )
-        terceros_clientes = _fetch_sql_data(
-            sql_config,
-            "SELECT * FROM [SiigoCat].[dbo].[TABLA_IDENTIFICACION_CLIENTES]",
-        )
-        terceros_terceros = _fetch_sql_data(
-            sql_config,
-            "SELECT * FROM [SiigoCat].[dbo].[TABLA_IDENTIFICACION_TERCEROS]",
-        )
-        sql_terceros_df = pd.concat(
-            [terceros_desc, terceros_clientes, terceros_terceros],
-            ignore_index=True,
-            sort=False,
-        )
+        (
+            sql_main_df, sql_lineas_df, sql_ccosto_data, sql_vendor_data,
+            sql_precios_df, sql_terceros_df, sql_vendedores_df,
+        ) = _load_sql_report_data(sql_config, report_date, args.sql_config_data)
+        details = _prepare_excz_from_dataframe(sql_main_df)
+        if args.require_sql_data and details.empty:
+            print(f"ERROR: SQL no devuelve detalles para {report_date:%Y-%m-%d}; no se genera el informe.")
+            raise SystemExit(36)
+        if args.check_sql:
+            print(
+                f"OK. Consultas SQL verificadas | FECHA: {report_date:%Y-%m-%d}"
+                f" | Filas principales: {len(sql_main_df)} | Detalles: {len(details)}"
+                f" | Precios: {len(sql_precios_df)} | Terceros: {len(sql_terceros_df)}"
+                f" | Movimientos: {len(sql_vendedores_df)}"
+            )
+            return
+    elif args.check_sql or args.require_sql_data:
+        p.error("--check-sql y --require-sql-data requieren SQL; no uses --no-sql")
 
     use_latest = args.use_latest_sources
 
@@ -3468,7 +3535,10 @@ def main():
 
     wb = load_workbook(path)
 
-    desired_main_sheet_name = path.stem.upper()
+    desired_main_sheet_name = (
+        f"{SPANISH_MONTHS[report_date.month].upper()} {report_date.day:02d}"
+        if use_sql else path.stem.upper()[:31]
+    )
     original_primary_title = wb.worksheets[0].title if wb.worksheets else None
     if desired_main_sheet_name and wb.worksheets:
         _ensure_primary_sheet_title(wb, desired_main_sheet_name)
@@ -3602,6 +3672,8 @@ def main():
 
     # Importar EXCZ más reciente
     n_rows = 0
+    sql_row_vendors = {}
+    sql_row_documents = {}
     if not args.skip_import:
         excz_label = None
         if use_sql:
@@ -3662,6 +3734,10 @@ def main():
         # Escribir al Excel
         for i, row in enumerate(sub.itertuples(index=False), start=start_row):
             cells = []
+            if use_sql and "vendedor" in sub.columns:
+                sql_row_vendors[i] = _normalize_vendor_code(getattr(row, "vendedor"))
+            if use_sql and "documento" in sub.columns:
+                sql_row_documents[i] = _clean_cell_value(getattr(row, "documento"))
             if col_nit and "nit" in sub.columns:
                 raw_value = getattr(row, "nit")
                 value = _normalize_nit_value(raw_value)
@@ -3796,7 +3872,7 @@ def main():
             codigo_creado_cell.value = None
         if L_vend and L_nit:
             c = ws[f"{L_vend}{r}"]
-            c.value = f"=VLOOKUP({L_nit}{r},VENDEDORES!{vend_range},2,0)"
+            c.value = sql_row_vendors[r] if r in sql_row_vendors else f"=VLOOKUP({L_nit}{r},VENDEDORES!{vend_range},2,0)"
             c.border = border
         if L_prec and L_desc_src:
             c = ws[f"{L_prec}{r}"]
@@ -3833,7 +3909,8 @@ def main():
         if codigo_creado_cell:
             codigo_creado_cell.value = assigned_vendor
         actual_vendor = (
-            vendedores_lookup.get(nit_norm) if nit_norm is not None else None
+            sql_row_vendors[r] if r in sql_row_vendors
+            else vendedores_lookup.get(nit_norm) if nit_norm is not None else None
         )
 
         vendor_cell = ws.cell(r, col_vendedor) if col_vendedor else None
@@ -3929,7 +4006,9 @@ def main():
                 )
             )
             document_message = None
-            if product_key:
+            if use_sql and sql_row_documents.get(r):
+                reason_messages.append(f"Documento {sql_row_documents[r]}")
+            elif product_key:
                 doc_entries = vendedores_document_lookup.get(product_key, [])
                 if doc_entries:
                     prioritized = [
@@ -4095,6 +4174,8 @@ def main():
         cell = ws.cell(total_row, col_idx)
         cell.border = border
 
+    if use_sql:
+        _finalize_daily_sql_workbook(wb, ws)
     wb.save(path)
     msg = f"OK. Procesadas {n_rows} filas y fórmulas aplicadas sobre: {path}"
     msg += f" | FECHA OBJETIVO: {report_date:%Y-%m-%d}"

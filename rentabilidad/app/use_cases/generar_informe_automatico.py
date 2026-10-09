@@ -5,6 +5,7 @@ from io import StringIO
 from pathlib import Path
 import contextlib
 import json
+import os
 import sys
 
 from excel_base.clone_from_template import TemplateCloneService
@@ -123,7 +124,9 @@ def run(req: GenerarInformeRequest, bus) -> GenerarInformeResponse:
         bus.publish("error", mensaje)
         return GenerarInformeResponse(ok=False, mensaje=mensaje)
 
-    if req.usar_sql is True and not settings.sql_config:
+    if req.usar_sql is True and not settings.sql_config and not (
+        os.environ.get("SQL_SERVER") and os.environ.get("SQL_DATABASE")
+    ):
         template_path = _ensure_sql_config_template()
         mensaje = (
             "No se encontró sql_config.json. Se creó una plantilla en "
