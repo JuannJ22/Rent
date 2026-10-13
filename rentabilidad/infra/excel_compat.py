@@ -42,6 +42,34 @@ def normalize_excel_application(path: Path) -> bool:
     return True
 
 
+def format_report_presentation(wb):
+    """Conserva origen oculto y muestra codigos numericos alineados a la izquierda."""
+    from copy import copy
+    import unicodedata
+    if 'ORIGEN_PRECIOS' in wb.sheetnames:
+        wb['ORIGEN_PRECIOS'].sheet_state = 'hidden'
+    for ws in wb:
+        columns = []
+        for row in ws.iter_rows(min_row=1, max_row=min(ws.max_row, 10)):
+            for cell in row:
+                label = ''.join(c for c in unicodedata.normalize('NFD', str(cell.value or '').upper()) if not unicodedata.combining(c))
+                label = re.sub(r'[^A-Z0-9]', '', label)
+                if label in {'CODVENDEDOR', 'CODIGOVENDEDOR'}:
+                    columns.append((cell.row, cell.column))
+        for header_row, column in columns:
+            for row in ws.iter_rows(min_row=header_row+1, min_col=column, max_col=column):
+                cell = row[0]
+                if cell.data_type == 'f' or cell.value is None:
+                    continue
+                text = str(cell.value).strip()
+                if re.fullmatch(r'[0-9]+(?:\.0+)?', text):
+                    cell.value = int(float(text))
+                    cell.number_format = '0'
+                    alignment = copy(cell.alignment)
+                    alignment.horizontal = 'left'
+                    cell.alignment = alignment
+
+
 if __name__ == '__main__':
     import argparse
     import shutil
