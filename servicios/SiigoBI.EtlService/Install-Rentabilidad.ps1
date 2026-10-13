@@ -33,7 +33,7 @@ foreach ($file in $files) {
     $existing = Join-Path $EtlDir $file.Name
     if (Test-Path $existing) { Copy-Item $existing (Join-Path $backup $file.Name) }
 }
-$rentFiles = @('hojas\hoja01_loader.py', 'rentabilidad\infra\sql_server.py', 'servicios\etl_rentabilidad.py', 'rentabilidad\infra\product_snapshots.py')
+$rentFiles = @('hojas\hoja01_loader.py', 'rentabilidad\infra\sql_server.py', 'servicios\etl_rentabilidad.py', 'rentabilidad\infra\product_snapshots.py','rentabilidad\infra\excel_compat.py')
 foreach ($relative in $rentFiles) {
     $existing = Join-Path $RentDir $relative
     if (Test-Path $existing) {
@@ -82,7 +82,7 @@ catch {
     foreach ($relative in $rentFiles) {
         $saved = Join-Path (Join-Path $backup 'rent') $relative
         if (Test-Path $saved) { Copy-Item $saved (Join-Path $RentDir $relative) -Force }
-        elseif ($relative -eq 'servicios\etl_rentabilidad.py', 'rentabilidad\infra\product_snapshots.py') { Remove-Item (Join-Path $RentDir $relative) -ErrorAction SilentlyContinue }
+        elseif ($relative -eq 'servicios\etl_rentabilidad.py', 'rentabilidad\infra\product_snapshots.py','rentabilidad\infra\excel_compat.py') { Remove-Item (Join-Path $RentDir $relative) -ErrorAction SilentlyContinue }
     }
     Start-Service $serviceName -ErrorAction SilentlyContinue
     throw $failure

@@ -20,7 +20,7 @@ if ($LASTEXITCODE -ne 0) { throw 'No se pudo compilar el servicio.' }
 foreach ($name in @('Install-Rentabilidad.ps1','Test-Rentabilidad.ps1','Enable-Rentabilidad.ps1','rentabilidad-job.example.json','productos-job.example.json')) {
     Copy-Item (Join-Path $PSScriptRoot $name) (Join-Path $Output $name) -Force
 }
-foreach ($relative in @('hojas\hoja01_loader.py','rentabilidad\infra\sql_server.py','rentabilidad\infra\product_snapshots.py','servicios\etl_rentabilidad.py')) {
+foreach ($relative in @('hojas\hoja01_loader.py','rentabilidad\infra\sql_server.py','rentabilidad\infra\product_snapshots.py','rentabilidad\infra\excel_compat.py','servicios\etl_rentabilidad.py')) {
     $target = Join-Path (Join-Path $Output 'rent') $relative
     New-Item (Split-Path $target) -ItemType Directory -Force | Out-Null
     Copy-Item (Join-Path $repo $relative) $target -Force

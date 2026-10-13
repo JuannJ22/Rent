@@ -4181,6 +4181,8 @@ def main():
     if use_sql:
         _finalize_daily_sql_workbook(wb, ws)
     wb.save(path)
+    from rentabilidad.infra.excel_compat import normalize_excel_application
+    normalize_excel_application(Path(path))
     msg = f"OK. Procesadas {n_rows} filas y fórmulas aplicadas sobre: {path}"
     msg += f" | FECHA OBJETIVO: {report_date:%Y-%m-%d}"
     if ccosto_file:

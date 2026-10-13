@@ -141,6 +141,8 @@ def generate(base: Path, template: Path, day: date, timeout: int, replace=False)
                 ws.append(["Advertencia", "Listado manual compartido: precios historicos del dia no verificados."])
                 wb.save(staged)
                 wb.close()
+            from rentabilidad.infra.excel_compat import normalize_excel_application
+            normalize_excel_application(staged)
             validate_report(staged, day)
             os.replace(staged, destination)
     logging.info('Informe publicado: %s', destination)
