@@ -11,7 +11,11 @@ $files = @('rentabilidad/infra/excel_compat.py','hojas/hoja01_loader.py','servic
 foreach ($relative in $files) {
     $download = Join-Path $backup ('nuevo-' + (Split-Path $relative -Leaf))
     Invoke-WebRequest "$origin/$relative" -OutFile $download
-    & $python -c 'import ast,sys; ast.parse(open(sys.argv[1], encoding="utf-8-sig").read())' $download
+    @'
+import ast, sys
+from pathlib import Path
+ast.parse(Path(sys.argv[1]).read_text(encoding='utf-8-sig'))
+'@ | & $python - $download
     if ($LASTEXITCODE -ne 0) { throw "Archivo Python invalido: $relative. No se instalo la actualizacion." }
     $destination = Join-Path $root $relative
     $saved = Join-Path (Join-Path $backup 'codigo') $relative
