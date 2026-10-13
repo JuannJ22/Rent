@@ -14,6 +14,8 @@ Stop-Service 'SiigoBI.EtlService' -ErrorAction Stop
 try {
     [IO.File]::WriteAllText($path, ($config | ConvertTo-Json -Depth 40), [Text.UTF8Encoding]::new($false))
     Start-Service 'SiigoBI.EtlService' -ErrorAction Stop
+    Start-Sleep -Seconds 3
+    if ((Get-Service 'SiigoBI.EtlService').Status -ne 'Running') { throw 'El servicio no se mantuvo activo; se restaurara la configuracion.' }
 }
 catch {
     $failure = $_

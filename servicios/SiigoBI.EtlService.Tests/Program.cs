@@ -53,4 +53,14 @@ dep.LastSuccessUtc = DateTimeOffset.Parse("2026-10-07T01:35:00Z");
 Check(!(bool)method.Invoke(worker, new object[] { job, state, productsNow })!, "productos esperan carga de hoy");
 dep.LastSuccessUtc = DateTimeOffset.Parse("2026-10-08T01:35:00Z");
 Check((bool)method.Invoke(worker, new object[] { job, state, productsNow })!, "productos con catalogos de hoy completos");
-Console.WriteLine($"{checks} comprobaciones de horario/reintentos/dependencias/productos pasaron.");
+var validationConfig = new AppConfig();
+var disabled = new EtlJobConfig { Name = "Nuevo", Kind = EtlJobKind.Rentabilidad, Enabled = false };
+validationConfig.Jobs.Add(disabled);
+typeof(Worker).GetField("_cfg", flags)!.SetValue(worker, validationConfig);
+var validate = typeof(Worker).GetMethod("ValidateConfiguration", flags)!;
+validate.Invoke(worker, null);
+Check(true, "trabajo deshabilitado no valida rutas ni detiene el ETL");
+disabled.Enabled = true;
+try { validate.Invoke(worker, null); throw new Exception("Debe validar al activar"); }
+catch (System.Reflection.TargetInvocationException) { Check(true, "trabajo activo valida requisitos"); }
+Console.WriteLine($"{checks} comprobaciones de servicio pasaron.");
