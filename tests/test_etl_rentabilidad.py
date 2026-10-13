@@ -83,3 +83,36 @@ def test_historical_report_never_uses_current_prices(tmp_path, monkeypatch):
     monkeypatch.setattr(runner, 'check_sql', lambda _: pytest.fail('No debe leer SQL sin la captura requerida'))
     with pytest.raises(RuntimeError, match='Falta la copia de productos'):
         runner.generate(tmp_path, template, date(2026, 10, 6), 60)
+
+
+def test_publication_copies_bytes_into_destination_folder_before_replace(tmp_path, monkeypatch):
+    source = tmp_path / 'stage' / 'report.xlsx'
+    source.parent.mkdir()
+    source.write_bytes(b'report-content')
+    destination = tmp_path / 'report.xlsx'
+    destination.write_bytes(b'old-content')
+    replace = runner.os.replace
+    def check_replace(fresh, target):
+        assert fresh.parent == destination.parent
+        assert fresh != source
+        assert fresh.read_bytes() == source.read_bytes()
+        replace(fresh, target)
+    monkeypatch.setattr(runner.os, 'replace', check_replace)
+    runner.publish_fresh_file(source, destination)
+    assert destination.read_bytes() == b'report-content'
+    assert source.exists()
+    assert not list(tmp_path.glob('*.nuevo-*.xlsx'))
+
+
+def test_failed_publication_preserves_previous_report_and_removes_copy(tmp_path, monkeypatch):
+    source = tmp_path / 'source.xlsx'
+    source.write_bytes(b'new')
+    destination = tmp_path / 'report.xlsx'
+    destination.write_bytes(b'old')
+    def fail(*args):
+        raise PermissionError('archivo abierto')
+    monkeypatch.setattr(runner.os, 'replace', fail)
+    with pytest.raises(PermissionError):
+        runner.publish_fresh_file(source, destination)
+    assert destination.read_bytes() == b'old'
+    assert not list(tmp_path.glob('*.nuevo-*.xlsx'))

@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -95,6 +96,17 @@ def validate_report(path: Path, day: date):
         wb.close()
 
 
+def publish_fresh_file(staged: Path, destination: Path):
+    """Publica una copia nueva en destino, sin trasladar metadatos del archivo temporal."""
+    fresh = destination.with_name(destination.stem + '.nuevo-' + uuid4().hex + '.xlsx')
+    try:
+        # copyfile copia contenido; no copia atributos ni permisos del archivo origen.
+        shutil.copyfile(staged, fresh)
+        os.replace(fresh, destination)
+    finally:
+        fresh.unlink(missing_ok=True)
+
+
 def generate(base: Path, template: Path, day: date, timeout: int, replace=False):
     base.mkdir(parents=True, exist_ok=True)
     destination = base / 'InformesDiarios' / str(day.year) / SPANISH_MONTHS[day.month] / f'{SPANISH_MONTHS[day.month]} {day.day:02d}.xlsx'
@@ -144,7 +156,7 @@ def generate(base: Path, template: Path, day: date, timeout: int, replace=False)
             from rentabilidad.infra.excel_compat import normalize_excel_application
             normalize_excel_application(staged)
             validate_report(staged, day)
-            os.replace(staged, destination)
+            publish_fresh_file(staged, destination)
     logging.info('Informe publicado: %s', destination)
     return destination
 
