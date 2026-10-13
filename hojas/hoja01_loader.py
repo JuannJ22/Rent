@@ -4180,6 +4180,8 @@ def main():
 
     if use_sql:
         _finalize_daily_sql_workbook(wb, ws)
+    from rentabilidad.infra.excel_compat import format_report_presentation
+    format_report_presentation(wb)
     wb.save(path)
     from rentabilidad.infra.excel_compat import normalize_excel_application
     normalize_excel_application(Path(path))

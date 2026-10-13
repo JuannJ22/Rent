@@ -148,6 +148,7 @@ def generate(base: Path, template: Path, day: date, timeout: int, replace=False)
                 if name in wb.sheetnames:
                     del wb[name]
                 ws = wb.create_sheet(name)
+                ws.sheet_state = "hidden"
                 ws.append(["Fecha informe", day.isoformat()])
                 ws.append(["Listado utilizado", Path(legacy_prices).name])
                 ws.append(["Advertencia", "Listado manual compartido: precios historicos del dia no verificados."])
