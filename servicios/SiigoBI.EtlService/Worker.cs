@@ -155,10 +155,14 @@ public sealed partial class Worker : BackgroundService
 
             var target = new DateTimeOffset(now.Year, now.Month, now.Day, at.Hour, at.Minute, 0, now.Offset);
 
-            if (now < target || now > target.AddMinutes(2))
+            if (now < target)
                 return false;
 
-            return state.LastSuccessUtc?.Date != now.Date;
+            // Recupera la ejecucion si el servicio se inicio despues de la hora.
+            // Los fallos no se reintentan en cada consulta del planificador.
+            if (state.LastRunUtc is { } run && now - run < TimeSpan.FromMinutes(15))
+                return false;
+            return state.LastSuccessUtc?.ToOffset(now.Offset).Date != now.Date;
         }
 
         return false;

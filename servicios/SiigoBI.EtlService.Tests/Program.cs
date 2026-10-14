@@ -63,4 +63,25 @@ Check(true, "trabajo deshabilitado no valida rutas ni detiene el ETL");
 disabled.Enabled = true;
 try { validate.Invoke(worker, null); throw new Exception("Debe validar al activar"); }
 catch (System.Reflection.TargetInvocationException) { Check(true, "trabajo activo valida requisitos"); }
+var daily = new EtlJobConfig { Name="Mov45Daily", AtTime="19:30" };
+var dailyState = new ServiceState();
+typeof(Worker).GetField("_state", flags)!.SetValue(worker, dailyState);
+var shouldRun = typeof(Worker).GetMethod("ShouldRun", flags)!;
+var localNow = DateTimeOffset.Parse("2026-10-13T22:00:00-05:00");
+bool DailyDue(DateTimeOffset clock) => (bool)shouldRun.Invoke(worker, new object[] { daily, clock })!;
+Check(!DailyDue(localNow.AddHours(-3)), "diario antes de hora");
+Check(DailyDue(localNow), "diario recupera ventana perdida tras reinicio");
+var dailyJobState = dailyState.GetOrCreate(daily.Name);
+dailyJobState.LastSuccessUtc = DateTimeOffset.Parse("2026-10-14T01:35:00Z");
+Check(!DailyDue(localNow), "no repetir exito del mismo dia colombiano aunque UTC cambia");
+dailyJobState.LastSuccessUtc = DateTimeOffset.Parse("2026-10-13T01:35:00Z");
+Check(DailyDue(localNow), "exito previo no bloquea hoy");
+dailyJobState.LastRunUtc = localNow.AddMinutes(-5);
+Check(!DailyDue(localNow), "esperar 15 minutos entre fallos diarios");
+dailyJobState.LastRunUtc = localNow.AddMinutes(-15);
+Check(DailyDue(localNow), "reintentar diario tras 15 minutos");
+daily.DaysOfWeek.Add("Monday");
+Check(!DailyDue(localNow), "respetar dias habilitados");
+daily.DaysOfWeek.Clear(); dailyJobState.IsRunning = true;
+Check(!DailyDue(localNow), "no duplicar trabajo diario activo");
 Console.WriteLine($"{checks} comprobaciones de servicio pasaron.");
