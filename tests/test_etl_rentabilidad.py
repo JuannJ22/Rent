@@ -12,7 +12,7 @@ def add_snapshot(base, day):
     from rentabilidad.infra.sql_server import SqlServerConfig
     from unittest.mock import patch
     from datetime import datetime
-    with patch.object(snapshots, 'fetch_dataframe', return_value=pd.DataFrame({'DESCRIPCION': ['PRODUCTO'], 'Precio1': [100]})):
+    with patch.object(snapshots, 'fetch_dataframe', return_value=pd.DataFrame({'NOMBRE': ['PRODUCTO'], **{f'LISTA_PRECIO{i}': [100] for i in range(1,13)}})):
         snapshots.capture_snapshot(SqlServerConfig('server', 'SiigoRent'), base / 'Productos',
             now=datetime(day.year, day.month, day.day, 21, tzinfo=snapshots.COLOMBIA))
 
