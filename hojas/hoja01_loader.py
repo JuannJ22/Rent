@@ -142,9 +142,13 @@ def _build_discount_formula(
     row: int,
     *,
     iva_exempt: bool,
+    gross_sales_col: str | None = None,
 ) -> str:
     """Genera la fórmula de descuento considerando si aplica IVA."""
 
+    if gross_sales_col:
+        return (f'=IF(OR({cantidad_col}{row}=0,{precio_col}{row}<=0),"",'
+                f'1-(ABS({gross_sales_col}{row})/ABS({cantidad_col}{row})/{precio_col}{row}))')
     ventas_ref = f"{ventas_col}{row}"
     cantidad_ref = f"{cantidad_col}{row}"
     precio_ref = f"{precio_col}{row}"
@@ -220,12 +224,21 @@ def _format_document_quantity(value) -> str | None:
     return text if text else None
 
 
-def _build_vendor_mismatch_message(assigned_vendor: str | None) -> str | None:
-    """Construye el texto para advertir un código de vendedor diferente."""
+def _build_vendor_mismatch_message(
+    assigned_vendor: str | None, *, actual_vendor: str | None = None,
+    document: str | None = None,
+) -> str | None:
+    """Describe vendedor asignado, facturado y documento de esa misma fila."""
 
     if not assigned_vendor:
         return None
-    return f"Está creado con código {assigned_vendor}."
+    message = f"Está creado con código {assigned_vendor}."
+    if actual_vendor is not None:
+        message += f" Se facturó con código {actual_vendor}."
+    if document:
+        label = "Factura" if str(document).strip().upper().startswith("F") else "Documento"
+        message += f" {label} {str(document).strip()}."
+    return message
 
 
 def _build_sika_customer_message(lista_precio: int | None) -> str | None:
@@ -591,25 +604,52 @@ def _load_vendedores_document_lookup(wb):
     return lookup
 
 
-def _load_terceros_lookup(wb):
-    """Retorna un mapa NIT -> {"lista": int | None, "vendedor": str | None}."""
+def _normalize_branch(value):
+    if value is None or value is pd.NA or pd.isna(value):
+        return None
+    text = str(value).strip()
+    if re.fullmatch(r"[0-9]+(?:\.0+)?", text):
+        return str(int(float(text)))
+    return None
 
-    sheet_name = "TERCEROS"
-    if sheet_name not in wb.sheetnames:
+
+def _branch_from_client_label(value):
+    match = re.match(r"^\s*\d+\s*-\s*(\d+)\s*-", str(value or ''))
+    return _normalize_branch(match.group(1)) if match else None
+
+
+def _load_terceros_lookup(wb):
+    """Indexa por NIT+sucursal; un NIT ambiguo nunca elige la ultima fila."""
+    if "TERCEROS" not in wb.sheetnames:
         return {}
-    ws = wb[sheet_name]
     lookup = {}
-    for nit, lista, vendedor in ws.iter_rows(
-        min_row=1, max_row=ws.max_row, max_col=3, values_only=True
-    ):
-        nit_norm = _normalize_nit_value(nit)
-        if nit_norm is None:
+    by_nit = {}
+    ws = wb['TERCEROS']
+    for nit, lista, vendedor, branch in ws.iter_rows(max_col=4, values_only=True):
+        nit = _normalize_nit_value(nit)
+        if nit is None:
             continue
-        lookup[nit_norm] = {
-            "lista": _normalize_lista_precio(lista),
-            "vendedor": _normalize_vendor_code(vendedor),
-        }
+        info = {'lista': _normalize_lista_precio(lista), 'vendedor': _normalize_vendor_code(vendedor)}
+        branch = _normalize_branch(branch)
+        key = (nit, branch)
+        if key in lookup and lookup[key] != info:
+            lookup[key] = {'lista': None, 'vendedor': None, 'ambiguo': True}
+        elif key not in lookup:
+            lookup[key] = info
+        by_nit.setdefault(nit, []).append(info)
+    for nit, records in by_nit.items():
+        if all(record == records[0] for record in records):
+            lookup[nit] = records[0]
     return lookup
+
+
+def _resolve_tercero(lookup, nit, branch, *, strict_branch=False):
+    if nit is None:
+        return None
+    branch = _normalize_branch(branch)
+    if branch is not None:
+        return lookup.get((nit, branch))
+    return None if strict_branch else lookup.get(nit)
 
 
 def _load_precios_lookup(wb):
@@ -1244,6 +1284,7 @@ def _guess_sql_terceros_columns(df_cols):
         return None
 
     return {
+        "sucursal": pick("SucNit", "SucMov", "SUCURSAL"),
         "nit": pick(
             "nitnit",
             "nit",
@@ -1290,12 +1331,15 @@ def _update_terceros_sheet_from_df(wb, df: pd.DataFrame):
         )
         raise SystemExit(22)
 
-    data = df[[nit_col, vendedor_col, lista_col]].copy()
+    branch_col = mapping.get("sucursal")
+    selected_columns = [nit_col, vendedor_col, lista_col] + ([branch_col] if branch_col else [])
+    data = df[selected_columns].copy()
     data.rename(
         columns={
             nit_col: "nit",
             vendedor_col: "vendedor",
             lista_col: "lista",
+            **({branch_col: "sucursal"} if branch_col else {}),
         },
         inplace=True,
     )
@@ -1307,16 +1351,19 @@ def _update_terceros_sheet_from_df(wb, df: pd.DataFrame):
     rows_written = 0
     max_used_cols = 0
 
-    for nit, vendedor, lista_precio in data.itertuples(index=False):
+    for values in data.itertuples(index=False, name=None):
+        nit, vendedor, lista_precio = values[:3]
         if (nit, lista_precio, vendedor) == (None, None, None):
             continue
         rows_written += 1
         ws.cell(row=rows_written, column=1, value=nit)
         ws.cell(row=rows_written, column=2, value=lista_precio)
         ws.cell(row=rows_written, column=3, value=vendedor)
+        if branch_col:
+            ws.cell(row=rows_written, column=4, value=_normalize_branch(values[3]))
 
     if rows_written:
-        max_used_cols = 3
+        max_used_cols = 4 if branch_col else 3
 
     summary = {
         "rows": rows_written,
@@ -1494,6 +1541,8 @@ def _guess_map(df_cols):
         "cliente_combo": pick("nit - sucursal - cliente","cliente sucursal","cliente","razon social","razón social"),
         "vendedor": pick("COD. VENDEDOR", "COD VENDEDOR", "VendedorMov", "vendedor"),
         "documento": pick("DOCUMENTO"),
+        "sucursal": pick("SUCURSAL", "SucMov", "SucNit"),
+        "ventas_con_iva": pick("VENTAS_CON_IVA"),
         "linea": pick("linea", "línea"),
         "grupo": pick("grupo", "grupo descripción", contains=("grupo",)),
         "descripcion": pick("descripcion","descripción","producto","nombre producto","item"),
@@ -2986,10 +3035,11 @@ def _finalize_daily_sql_workbook(wb, main_sheet):
         }
         third_parties = wb["TERCEROS"]
         selected = {}
-        for row in third_parties.iter_rows(max_col=3, values_only=True):
+        width = 4 if third_parties.max_column >= 4 else 3
+        for row in third_parties.iter_rows(max_col=width, values_only=True):
             nit = _normalize_nit_value(row[0])
             if nit is not None and nit in used_nits:
-                selected[nit] = row
+                selected[tuple(row) if width == 4 else nit] = row
         third_parties.delete_rows(1, third_parties.max_row)
         for row in selected.values():
             third_parties.append(row)
@@ -3233,10 +3283,14 @@ def _load_sql_report_data(config: SqlServerConfig, report_date: date, settings: 
             return _normalize_sql_text(raw_read(query, params=params))
 
         main = read(
-            f"SELECT * FROM {_sql_object(rent_db, 'vw_rentabilidad_cliente')} "
+            f"SELECT * FROM {_sql_object(rent_db, 'vw_rentabilidad_cliente_informe')} "
             "WHERE FECHA = ? ORDER BY [% RENTA.], [NIT - SUCURSAL - CLIENTE]",
             params=[date_param],
         )
+        if not main.empty:
+            required = {"SUCURSAL", "VENTAS_CON_IVA", "DOCUMENTO"}
+            if not required.issubset({str(col).upper() for col in main.columns}):
+                raise RuntimeError("La vista del informe requiere SUCURSAL, VENTAS_CON_IVA y DOCUMENTO.")
         zones = {
             view: _sort_sql_rentabilidad_df(read(
                 _build_sql_rentabilidad_query(view, rent_db), params=[date_param]
@@ -3280,13 +3334,10 @@ def _load_sql_report_data(config: SqlServerConfig, report_date: date, settings: 
             "ORDER BY TipMov,ComMov,NroMov,NitMov,VendedorMov,DescrMov",
             params=[date_param],
         )
-        third_parties = pd.concat([
-            read(f"SELECT * FROM {_sql_object(cat_db, table)}")
-            for table in (
-                "TABLA_DESCRIPCION_VENDEDORES", "TABLA_IDENTIFICACION_CLIENTES",
-                "TABLA_IDENTIFICACION_TERCEROS",
-            )
-        ], ignore_index=True, sort=False)
+        third_parties = read(
+            "SELECT NitNit, SucNit, PrecioNit, VendedorNit "
+            f"FROM {_sql_object(cat_db, 'TABLA_IDENTIFICACION_CLIENTES')}"
+        )
     return main, lines, zones, vendors, prices, third_parties, movements
 
 
@@ -3678,6 +3729,14 @@ def main():
     n_rows = 0
     sql_row_vendors = {}
     sql_row_documents = {}
+    sql_row_branches = {}
+    sql_row_gross_sales = {}
+    gross_col = None
+    if use_sql:
+        gross_col = next((cell.column for cell in ws[header_row]
+                          if cell.value == 'VENTAS CON IVA (SQL)'), max(ws.max_column + 1, 28))
+        ws.cell(header_row, gross_col, 'VENTAS CON IVA (SQL)')
+        ws.column_dimensions[get_column_letter(gross_col)].hidden = True
     if not args.skip_import:
         excz_label = None
         if use_sql:
@@ -3742,6 +3801,11 @@ def main():
                 sql_row_vendors[i] = _normalize_vendor_code(getattr(row, "vendedor"))
             if use_sql and "documento" in sub.columns:
                 sql_row_documents[i] = _clean_cell_value(getattr(row, "documento"))
+            if use_sql and "sucursal" in sub.columns:
+                sql_row_branches[i] = _normalize_branch(getattr(row, "sucursal"))
+            if use_sql and "ventas_con_iva" in sub.columns:
+                sql_row_gross_sales[i] = _coerce_float(getattr(row, "ventas_con_iva"))
+                ws.cell(i, gross_col, sql_row_gross_sales[i])
             if col_nit and "nit" in sub.columns:
                 raw_value = getattr(row, "nit")
                 value = _normalize_nit_value(raw_value)
@@ -3887,7 +3951,8 @@ def main():
             iva_exempt = _is_iva_exempt(desc_value)
             c = ws[f"{L_desc}{r}"]
             c.value = _build_discount_formula(
-                L_vent, L_cant, L_prec, r, iva_exempt=iva_exempt
+                L_vent, L_cant, L_prec, r, iva_exempt=iva_exempt,
+                gross_sales_col=get_column_letter(gross_col) if gross_col else None,
             )
             c.border = border
             c.number_format = "0.00%"
@@ -3903,7 +3968,9 @@ def main():
 
         nit_value = ws.cell(r, col_nit).value if col_nit else None
         nit_norm = _normalize_nit_value(nit_value) if col_nit else None
-        tercero_info = terceros_lookup.get(nit_norm) if nit_norm is not None else None
+        branch = sql_row_branches.get(r) if use_sql else _branch_from_client_label(
+            ws.cell(r, col_cliente_combo).value if col_cliente_combo else None)
+        tercero_info = _resolve_tercero(terceros_lookup, nit_norm, branch, strict_branch=use_sql)
         lista_precio_from_terceros = (
             tercero_info.get("lista") if tercero_info else None
         )
@@ -3921,7 +3988,7 @@ def main():
         vendor_mismatch = False
         ignore_vendor_mismatch = nit_norm in CONSUMIDOR_FINAL_NITS
         missing_tercero = (
-            vendor_cell is not None and nit_norm is not None and tercero_info is None
+            vendor_cell is not None and nit_norm is not None and (tercero_info is None or tercero_info.get("ambiguo"))
         )
         if (
             vendor_cell
@@ -3941,7 +4008,7 @@ def main():
         price_checked = False
         price_diff_details: tuple[float, float, float | None, float] | None = None
         lista_precio = lista_precio_from_terceros
-        if lista_precio is None and nit_norm is not None:
+        if lista_precio is None and nit_norm is not None and not use_sql:
             lista_precio = 1
         product_key = None
         if (
@@ -3962,11 +4029,14 @@ def main():
                 expected_con_iva is not None
                 and ventas_value is not None
                 and cantidad_value not in (None, 0)
+                and (not use_sql or sql_row_gross_sales.get(r) not in (None, 0))
             ):
                 price_checked = True
-                expected_unit_price = (
-                    expected_con_iva if iva_exempt else expected_con_iva / IVA_MULTIPLIER
-                )
+                if use_sql:
+                    # Mismo IVA contable que en descuento, incluidas cuentas exentas.
+                    expected_unit_price = expected_con_iva * ventas_value / sql_row_gross_sales[r]
+                else:
+                    expected_unit_price = expected_con_iva if iva_exempt else expected_con_iva / IVA_MULTIPLIER
                 if expected_unit_price:
                     venta_unitaria = ventas_value / cantidad_value
                     diff_ratio = abs(venta_unitaria - expected_unit_price) / expected_unit_price
@@ -3993,7 +4063,10 @@ def main():
                     low_rent_with_correct_price = True
 
         vendor_message = (
-            _build_vendor_mismatch_message(assigned_vendor)
+            _build_vendor_mismatch_message(
+                assigned_vendor, actual_vendor=actual_vendor,
+                document=sql_row_documents.get(r) if use_sql else None,
+            )
             if vendor_mismatch
             else None
         )
@@ -4003,6 +4076,15 @@ def main():
             else None
         )
         reason_messages: list[str] = []
+        if missing_tercero:
+            reason_messages.append(
+                f"No se pudo identificar un tercero unico para NIT {nit_norm}, sucursal {branch}. "
+                "No se valido vendedor ni lista de precio."
+            )
+        elif use_sql and tercero_info and lista_precio_from_terceros is None:
+            reason_messages.append(f"Sucursal {branch} sin lista de precio valida: precio no verificado.")
+        if use_sql and _coerce_float(ws.cell(r, col_cant).value) == 0:
+            reason_messages.append("Ajuste sin cantidad: no se calcula descuento.")
         if price_mismatch and price_diff_details:
             reason_messages.append(
                 _build_price_mismatch_message(
@@ -4011,7 +4093,8 @@ def main():
             )
             document_message = None
             if use_sql and sql_row_documents.get(r):
-                reason_messages.append(f"Documento {sql_row_documents[r]}")
+                if not vendor_mismatch:
+                    reason_messages.append(f"Documento {sql_row_documents[r]}")
             elif product_key:
                 doc_entries = vendedores_document_lookup.get(product_key, [])
                 if doc_entries:
@@ -4102,8 +4185,8 @@ def main():
                 )
                 _set_or_clear_fill(reason_cell, PRICE_MISMATCH_FILL, apply=False)
                 _set_or_clear_fill(reason_cell, LOW_RENT_PRICE_OK_FILL, apply=True)
-            elif vendor_message:
-                reason_cell.value = vendor_message
+            elif reason_messages:
+                reason_cell.value = _combine_reason_messages(reason_messages)
                 _set_or_clear_fill(reason_cell, PRICE_MISMATCH_FILL, apply=False)
                 _set_or_clear_fill(reason_cell, LOW_RENT_PRICE_OK_FILL, apply=False)
             else:

@@ -59,7 +59,7 @@ def check_sql(day: date):
     try:
         cursor = connection.cursor()
         try:
-            row = cursor.execute('SELECT TOP (1) 1 FROM dbo.vw_rentabilidad_cliente WHERE FECHA = ?', day.isoformat()).fetchone()
+            row = cursor.execute('SELECT TOP (1) 1 FROM dbo.vw_rentabilidad_cliente_informe WHERE FECHA = ?', day.isoformat()).fetchone()
             if row is None:
                 raise RuntimeError('SQL no contiene rentabilidad para la fecha solicitada; no se publica un informe vacio.')
         finally:

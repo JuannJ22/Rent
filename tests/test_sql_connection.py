@@ -66,7 +66,7 @@ def test_all_report_queries_share_connection_and_configured_databases(monkeypatc
         "SQL_MOV_DATABASE": "Movements", "SQL_REQUIRE_PRODUCT_SNAPSHOT": False,
     })
     assert len(connections) == 1
-    assert len(calls) == 19
+    assert len(calls) == 17
     dated = [(q, p) for q, p in calls if "WHERE FECHA" in q]
     assert len(dated) == 14
     assert all(p == ["2026-10-05"] and "[Rent]]DB]" in q for q, p in dated)

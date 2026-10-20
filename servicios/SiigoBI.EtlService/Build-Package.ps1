@@ -26,6 +26,7 @@ foreach ($relative in @('hojas\hoja01_loader.py','rentabilidad\infra\sql_server.
     Copy-Item (Join-Path $repo $relative) $target -Force
 }
 Copy-Item (Join-Path $repo 'docs\sql\zona7_con_total.sql') $Output -Force
+Copy-Item (Join-Path $repo 'docs\sql\rentabilidad_cliente_sucursales.sql') $Output -Force
 Copy-Item (Join-Path $repo 'docs\integracion_siigobi_etl.md') (Join-Path $Output 'LEEME.md') -Force
 $manifest = @{}
 $base = (Get-Item $Output).FullName.TrimEnd('\')

@@ -179,3 +179,14 @@ def test_guess_sql_precios_columns_prefers_nombre_over_codigo() -> None:
 
     assert descripcion == "NOMBRE"
     assert precios == ["LISTA_PRECIO1", "LISTA_PRECIO2"]
+
+
+def test_vendor_only_mismatch_names_actual_vendor_and_invoice():
+    message = _build_vendor_mismatch_message('25', actual_vendor='26', document='F202 91658')
+    assert message == 'Está creado con código 25. Se facturó con código 26. Factura F202 91658.'
+
+
+def test_vendor_mismatch_does_not_call_a_credit_note_an_invoice():
+    message = _build_vendor_mismatch_message('25', actual_vendor='26', document='J202 2004921')
+    assert 'Documento J202 2004921.' in message
+    assert 'Factura' not in message
