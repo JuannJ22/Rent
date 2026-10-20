@@ -72,3 +72,19 @@ def test_sql_report_uses_branch_assignment_gross_account_sales_and_exact_invoice
     assert '13,0)' in ws['J7'].value  # Lista 12 permanece referencia de descuento.
     assert len(list(wb['TERCEROS'].values)) == 2  # Compactado mantiene ambas sucursales.
     wb.close()
+
+
+def test_legacy_manual_third_parties_remain_usable_without_branch_column():
+    wb = Workbook()
+    wb.active.title = 'TERCEROS'
+    wb.active.append([900123, 2, 26])
+    lookup = loader._load_terceros_lookup(wb)
+    assert loader._resolve_tercero(lookup, 900123, '001') == {'lista': 2, 'vendedor': '26'}
+    assert loader._resolve_tercero(lookup, 900123, '001', strict_branch=True) is None
+
+
+def test_numeric_vendor_codes_with_padding_do_not_create_false_mismatch():
+    assert loader._normalize_vendor_code('024') == '24'
+    assert loader._normalize_vendor_code('24.0') == '24'
+    assert loader._normalize_vendor_code(24.0) == '24'
+    assert loader._normalize_vendor_code('A1') == 'A1'

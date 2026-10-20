@@ -428,6 +428,8 @@ def _normalize_vendor_code(value):
     text = str(value).strip()
     if not text:
         return None
+    if re.fullmatch(r"[0-9]+(?:\.0+)?", text):
+        text = str(int(float(text)))
     return text.upper()
 
 
@@ -648,7 +650,11 @@ def _resolve_tercero(lookup, nit, branch, *, strict_branch=False):
         return None
     branch = _normalize_branch(branch)
     if branch is not None:
-        return lookup.get((nit, branch))
+        exact = lookup.get((nit, branch))
+        if exact is not None:
+            return exact
+        # Compatibilidad con listados manuales antiguos sin columna de sucursal.
+        return lookup.get(nit) if not strict_branch and (nit, None) in lookup else None
     return None if strict_branch else lookup.get(nit)
 
 

@@ -71,6 +71,8 @@ def test_all_report_queries_share_connection_and_configured_databases(monkeypatc
     assert len(dated) == 14
     assert all(p == ["2026-10-05"] and "[Rent]]DB]" in q for q, p in dated)
     assert any("[Catalog]" in q for q, _ in calls)
+    assert any("SELECT NitNit, SucNit, PrecioNit, VendedorNit" in q for q, _ in calls)
+    assert all('TABLA_IDENTIFICACION_TERCEROS' not in q for q, _ in calls)
     movement_queries = [(q, p) for q, p in calls if "vw_movimientos_vendedores_informe" in q]
     assert len(movement_queries) == 1
     assert movement_queries[0][1] == ["2026-10-05"]
