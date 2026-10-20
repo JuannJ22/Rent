@@ -13,6 +13,9 @@ WITH mov AS (
     SELECT TipMov, ComMov, NroMov, FechaDctoMov, NitMov, SucMov,
            VendedorMov, DescrMov, LinMov, GrpMov, ProMov,
            (CASE WHEN TipMov='J' THEN -1.0 ELSE 1.0 END) * MAX(CantidadMov) AS Cantidad,
+           COUNT(CASE WHEN CuentasMov LIKE '41%' THEN 1 END) AS FilasVenta,
+           (CASE WHEN TipMov='J' THEN -1.0 ELSE 1.0 END) *
+               SUM(CASE WHEN CuentasMov LIKE '41%' THEN CantidadMov ELSE 0 END) AS CantidadVentaSum,
            (CASE WHEN TipMov='J' THEN -1.0 ELSE 1.0 END) *
                SUM(CASE WHEN CuentasMov LIKE '41%' THEN ValorMov ELSE 0 END) AS Ventas,
            (CASE WHEN TipMov='J' THEN -1.0 ELSE 1.0 END) *
@@ -41,7 +44,8 @@ SELECT a.NitMov AS NIT,
        CONCAT(CAST(a.TipMov AS varchar(10)),CAST(a.ComMov AS varchar(10)), ' ',CAST(a.NroMov AS varchar(20))) AS DOCUMENTO,
        CONVERT(date,CONVERT(char(8),a.FechaDctoMov),112) AS FECHA,
        a.SucMov AS SUCURSAL,
-       a.VentasConIVA AS VENTAS_CON_IVA
+       a.VentasConIVA AS VENTAS_CON_IVA,
+       a.FilasVenta AS FILAS_VENTA, a.CantidadVentaSum AS CANTIDAD_VENTA_SUM
 FROM agg a
 CROSS APPLY (
     SELECT CAST(100.0 * (1 - ABS(a.Costos)/NULLIF(ABS(a.Ventas),0.0)) AS decimal(18,2)) AS RENTA_PCT,
