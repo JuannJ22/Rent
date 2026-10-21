@@ -6,7 +6,7 @@ $root = 'C:\Rentabilidad\Rent'
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss-ffff'
 $backup = "C:\Rentabilidad\_Archivo\respaldos\validacion-$stamp"
 $review = "C:\Rentabilidad\_Revision\sucursales-$stamp"
-$origin = 'https://raw.githubusercontent.com/JuannJ22/Rent/3643086'
+$origin = 'https://raw.githubusercontent.com/JuannJ22/Rent/5fb946b'
 $files = @('hojas/hoja01_loader.py', 'servicios/etl_rentabilidad.py', 'docs/sql/rentabilidad_cliente_sucursales.sql')
 $state = Get-Content 'C:\SiigoBI_ETL\state.json' -Raw | ConvertFrom-Json
 foreach ($name in @('ProductosDaily', 'RentabilidadDaily')) {
