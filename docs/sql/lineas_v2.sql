@@ -6,7 +6,7 @@ AS
 WITH documentos AS (
     SELECT m.TipMov, m.ComMov, m.NroMov, m.FechaDctoMov,
            m.NitMov, m.VendedorMov, m.LinMov, m.GrpMov, m.ProMov, m.DescrMov,
-           MAX(m.CantidadMov) AS Cantidad,
+           SUM(CASE WHEN m.CuentasMov LIKE '41%' THEN m.CantidadMov ELSE 0 END) AS Cantidad,
            SUM(CASE WHEN m.CuentasMov LIKE '41%' THEN m.ValorMov ELSE 0 END) AS Ventas,
            SUM(CASE WHEN m.CuentasMov LIKE '1435%' THEN m.ValorMov ELSE 0 END) AS Costos
     FROM dbo.MovimientoPorComprobante_Actual AS m

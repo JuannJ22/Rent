@@ -26,3 +26,24 @@ copia de revisión en `C:\Rentabilidad\_Revision\sucursales-<fecha>`, con la cap
 histórica de la fecha solicitada. Los informes publicados se conservan. La misma
 corrección se aplicará en las siguientes ejecuciones automáticas. No se reconstruyen
 precios históricos con el catálogo actual.
+
+## Productos repetidos en una factura
+
+La cantidad se suma exclusivamente en los renglones de ventas (cuentas 41),
+conservando las claves de agrupación de cada vista y el signo de las devoluciones.
+No se suman los asientos de costo 1435 y no se usa SUM DISTINCT: dos ítems de
+3 unidades del mismo producto son 6 unidades, aunque tengan igual cantidad.
+
+`Install-QuantityFix.ps1` respalda las definiciones SQL, sustituye únicamente
+MAX(CantidadMov) de las vistas del informe que leen el movimiento original y
+actualiza los metadatos de las vistas dependientes. La operación SQL es transaccional.
+Comprueba las facturas F201 25052 (15 unidades) y F241 6391 (6 unidades) y que sus
+ventas/costos no cambien. Si un control falla, revierte la transacción. El respaldo
+incluye `restaurar-vistas.sql` y `controles-cantidades.json`.
+
+El instalador prepara un informe del 7 de octubre en `_Revision` con el catálogo
+existente de esa fecha; los informes ya publicados no se regeneran automáticamente.
+También aplica la regla solicitada para terceros sin ficha de cliente: cualquier
+vendedor puede facturarles, sin aviso de vendedor o lista sin verificar. Para un
+cliente registrado cuya sucursal falte o tenga asignaciones contradictorias, sí se
+conserva el aviso; nunca se toma la asignación de otra sucursal.

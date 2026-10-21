@@ -10,8 +10,8 @@ SELECT
     m.ComMov,
     m.NroMov,
     m.DescrMov,
-    CASE WHEN m.TipMov = 'J' THEN -MAX(m.CantidadMov)
-         ELSE MAX(m.CantidadMov) END AS CantidadMov,
+    CASE WHEN m.TipMov = 'J' THEN -SUM(m.CantidadMov)
+         ELSE SUM(m.CantidadMov) END AS CantidadMov,
     m.FechaDctoMov
 FROM dbo.MovimientoPorComprobante_Actual AS m
 WHERE m.TipMov IN ('F','J')

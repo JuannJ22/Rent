@@ -12,7 +12,8 @@ WITH mov AS (
 ), agg AS (
     SELECT TipMov, ComMov, NroMov, FechaDctoMov, NitMov, SucMov,
            VendedorMov, DescrMov, LinMov, GrpMov, ProMov,
-           (CASE WHEN TipMov='J' THEN -1.0 ELSE 1.0 END) * MAX(CantidadMov) AS Cantidad,
+           (CASE WHEN TipMov='J' THEN -1.0 ELSE 1.0 END) *
+               SUM(CASE WHEN CuentasMov LIKE '41%' THEN CantidadMov ELSE 0 END) AS Cantidad,
            COUNT(CASE WHEN CuentasMov LIKE '41%' THEN 1 END) AS FilasVenta,
            (CASE WHEN TipMov='J' THEN -1.0 ELSE 1.0 END) *
                SUM(CASE WHEN CuentasMov LIKE '41%' THEN CantidadMov ELSE 0 END) AS CantidadVentaSum,

@@ -3702,6 +3702,7 @@ def main():
     vendedores_lookup = _load_vendedores_lookup(wb)
     vendedores_document_lookup = _load_vendedores_document_lookup(wb)
     terceros_lookup = _load_terceros_lookup(wb)
+    known_customer_nits = {key[0] for key in terceros_lookup if isinstance(key, tuple)}
     precios_lookup = _load_precios_lookup(wb)
 
     header_row, hmap = _find_header_row_and_map(ws)
@@ -3994,7 +3995,9 @@ def main():
         vendor_mismatch = False
         ignore_vendor_mismatch = nit_norm in CONSUMIDOR_FINAL_NITS
         missing_tercero = (
-            vendor_cell is not None and nit_norm is not None and (tercero_info is None or tercero_info.get("ambiguo"))
+            vendor_cell is not None and nit_norm is not None
+            and (tercero_info is None or tercero_info.get("ambiguo"))
+            and (not use_sql or nit_norm in known_customer_nits)
         )
         if (
             vendor_cell

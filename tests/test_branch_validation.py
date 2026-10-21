@@ -45,6 +45,14 @@ def test_sql_report_uses_branch_assignment_gross_account_sales_and_exact_invoice
         'CANTIDAD': qty, 'Ventas': net, 'Costos': net/2,
         'VENTAS_CON_IVA': gross, 'DOCUMENTO': doc, '% RENTA.': 20+i, '% UTILI.': 50,
     } for i, (branch, vendor, qty, net, gross, doc) in enumerate(specs)])
+    unregistered = data.iloc[0].copy()
+    unregistered['NIT'] = 801001096
+    unregistered['NIT - SUCURSAL - CLIENTE'] = '801001096 - 000 - TERCERO GENERAL'
+    unregistered['SUCURSAL'] = 0
+    unregistered['COD. VENDEDOR'] = 48
+    unregistered['DOCUMENTO'] = 'F202 107'
+    unregistered['% RENTA.'] = 70
+    data = pd.concat([data, pd.DataFrame([unregistered])], ignore_index=True)
     clients = pd.DataFrame([
         {'NitNit': 900123, 'SucNit': 1, 'PrecioNit': 1, 'VendedorNit': 24},
         {'NitNit': 900123, 'SucNit': 2, 'PrecioNit': 2, 'VendedorNit': 26},
@@ -66,6 +74,8 @@ def test_sql_report_uses_branch_assignment_gross_account_sales_and_exact_invoice
     assert 'sucursal 3' in ws['L10'].value and 'no se valido' in ws['L10'].value.lower()
     assert not ws['L11'].value  # Devolucion con signos coherentes.
     assert 'Ajuste sin cantidad' in ws['L12'].value
+    assert not ws['L13'].value  # Tercero no cliente: puede venderle cualquiera.
+    assert ws['D13'].value == 48
     assert ws['AB7'].value == 119 and ws['AB8'].value == 238 and ws['AB11'].value == -238
     assert ws.column_dimensions['AB'].hidden
     assert 'ABS(AB7)' in ws['K7'].value and 'ABS(E7)' in ws['K7'].value
