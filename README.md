@@ -41,10 +41,10 @@ Si deseas alimentar el informe directamente desde SQL Server (sin usar Excel/EXC
 Configura primero las credenciales y conexión:
 
 ```
-  "SQL_SERVER": "192.168.5.10,14330",
+  "SQL_SERVER": "",
   "SQL_DATABASE": "SiigoBI",
-  "SQL_USER": "sa",
-  "SQL_PASSWORD": "bi0110",
+  "SQL_USER": "",
+  "SQL_PASSWORD": "",
 SQL_DRIVER=ODBC Driver 17 for SQL Server
 ```
 
@@ -55,10 +55,10 @@ Si prefieres un archivo de configuración, crea un JSON y pásalo con
 
 ```json
 {
-  "SQL_SERVER": "192.168.5.10,14330",
+  "SQL_SERVER": "",
   "SQL_DATABASE": "SiigoBI",
-  "SQL_USER": "sa",
-  "SQL_PASSWORD": "bi0110",
+  "SQL_USER": "",
+  "SQL_PASSWORD": "",
   "SQL_DRIVER": "ODBC Driver 17 for SQL Server",
   "SQL_TRUSTED": false
 }
